@@ -28,8 +28,6 @@ if (!process.env.APP_URL?.trim()) {
 
 run("pnpm db:generate");
 run("pnpm --filter @motocheck/types build");
-run("pnpm --filter @motocheck/db build");
-run("pnpm --filter @motocheck/api build");
 
 const shouldMigrate =
   process.env.RUN_DB_MIGRATE === "1" &&

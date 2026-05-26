@@ -2,8 +2,8 @@
   "name": "@motocheck/db",
   "version": "0.0.1",
   "private": true,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
@@ -13,7 +13,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.3.1"
+    "@prisma/client": "^6.19.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
