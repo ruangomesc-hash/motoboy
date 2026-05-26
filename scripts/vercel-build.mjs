@@ -64,17 +64,28 @@ const migrationsDir = resolve(
   root,
   "packages/db/prisma/migrations/20260526120000_init",
 );
-if (existsSync(migrationsDir)) {
+if (process.env.SKIP_DB_MIGRATE === "1") {
+  console.log("[vercel-build] SKIP_DB_MIGRATE=1 — pulando migrations.");
+} else if (existsSync(migrationsDir)) {
   try {
     run("pnpm db:deploy");
-  } catch {
-    console.error(
-      "\n[vercel-build] Falha ao aplicar migrations no Supabase.\n",
-      "  1. Confira DATABASE_URL e DIRECT_URL (portas 6543 e 5432).\n",
-      "  2. Na Vercel, marque essas variáveis para **Build**.\n",
-      "  3. Senha com @ ou ! deve estar codificada (%40, %21).\n",
+  } catch (firstErr) {
+    console.warn(
+      "\n[vercel-build] migrate deploy falhou — tentando db:push...\n",
+      firstErr?.message ?? firstErr,
     );
-    process.exit(1);
+    try {
+      run("pnpm db:push --accept-data-loss");
+    } catch {
+      console.error(
+        "\n[vercel-build] Não foi possível atualizar o banco no Supabase.\n",
+        "  1. Confira DATABASE_URL (6543) e DIRECT_URL (5432).\n",
+        "  2. Na Vercel: marque ambas para **Production, Preview e Build**.\n",
+        "  3. Senha com @ ou ! → %40 e %21 na URL.\n",
+        "  4. Ou rode no Mac: pnpm db:deploy (com .env do Supabase) e redeploy.\n",
+      );
+      process.exit(1);
+    }
   }
 } else {
   console.warn("[vercel-build] Sem migrations — usando db:push");
