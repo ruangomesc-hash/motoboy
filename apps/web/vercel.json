@@ -1,14 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "node ../../scripts/vercel-build.mjs",
   "installCommand": "cd ../.. && pnpm install --no-frozen-lockfile",
+  "buildCommand": "cd ../.. && node scripts/vercel-build.mjs",
+  "outputDirectory": ".next",
   "regions": ["gru1"],
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  },
   "functions": {
     "src/app/api/backend/[...path]/route.ts": {
       "maxDuration": 60,

@@ -17,6 +17,5 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@9.15.0",
-  "postinstall": "pnpm db:generate"
+  "packageManager": "pnpm@9.15.0"
 }

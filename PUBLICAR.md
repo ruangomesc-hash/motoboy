@@ -19,10 +19,12 @@ Não precisa rodar SQL manual — o deploy na Vercel aplica as migrations.
 
 | Campo | Valor |
 |-------|--------|
-| **Root Directory** | `apps/web` |
+| **Root Directory** | `apps/web` (obrigatório) |
 | **Framework** | Next.js |
-| **Build Command** | `pnpm vercel-build` (já no `vercel.json`) |
-| **Install Command** | `cd ../.. && pnpm install` |
+| **Build Command** | `cd ../.. && node scripts/vercel-build.mjs` |
+| **Install Command** | `cd ../.. && pnpm install --no-frozen-lockfile` |
+
+Após o primeiro deploy com sucesso, no Mac: `pnpm db:deploy` (com `.env` do Supabase) para criar as tabelas.
 
 3. **Environment Variables** — copie de `vercel.env.example` e preencha:
 
