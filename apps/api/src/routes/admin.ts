@@ -39,7 +39,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     const email = body.email.trim().toLowerCase();
-    if (email !== creds.email || body.password !== creds.password) {
+    const password = body.password.trim();
+    if (email !== creds.email || password !== creds.password) {
       return reply.status(401).send({ error: "E-mail ou senha incorretos" });
     }
 

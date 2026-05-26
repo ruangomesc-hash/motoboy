@@ -119,7 +119,7 @@ export const authOptions: NextAuthOptions = {
           });
         } catch {
           throw new Error(
-            "Não foi possível conectar à API. Rode pnpm dev:api ou pnpm dev na raiz.",
+            "Não foi possível conectar à API. Verifique o deploy e as variáveis na Vercel.",
           );
         }
         const data = (await res.json().catch(() => ({}))) as {
@@ -127,6 +127,12 @@ export const authOptions: NextAuthOptions = {
           error?: string;
         };
         if (!res.ok) {
+          if (res.status === 503) {
+            throw new Error(
+              data.error ??
+                "Admin não configurado: defina ADMIN_EMAIL e ADMIN_PASSWORD na Vercel e faça Redeploy.",
+            );
+          }
           throw new Error(data.error ?? "E-mail ou senha incorretos");
         }
         if (!data.token) return null;

@@ -4,19 +4,14 @@ export function resolveApiBase(): string {
     return "/api/backend";
   }
 
+  // Dev local: API em outra porta (rewrite no next.config).
   if (process.env.API_URL?.trim()) {
     return process.env.API_URL.replace(/\/$/, "");
   }
 
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}/api/backend`;
-  }
-
-  if (process.env.NEXTAUTH_URL?.trim()) {
-    return `${process.env.NEXTAUTH_URL.replace(/\/$/, "")}/api/backend`;
-  }
-
-  return "http://localhost:3001";
+  // Produção: mesmo domínio do app (APP_URL / NEXTAUTH_URL / VERCEL_URL).
+  const origin = resolveAppOrigin();
+  return `${origin.replace(/\/$/, "")}/api/backend`;
 }
 
 /** URL pública do app (links de afiliado, redirects). */

@@ -157,19 +157,23 @@ export function getAdminCredentials(env: Env): {
   email: string;
   password: string;
 } | null {
-  const email = (
-    env.ADMIN_EMAIL ??
-    process.env.ADMIN_EMAIL ??
-    "admin@motocopiloto.com.br"
-  )
-    .trim()
-    .toLowerCase();
+  const isProd =
+    process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+
+  const emailRaw =
+    env.ADMIN_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || "";
   const password =
     normalizeEnvSecret(env.ADMIN_PASSWORD) ??
-    normalizeEnvSecret(process.env.ADMIN_PASSWORD) ??
-    (process.env.NODE_ENV === "development" ? "admin123456" : undefined);
-  if (!password) return null;
-  return { email, password };
+    normalizeEnvSecret(process.env.ADMIN_PASSWORD);
+
+  if (isProd) {
+    if (!emailRaw || !password) return null;
+    return { email: emailRaw.toLowerCase(), password };
+  }
+
+  const email = (emailRaw || "admin@motocopiloto.com.br").toLowerCase();
+  const pass = password ?? "admin123456";
+  return { email, password: pass };
 }
 
 declare module "fastify" {
