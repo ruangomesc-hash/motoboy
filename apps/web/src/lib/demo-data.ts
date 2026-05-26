@@ -4,7 +4,7 @@ import type {
   TodaySummary,
   UserProfile,
   WeeklyGoalProgress,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 
 export const DEMO_USER_ID = "demo-user";

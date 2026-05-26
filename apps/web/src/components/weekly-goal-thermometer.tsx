@@ -1,6 +1,6 @@
 "use client";
 
-import type { WeeklyGoalProgress } from "@motocheck/types";
+import type { WeeklyGoalProgress } from "@motoboy/types";
 import { formatBRL } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { Target, TrendingDown, TrendingUp, Minus } from "lucide-react";

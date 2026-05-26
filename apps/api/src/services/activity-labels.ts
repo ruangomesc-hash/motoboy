@@ -1,4 +1,4 @@
-import type { DeliverySource, SubscriptionPaymentMethod } from "@motocheck/types";
+import type { DeliverySource, SubscriptionPaymentMethod } from "@motoboy/types";
 
 const SOURCE_LABELS: Record<DeliverySource, string> = {
   IFOOD: "iFood",

@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { AdminPaymentLinkResponse, Env } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import type { AdminPaymentLinkResponse, Env } from "@motoboy/types";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import { AsaasService } from "./asaas.js";
 

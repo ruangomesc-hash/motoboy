@@ -4,7 +4,7 @@ import { useState } from "react";
 import type {
   AdminAffiliateRow,
   AdminCreateAffiliateInput,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserPlus, X } from "lucide-react";

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractionResultSchema } from "@motocheck/types";
+import { extractionResultSchema } from "@motoboy/types";
 
 describe("IA extraction schema", () => {
   it("parses delivery JSON", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { PeriodStats } from "@motocheck/types";
+import type { PeriodStats } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";

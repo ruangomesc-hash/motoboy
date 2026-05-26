@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { AdminOverview } from "@motocheck/types";
+import type { AdminOverview } from "@motoboy/types";
 import { useAdminApi } from "@/hooks/use-admin-api";
 import { StatCard } from "@/components/admin/stat-card";
 import { formatBRL } from "@/lib/utils";

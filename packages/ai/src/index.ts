@@ -4,7 +4,7 @@ import {
   visionResultSchema,
   type ExtractionResult,
   type VisionResult,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { buildExtractionPrompt, VISION_PROMPT } from "./prompts.js";
 
 const visionCache = new Map<string, VisionResult>();

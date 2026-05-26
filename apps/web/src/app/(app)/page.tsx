@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import type { TodaySummary } from "@motocheck/types";
+import type { TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
   CollapsibleSummaryRow,

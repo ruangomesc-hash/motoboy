@@ -19,13 +19,13 @@ importers:
       '@fastify/jwt':
         specifier: ^9.0.2
         version: 9.1.0
-      '@motocheck/ai':
+      '@motoboy/ai':
         specifier: workspace:*
         version: link:../../packages/ai
-      '@motocheck/db':
+      '@motoboy/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@motocheck/types':
+      '@motoboy/types':
         specifier: workspace:*
         version: link:../../packages/types
       bullmq:
@@ -71,13 +71,13 @@ importers:
 
   apps/web:
     dependencies:
-      '@motocheck/api':
+      '@motoboy/api':
         specifier: workspace:*
         version: link:../api
-      '@motocheck/db':
+      '@motoboy/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@motocheck/types':
+      '@motoboy/types':
         specifier: workspace:*
         version: link:../../packages/types
       '@radix-ui/react-progress':
@@ -150,7 +150,7 @@ importers:
 
   packages/ai:
     dependencies:
-      '@motocheck/types':
+      '@motoboy/types':
         specifier: workspace:*
         version: link:../types
       openai:

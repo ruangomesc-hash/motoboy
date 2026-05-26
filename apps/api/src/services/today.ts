@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { TodaySummary } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import type { TodaySummary } from "@motoboy/types";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
 import {

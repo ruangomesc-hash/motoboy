@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 export function MobileFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-dvh max-h-dvh overflow-hidden motocheck-desktop-bg flex items-center justify-center p-4 md:p-8">
+    <div className="h-dvh max-h-dvh overflow-hidden motoboy-desktop-bg flex items-center justify-center p-4 md:p-8">
       <p className="hidden md:block fixed top-6 left-1/2 -translate-x-1/2 text-xs text-emerald-400/60 font-medium tracking-wide z-10">
         Motocopiloto · preview mobile
       </p>

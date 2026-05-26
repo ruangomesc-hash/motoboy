@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { GoalsPlan, WeeklyGoalProgress } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import type { GoalsPlan, WeeklyGoalProgress } from "@motoboy/types";
 import {
   countWorkDaysInRange,
   endOfCalendarMonth,

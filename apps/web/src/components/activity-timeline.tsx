@@ -1,6 +1,6 @@
 "use client";
 
-import type { ActivityLogItem } from "@motocheck/types";
+import type { ActivityLogItem } from "@motoboy/types";
 import {
   Fuel,
   Gauge,

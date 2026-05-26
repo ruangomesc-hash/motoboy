@@ -6,7 +6,7 @@ import type {
   AdminAffiliateRow,
   AdminAffiliatesList,
   AdminCreateAffiliateInput,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { useAdminApi } from "@/hooks/use-admin-api";
 import { AddAffiliateDialog } from "@/components/admin/add-affiliate-dialog";
 import { AffiliatesRankingTable } from "@/components/admin/affiliates-ranking-table";

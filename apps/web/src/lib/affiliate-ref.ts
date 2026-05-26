@@ -1,4 +1,4 @@
-const STORAGE_KEY = "motocheck-affiliate-code";
+const STORAGE_KEY = "motoboy-affiliate-code";
 
 export function normalizeAffiliateCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");

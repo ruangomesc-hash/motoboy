@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import type { SubscriptionStatus } from "@motocheck/types";
+import type { SubscriptionStatus } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 
 const ALLOWED_PATHS = ["/assinar", "/config"];

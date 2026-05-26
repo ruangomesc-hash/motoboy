@@ -1,11 +1,11 @@
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import type {
   AdminCreateUserInput,
   AdminOverview,
   AdminUsageLogs,
   AdminUserRow,
   AdminUsersList,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser } from "./affiliate.js";
 

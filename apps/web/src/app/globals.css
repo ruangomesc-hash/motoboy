@@ -16,7 +16,7 @@
 }
 
 /* Fundo desktop — verde escuro (não igual ao ARKENOS dourado/preto) */
-.motocheck-desktop-bg {
+.motoboy-desktop-bg {
   background-color: #021a14;
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16, 185, 129, 0.25), transparent),
@@ -24,7 +24,7 @@
     linear-gradient(180deg, #021a14 0%, #010f0c 100%);
 }
 
-.motocheck-auth-gradient {
+.motoboy-auth-gradient {
   background: linear-gradient(145deg, #047857 0%, #065f46 45%, #064e3b 100%);
 }
 

@@ -5,7 +5,7 @@ import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
-import type { FuelDayStats, GoalsPlan, UserProfile } from "@motocheck/types";
+import type { FuelDayStats, GoalsPlan, UserProfile } from "@motoboy/types";
 import { Check, Fuel, Gauge, History, Target } from "lucide-react";
 import Link from "next/link";
 import {

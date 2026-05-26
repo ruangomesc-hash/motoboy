@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { UserStatus } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
+import type { UserStatus } from "@motoboy/db";
 
 export type SessionUser = {
   id: string;

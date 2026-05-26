@@ -1,5 +1,5 @@
 {
-  "name": "@motocheck/types",
+  "name": "@motoboy/types",
   "version": "0.0.1",
   "private": true,
   "main": "./src/index.ts",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminCreateUserInput, AdminUserRow } from "@motocheck/types";
+import type { AdminCreateUserInput, AdminUserRow } from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserPlus, X } from "lucide-react";

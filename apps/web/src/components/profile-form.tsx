@@ -1,7 +1,7 @@
 "use client";
 
 import { User } from "lucide-react";
-import type { DeliverySource, SubscriptionPaymentMethod } from "@motocheck/types";
+import type { DeliverySource, SubscriptionPaymentMethod } from "@motoboy/types";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {

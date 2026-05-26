@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminUserRow } from "@motocheck/types";
+import type { AdminUserRow } from "@motoboy/types";
 import { cn } from "@/lib/utils";
 import { DELINQUENCY_LABEL, formatAppUsage } from "@/lib/admin-labels";
 import { ClientPaymentActions } from "@/components/admin/client-payment-actions";

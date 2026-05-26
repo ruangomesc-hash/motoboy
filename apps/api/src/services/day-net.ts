@@ -1,4 +1,4 @@
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
 

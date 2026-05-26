@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import {
   registerRequestSchema,
   whatsappRequestSchema,
   whatsappVerifySchema,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { normalizePhone } from "../lib/phone.js";
 import { signToken } from "../lib/auth.js";
 import { redisDel, redisGet, redisSetex } from "../lib/redis.js";
@@ -147,7 +147,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     await prisma.authCode.deleteMany({ where: { phone } });
 
     return reply
-      .setCookie("motocheck-token", token, {
+      .setCookie("motoboy-token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",

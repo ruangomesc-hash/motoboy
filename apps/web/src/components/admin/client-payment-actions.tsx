@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminPaymentLinkResponse, AdminUserRow } from "@motocheck/types";
+import type { AdminPaymentLinkResponse, AdminUserRow } from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { useAdminApi } from "@/hooks/use-admin-api";
 import {

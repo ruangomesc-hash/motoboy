@@ -1,4 +1,4 @@
-import { handleBackendRequest } from "@motocheck/api/vercel-handler";
+import { handleBackendRequest } from "@motoboy/api/vercel-handler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

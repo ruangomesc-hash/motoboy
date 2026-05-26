@@ -103,10 +103,10 @@ function CadastroForm() {
         setError(data.error ?? "Não foi possível enviar o código.");
         return;
       }
-      sessionStorage.setItem("motocheck-phone", digits);
-      sessionStorage.setItem("motocheck-name", name.trim());
-      sessionStorage.setItem("motocheck-email", email.trim());
-      sessionStorage.setItem("motocheck-auth-mode", "register");
+      sessionStorage.setItem("motoboy-phone", digits);
+      sessionStorage.setItem("motoboy-name", name.trim());
+      sessionStorage.setItem("motoboy-email", email.trim());
+      sessionStorage.setItem("motoboy-auth-mode", "register");
       if (affiliateCode) {
         persistAffiliateCode(affiliateCode);
       }

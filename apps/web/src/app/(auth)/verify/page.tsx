@@ -20,19 +20,19 @@ export default function VerifyPage() {
   const [isRegister, setIsRegister] = useState(false);
 
   useEffect(() => {
-    setIsRegister(sessionStorage.getItem("motocheck-auth-mode") === "register");
+    setIsRegister(sessionStorage.getItem("motoboy-auth-mode") === "register");
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const phone = sessionStorage.getItem("motocheck-phone");
+    const phone = sessionStorage.getItem("motoboy-phone");
     if (!phone) {
       router.push("/cadastro");
       return;
     }
-    const mode = sessionStorage.getItem("motocheck-auth-mode");
-    const name = sessionStorage.getItem("motocheck-name");
-    const email = sessionStorage.getItem("motocheck-email");
+    const mode = sessionStorage.getItem("motoboy-auth-mode");
+    const name = sessionStorage.getItem("motoboy-name");
+    const email = sessionStorage.getItem("motoboy-email");
 
     if (mode === "register" && (!name || !email)) {
       router.push("/cadastro");
@@ -56,9 +56,9 @@ export default function VerifyPage() {
       setError("Código inválido ou expirado.");
       return;
     }
-    sessionStorage.removeItem("motocheck-name");
-    sessionStorage.removeItem("motocheck-email");
-    sessionStorage.removeItem("motocheck-auth-mode");
+    sessionStorage.removeItem("motoboy-name");
+    sessionStorage.removeItem("motoboy-email");
+    sessionStorage.removeItem("motoboy-auth-mode");
     clearPersistedAffiliateCode();
     router.push("/");
   }

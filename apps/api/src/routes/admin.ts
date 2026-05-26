@@ -3,7 +3,7 @@ import {
   adminCreateAffiliateSchema,
   adminCreateUserSchema,
   adminLoginSchema,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import {
   getAdminCredentials,
   requireAdmin,
@@ -44,7 +44,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const token = signAdminToken(env.JWT_SECRET);
-    reply.setCookie("motocheck-admin-token", token, {
+    reply.setCookie("motoboy-admin-token", token, {
       httpOnly: true,
       path: "/",
       sameSite: "lax",

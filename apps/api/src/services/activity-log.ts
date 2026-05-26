@@ -1,5 +1,5 @@
-import { prisma, type ActivityAction, type ActivityCategory } from "@motocheck/db";
-import type { ActivityChange, ActivityHistory } from "@motocheck/types";
+import { prisma, type ActivityAction, type ActivityCategory } from "@motoboy/db";
+import type { ActivityChange, ActivityHistory } from "@motoboy/types";
 import {
   formatDeliverySource,
   formatMoney,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { AdminUsageLogs } from "@motocheck/types";
+import type { AdminUsageLogs } from "@motoboy/types";
 import { useAdminApi } from "@/hooks/use-admin-api";
 import { Button } from "@/components/ui/button";
 import { ScrollText, RefreshCw } from "lucide-react";

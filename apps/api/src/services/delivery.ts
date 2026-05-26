@@ -1,8 +1,8 @@
-import { prisma, type DeliverySource } from "@motocheck/db";
+import { prisma, type DeliverySource } from "@motoboy/db";
 import type {
   DeliveryCreateInput,
   ExtractionResult,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
 
 export async function createDeliveryManual(

@@ -1,4 +1,4 @@
-import type { DeliverySource, SubscriptionPaymentMethod } from "@motocheck/types";
+import type { DeliverySource, SubscriptionPaymentMethod } from "@motoboy/types";
 
 export const WORK_APP_OPTIONS: {
   id: DeliverySource;

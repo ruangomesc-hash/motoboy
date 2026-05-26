@@ -1,10 +1,10 @@
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import type {
   AdminAffiliateReferrals,
   AdminAffiliateRow,
   AdminAffiliatesList,
   AdminCreateAffiliateInput,
-} from "@motocheck/types";
+} from "@motoboy/types";
 
 export function normalizeAffiliateCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");

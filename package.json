@@ -1,18 +1,18 @@
 {
-  "name": "motocheck",
+  "name": "motoboy",
   "private": true,
   "scripts": {
     "dev": "pnpm run --parallel dev",
-    "dev:api": "pnpm --filter @motocheck/api dev",
-    "dev:web": "pnpm --filter @motocheck/web dev",
+    "dev:api": "pnpm --filter @motoboy/api dev",
+    "dev:web": "pnpm --filter @motoboy/web dev",
     "build": "pnpm run -r build",
-    "db:generate": "pnpm --filter @motocheck/db generate",
-    "db:migrate": "pnpm --filter @motocheck/db migrate",
-    "db:push": "pnpm --filter @motocheck/db push",
-    "db:deploy": "pnpm --filter @motocheck/db exec prisma migrate deploy",
+    "db:generate": "pnpm --filter @motoboy/db generate",
+    "db:migrate": "pnpm --filter @motoboy/db migrate",
+    "db:push": "pnpm --filter @motoboy/db push",
+    "db:deploy": "pnpm --filter @motoboy/db exec prisma migrate deploy",
     "vercel-build": "node scripts/vercel-build.mjs",
-    "prepare:deploy": "pnpm db:generate && pnpm --filter @motocheck/types build",
-    "test": "pnpm --filter @motocheck/api test"
+    "prepare:deploy": "pnpm db:generate && pnpm --filter @motoboy/types build",
+    "test": "pnpm --filter @motoboy/api test"
   },
   "engines": {
     "node": "20.x"

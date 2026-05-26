@@ -1,7 +1,7 @@
 import { Worker, type Job } from "bullmq";
-import { prisma } from "@motocheck/db";
-import { AiService } from "@motocheck/ai";
-import type { Env } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import { AiService } from "@motoboy/ai";
+import type { Env } from "@motoboy/types";
 import type { Server as SocketServer } from "socket.io";
 import type { FastifyBaseLogger } from "fastify";
 import { findOrCreateUser, isTrialExpired } from "../services/user.js";

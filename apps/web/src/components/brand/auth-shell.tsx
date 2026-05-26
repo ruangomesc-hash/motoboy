@@ -11,7 +11,7 @@ export function AuthShell({
 }) {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
-      <div className="motocheck-auth-gradient px-6 pt-10 pb-8 rounded-b-3xl flex flex-col items-center text-center">
+      <div className="motoboy-auth-gradient px-6 pt-10 pb-8 rounded-b-3xl flex flex-col items-center text-center">
         <MotocopilotoLogo size="md" centered />
         <h1 className="text-xl font-semibold mt-6 text-white">{title}</h1>
         <p className="text-sm text-emerald-100/80 mt-1 max-w-xs">{subtitle}</p>

@@ -1,10 +1,10 @@
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import {
   deliverySourceSchema,
   subscriptionPaymentMethodSchema,
   type ProfileUpdateInput,
   type SubscriptionPaymentMethod,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { z } from "zod";
 import { parseWorkDays } from "../lib/work-calendar.js";
 import {

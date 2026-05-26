@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { prisma } from "@motocheck/db";
+import { prisma } from "@motoboy/db";
 import {
   costUpdateSchema,
   goalUpdateSchema,
@@ -7,7 +7,7 @@ import {
   deliveryCreateSchema,
   profileUpdateSchema,
   goalsPlanUpdateSchema,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import {
   buildGoalsPlan,
   getUserGoalsContext,

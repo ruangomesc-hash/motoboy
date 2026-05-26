@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import type {
   AdminAffiliateReferrals,
   AdminAffiliateRow,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { cn } from "@/lib/utils";
 import { buildSignupLink } from "@/lib/affiliate-ref";
 import { Button } from "@/components/ui/button";

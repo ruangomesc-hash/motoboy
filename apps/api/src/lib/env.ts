@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { envSchema, type Env } from "@motocheck/types";
+import { envSchema, type Env } from "@motoboy/types";
 
 const envCandidates = [
   resolve(process.cwd(), ".env"),

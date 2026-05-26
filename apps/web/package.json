@@ -1,5 +1,5 @@
 {
-  "name": "@motocheck/web",
+  "name": "@motoboy/web",
   "version": "0.0.1",
   "private": true,
   "engines": {
@@ -11,9 +11,9 @@
     "start": "next start -p 3002"
   },
   "dependencies": {
-    "@motocheck/api": "workspace:*",
-    "@motocheck/db": "workspace:*",
-    "@motocheck/types": "workspace:*",
+    "@motoboy/api": "workspace:*",
+    "@motoboy/db": "workspace:*",
+    "@motoboy/types": "workspace:*",
     "@radix-ui/react-progress": "^1.1.1",
     "@radix-ui/react-slot": "^1.1.1",
     "class-variance-authority": "^0.7.1",

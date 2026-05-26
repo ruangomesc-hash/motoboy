@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, History } from "lucide-react";
-import type { ActivityHistory } from "@motocheck/types";
+import type { ActivityHistory } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { Button } from "@/components/ui/button";

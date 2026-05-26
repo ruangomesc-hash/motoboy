@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
-import type { Env } from "@motocheck/types";
+import type { Env } from "@motoboy/types";
 import type { Redis as RedisClient } from "ioredis";
 import { loadEnv } from "./lib/env.js";
 import { getRedis, isRedisEnabled } from "./lib/redis.js";
@@ -80,7 +80,7 @@ export async function createApp(
   await app.register(adminRoutes);
 
   app.get("/health", async () => {
-    const { prisma } = await import("@motocheck/db");
+    const { prisma } = await import("@motoboy/db");
     const { isAsaasConfigured } = await import("./lib/asaas-client.js");
     await prisma.$queryRaw`SELECT 1`;
     return {

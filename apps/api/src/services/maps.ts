@@ -1,4 +1,4 @@
-import type { Env } from "@motocheck/types";
+import type { Env } from "@motoboy/types";
 import type { FastifyBaseLogger } from "fastify";
 
 export interface OptimizedRoute {

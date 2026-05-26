@@ -1,4 +1,4 @@
-import type { Env } from "@motocheck/types";
+import type { Env } from "@motoboy/types";
 
 export const ASAAS_BASE_SANDBOX = "https://sandbox.asaas.com/api/v3";
 export const ASAAS_BASE_PROD = "https://api.asaas.com/v3";

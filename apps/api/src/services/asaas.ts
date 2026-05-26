@@ -1,5 +1,5 @@
-import type { Env } from "@motocheck/types";
-import { prisma } from "@motocheck/db";
+import type { Env } from "@motoboy/types";
+import { prisma } from "@motoboy/db";
 import {
   asaasRequest,
   AsaasApiError,

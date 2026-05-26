@@ -33,10 +33,10 @@ export default function LoginPage() {
         );
         return;
       }
-      sessionStorage.setItem("motocheck-phone", digits);
-      sessionStorage.removeItem("motocheck-name");
-      sessionStorage.removeItem("motocheck-email");
-      sessionStorage.setItem("motocheck-auth-mode", "login");
+      sessionStorage.setItem("motoboy-phone", digits);
+      sessionStorage.removeItem("motoboy-name");
+      sessionStorage.removeItem("motoboy-email");
+      sessionStorage.setItem("motoboy-auth-mode", "login");
       router.push("/verify");
     } catch {
       setError("Não foi possível enviar o código. Tente de novo.");

@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { PeriodStats } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import type { PeriodStats } from "@motoboy/types";
 
 function toNumber(d: { toString(): string } | number): number {
   return typeof d === "number" ? d : Number(d);

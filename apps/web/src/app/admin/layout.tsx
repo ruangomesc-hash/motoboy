@@ -10,7 +10,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   if (isLogin) {
     return (
-      <div className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[#0a0f0d] text-foreground motocheck-desktop-bg">
+      <div className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[#0a0f0d] text-foreground motoboy-desktop-bg">
         {children}
       </div>
     );

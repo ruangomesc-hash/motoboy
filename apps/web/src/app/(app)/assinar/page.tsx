@@ -14,7 +14,7 @@ import type {
   SubscriptionPaymentMethod,
   SubscriptionStatus,
   UserProfile,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { cn } from "@/lib/utils";
 
 const CTA_LABEL: Record<SubscriptionPaymentMethod, string> = {

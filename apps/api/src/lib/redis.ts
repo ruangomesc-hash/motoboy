@@ -1,5 +1,5 @@
 import { Redis as RedisClient } from "ioredis";
-import type { Env } from "@motocheck/types";
+import type { Env } from "@motoboy/types";
 
 let redis: RedisClient | null = null;
 

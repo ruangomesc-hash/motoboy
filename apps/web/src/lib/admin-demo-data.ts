@@ -9,7 +9,7 @@ import type {
   AdminUsageLogs,
   AdminUserRow,
   AdminUsersList,
-} from "@motocheck/types";
+} from "@motoboy/types";
 import { withUsage } from "@/lib/admin-usage";
 
 export const ADMIN_DEMO_ID = "admin-demo";

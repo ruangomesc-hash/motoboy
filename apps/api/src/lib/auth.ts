@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import jwt from "jsonwebtoken";
-import type { Env } from "@motocheck/types";
+import type { Env } from "@motoboy/types";
 import {
   hasAppAccess,
   isBillingRoute,
@@ -37,7 +37,7 @@ export async function requireAuth(
   const env = (request.server as { config: { env: Env } }).config.env;
   const header = request.headers.authorization;
   const cookie = (request.cookies as Record<string, string> | undefined)?.[
-    "motocheck-token"
+    "motoboy-token"
   ];
   const token =
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;
@@ -126,7 +126,7 @@ export async function requireAdmin(
   const env = (request.server as { config: { env: Env } }).config.env;
   const header = request.headers.authorization;
   const cookie = (request.cookies as Record<string, string> | undefined)?.[
-    "motocheck-admin-token"
+    "motoboy-admin-token"
   ];
   const token =
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;

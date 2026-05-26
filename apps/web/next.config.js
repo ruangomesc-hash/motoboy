@@ -20,10 +20,10 @@ const nextConfig = {
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""),
   },
   transpilePackages: [
-    "@motocheck/types",
-    "@motocheck/api",
-    "@motocheck/db",
-    "@motocheck/ai",
+    "@motoboy/types",
+    "@motoboy/api",
+    "@motoboy/db",
+    "@motoboy/ai",
   ],
   experimental: {
     serverComponentsExternalPackages: [

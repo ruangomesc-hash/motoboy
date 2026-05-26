@@ -1,5 +1,5 @@
-import { prisma } from "@motocheck/db";
-import type { OdometerDayStats } from "@motocheck/types";
+import { prisma } from "@motoboy/db";
+import type { OdometerDayStats } from "@motoboy/types";
 
 function toNumber(d: { toString(): string } | number | null | undefined): number {
   if (d == null) return 0;
