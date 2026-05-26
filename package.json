@@ -1,0 +1,22 @@
+{
+  "name": "motocheck",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "dev:api": "pnpm --filter @motocheck/api dev",
+    "dev:web": "pnpm --filter @motocheck/web dev",
+    "build": "pnpm run -r build",
+    "db:generate": "pnpm --filter @motocheck/db generate",
+    "db:migrate": "pnpm --filter @motocheck/db migrate",
+    "db:push": "pnpm --filter @motocheck/db push",
+    "db:deploy": "pnpm --filter @motocheck/db exec prisma migrate deploy",
+    "vercel-build": "node scripts/vercel-build.mjs",
+    "prepare:deploy": "pnpm db:generate && pnpm --filter @motocheck/types build",
+    "test": "pnpm --filter @motocheck/api test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "postinstall": "pnpm db:generate"
+}
