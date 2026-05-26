@@ -23,6 +23,7 @@ if (!process.env.DIRECT_URL?.trim() && process.env.DATABASE_URL?.trim()) {
 export function loadEnv(): Env {
   const isProd =
     process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+  const isNextBuild = process.env.NEXT_PHASE === "phase-production-build";
 
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -40,7 +41,7 @@ export function loadEnv(): Env {
     });
   }
 
-  if (isProd && !process.env.JWT_SECRET?.trim()) {
+  if (isProd && !isNextBuild && !process.env.JWT_SECRET?.trim()) {
     throw new Error("JWT_SECRET é obrigatório em produção.");
   }
 

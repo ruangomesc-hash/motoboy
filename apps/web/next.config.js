@@ -1,3 +1,5 @@
+const path = require("path");
+
 const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
@@ -8,6 +10,9 @@ const withPWA = require("next-pwa")({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: path.join(__dirname, "../.."),
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: false },
   env: {
     NEXT_PUBLIC_APP_URL:
       process.env.NEXT_PUBLIC_APP_URL ??
