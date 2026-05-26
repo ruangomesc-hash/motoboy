@@ -26,6 +26,15 @@ const nextConfig = {
       "ioredis",
     ],
   },
+  webpack: (config, { isServer }) => {
+    // API usa imports ESM com sufixo .js (NodeNext); o Next resolve para .ts no bundle.
+    if (isServer) {
+      config.resolve.extensionAlias = {
+        ".js": [".ts", ".tsx", ".js"],
+      };
+    }
+    return config;
+  },
   async rewrites() {
     // Produção (Vercel): /api/backend/* é atendido por Route Handlers (mesmo domínio → Supabase).
     if (process.env.VERCEL === "1") {
