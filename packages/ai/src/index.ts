@@ -33,7 +33,7 @@ export class AiService {
     if (!this.client) {
       return "entrega particular 25 reais";
     }
-    const file = new File([buffer], "audio.ogg", { type: mimeType });
+    const file = new File([new Uint8Array(buffer)], "audio.ogg", { type: mimeType });
     const response = await this.client.audio.transcriptions.create({
       file,
       model: "whisper-1",

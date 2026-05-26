@@ -17,7 +17,10 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@motocheck/api/vercel-handler": ["../api/src/vercel-handler.ts"]
+      "@motocheck/api/vercel-handler": ["../api/src/vercel-handler.ts"],
+      "@motocheck/ai": ["../../packages/ai/src/index.ts"],
+      "@motocheck/db": ["../../packages/db/src/index.ts"],
+      "@motocheck/types": ["../../packages/types/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
