@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+console.log("\n[vercel-build] v3 — generate + types + Next (sem @motocheck/api build)\n");
+
 function run(cmd) {
   console.log(`\n> ${cmd}`);
   execSync(cmd, { stdio: "inherit", cwd: root, env: process.env });
