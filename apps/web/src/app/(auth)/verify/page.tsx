@@ -12,10 +12,14 @@ import {
   readPersistedAffiliateCode,
 } from "@/lib/affiliate-ref";
 
+const skipAuthCodeAllowed =
+  process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
+
 export default function VerifyPage() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [skipLoading, setSkipLoading] = useState(false);
   const [error, setError] = useState("");
   const [isRegister, setIsRegister] = useState(false);
 
@@ -63,6 +67,39 @@ export default function VerifyPage() {
     router.push("/");
   }
 
+  async function enterWithoutCode() {
+    const phone = sessionStorage.getItem("motoboy-phone");
+    if (!phone) {
+      router.push(isRegister ? "/cadastro" : "/login");
+      return;
+    }
+    const mode = sessionStorage.getItem("motoboy-auth-mode");
+    const name = sessionStorage.getItem("motoboy-name");
+    const email = sessionStorage.getItem("motoboy-email");
+    const affiliateCode = readPersistedAffiliateCode() ?? undefined;
+
+    setSkipLoading(true);
+    setError("");
+    const result = await signIn("whatsapp", {
+      phone,
+      code: "000000",
+      name: name ?? "",
+      email: email ?? "",
+      affiliateCode: affiliateCode ?? "",
+      redirect: false,
+    });
+    setSkipLoading(false);
+    if (result?.error) {
+      setError("Não foi possível entrar sem código. Tente criar a conta antes.");
+      return;
+    }
+    sessionStorage.removeItem("motoboy-name");
+    sessionStorage.removeItem("motoboy-email");
+    sessionStorage.removeItem("motoboy-auth-mode");
+    clearPersistedAffiliateCode();
+    router.push("/");
+  }
+
   return (
     <AuthShell
       title="Código de verificação"
@@ -86,6 +123,17 @@ export default function VerifyPage() {
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading ? "Verificando..." : "Confirmar e entrar"}
         </Button>
+        {skipAuthCodeAllowed && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-emerald-500/40"
+            disabled={skipLoading || loading}
+            onClick={enterWithoutCode}
+          >
+            {skipLoading ? "Entrando..." : "Continuar sem código (temporário)"}
+          </Button>
+        )}
         <p className="text-center text-sm text-muted-foreground pt-2">
           <Link href="/login" className="text-emerald-400 underline">
             Voltar

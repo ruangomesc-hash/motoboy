@@ -104,8 +104,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       where: { phone, code: body.code, expiresAt: { gt: new Date() } },
     });
 
+    const skipAuthCode = process.env.ALLOW_SKIP_AUTH_CODE === "true";
+    const bypassCode = skipAuthCode && body.code === "000000";
+
     const codeValid =
-      record?.code === body.code || stored === body.code;
+      bypassCode || record?.code === body.code || stored === body.code;
 
     if (!codeValid) {
       return reply.status(400).send({ error: "Código inválido ou expirado" });

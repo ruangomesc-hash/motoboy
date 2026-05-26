@@ -63,6 +63,9 @@ export function ClientsTable({
           >
             <td className="p-3">
               <p className="font-medium">{row.name ?? "—"}</p>
+              {row.email && (
+                <p className="text-[11px] text-muted-foreground">{row.email}</p>
+              )}
               {row.subscribedAt && (
                 <p className="text-[10px] text-muted-foreground">
                   Assinante desde{" "}

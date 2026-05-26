@@ -117,6 +117,7 @@ function mapUserRow(
   u: {
     id: string;
     name: string | null;
+    email: string | null;
     whatsappNumber: string;
     city: string | null;
     status: "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELED";
@@ -135,6 +136,7 @@ function mapUserRow(
   return {
     id: u.id,
     name: u.name,
+    email: u.email,
     whatsappNumber: u.whatsappNumber,
     city: u.city,
     affiliateId: u.referredByAffiliate?.id ?? null,

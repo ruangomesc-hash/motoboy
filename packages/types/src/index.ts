@@ -533,6 +533,7 @@ export const adminAffiliateReferralsSchema = z.object({
 export const adminUserRowSchema = z.object({
   id: z.string(),
   name: z.string().nullable(),
+  email: z.string().nullable(),
   whatsappNumber: z.string(),
   city: z.string().nullable(),
   affiliateId: z.string().nullable(),

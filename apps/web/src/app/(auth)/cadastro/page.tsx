@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
@@ -12,7 +13,11 @@ import {
   persistAffiliateCode,
   readAffiliateFromUrl,
   readPersistedAffiliateCode,
+  clearPersistedAffiliateCode,
 } from "@/lib/affiliate-ref";
+
+const skipAuthCodeAllowed =
+  process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
 
 function CadastroForm() {
   const router = useRouter();
@@ -73,8 +78,25 @@ function CadastroForm() {
     setLoading(true);
     setError("");
     setCouponError("");
+
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setError("Informe um WhatsApp válido com DDD.");
+      setLoading(false);
+      return;
+    }
+    if (!name.trim() || name.trim().length < 2) {
+      setError("Informe seu nome completo.");
+      setLoading(false);
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      setError("Informe um e-mail válido.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const digits = phone.replace(/\D/g, "");
       const affiliateCode = coupon.trim()
         ? normalizeAffiliateCode(coupon)
         : undefined;
@@ -86,6 +108,27 @@ function CadastroForm() {
           return;
         }
         persistAffiliateCode(affiliateCode);
+      }
+
+      if (skipAuthCodeAllowed) {
+        const result = await signIn("whatsapp", {
+          phone: digits,
+          code: "000000",
+          name: name.trim(),
+          email: email.trim(),
+          affiliateCode: affiliateCode ?? "",
+          redirect: false,
+        });
+        if (result?.error) {
+          setError(
+            "Não foi possível criar a conta. Verifique se o WhatsApp ou e-mail já não estão em uso.",
+          );
+          return;
+        }
+        clearPersistedAffiliateCode();
+        router.push("/");
+        router.refresh();
+        return;
       }
 
       const res = await fetch("/api/backend/auth/register/request", {
@@ -112,7 +155,7 @@ function CadastroForm() {
       }
       router.push("/verify");
     } catch {
-      setError("Não foi possível enviar o código. Tente de novo.");
+      setError("Não foi possível concluir o cadastro. Tente de novo.");
     } finally {
       setLoading(false);
     }
@@ -121,7 +164,11 @@ function CadastroForm() {
   return (
     <AuthShell
       title="Criar conta"
-      subtitle="Nome, e-mail e WhatsApp — depois confirmamos com um código."
+      subtitle={
+        skipAuthCodeAllowed
+          ? "Preencha todos os campos. Seus dados aparecem no painel do administrador."
+          : "Nome, e-mail e WhatsApp — depois confirmamos com um código."
+      }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -134,6 +181,7 @@ function CadastroForm() {
             placeholder="Como você se chama"
             autoComplete="name"
             required
+            minLength={2}
           />
         </div>
         <div>
@@ -189,7 +237,11 @@ function CadastroForm() {
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading ? "Enviando..." : "Receber código no WhatsApp"}
+          {loading
+            ? "Criando conta..."
+            : skipAuthCodeAllowed
+              ? "Criar conta e entrar"
+              : "Receber código no WhatsApp"}
         </Button>
         <p className="text-center text-sm text-muted-foreground pt-1">
           Já tem conta?{" "}

@@ -149,6 +149,7 @@ const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c1",
     name: "Carlos Silva",
+    email: "carlos@email.com",
     whatsappNumber: "5511987654321",
     city: "São Paulo",
     affiliateId: "aff-1",
@@ -167,6 +168,7 @@ const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c2",
     name: "João Pereira",
+    email: "joao@email.com",
     whatsappNumber: "5511976543210",
     city: "Guarulhos",
     affiliateId: "aff-2",
@@ -185,6 +187,7 @@ const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c3",
     name: "Marcos Lima",
+    email: "marcos@email.com",
     whatsappNumber: "5511965432109",
     city: "Osasco",
     affiliateId: "aff-1",
@@ -203,6 +206,7 @@ const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c4",
     name: "Rafael Costa",
+    email: "rafael@email.com",
     whatsappNumber: "5511954321098",
     city: "São Paulo",
     affiliateId: null,
@@ -221,6 +225,7 @@ const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c5",
     name: "Pedro Santos",
+    email: "pedro@email.com",
     whatsappNumber: "5511943210987",
     city: "Campinas",
     affiliateId: null,
@@ -362,6 +367,7 @@ export function adminDemoFetch<T>(
     const row = withUsage({
       id: `c-${Date.now()}`,
       name: body.name ?? null,
+      email: body.email ?? null,
       whatsappNumber: whatsapp,
       city: body.city ?? null,
       affiliateId: affiliate?.id ?? null,
