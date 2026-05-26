@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { DEMO_USER_ID } from "./demo-data";
 
+import { issueAdminToken, getAdminCredentialsFromEnv } from "./admin-auth";
 import { resolveApiBase } from "./api-base";
 
 const API_URL = resolveApiBase();
@@ -107,39 +108,25 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        let res: Response;
-        try {
-          res = await fetch(`${API_URL}/admin/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: credentials.email.trim(),
-              password: credentials.password,
-            }),
-          });
-        } catch {
+
+        if (!getAdminCredentialsFromEnv()) {
           throw new Error(
-            "Não foi possível conectar à API. Verifique o deploy e as variáveis na Vercel.",
+            "Admin não configurado: defina ADMIN_EMAIL, ADMIN_PASSWORD e JWT_SECRET na Vercel e faça Redeploy.",
           );
         }
-        const data = (await res.json().catch(() => ({}))) as {
-          token?: string;
-          error?: string;
-        };
-        if (!res.ok) {
-          if (res.status === 503) {
-            throw new Error(
-              data.error ??
-                "Admin não configurado: defina ADMIN_EMAIL e ADMIN_PASSWORD na Vercel e faça Redeploy.",
-            );
-          }
-          throw new Error(data.error ?? "E-mail ou senha incorretos");
+
+        const token = issueAdminToken(
+          credentials.email,
+          credentials.password,
+        );
+        if (!token) {
+          throw new Error("E-mail ou senha incorretos");
         }
-        if (!data.token) return null;
+
         return {
           id: "admin",
           name: "Administrador",
-          accessToken: data.token,
+          accessToken: token,
           isAdmin: true,
           demo: false,
         };

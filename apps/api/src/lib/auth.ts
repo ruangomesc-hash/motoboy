@@ -153,18 +153,15 @@ function normalizeEnvSecret(value: string | undefined): string | undefined {
   return value.replace(/^["']|["']$/g, "").trim();
 }
 
-export function getAdminCredentials(env: Env): {
+export function getAdminCredentials(_env: Env): {
   email: string;
   password: string;
 } | null {
   const isProd =
     process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 
-  const emailRaw =
-    env.ADMIN_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || "";
-  const password =
-    normalizeEnvSecret(env.ADMIN_PASSWORD) ??
-    normalizeEnvSecret(process.env.ADMIN_PASSWORD);
+  const emailRaw = process.env.ADMIN_EMAIL?.trim() ?? "";
+  const password = normalizeEnvSecret(process.env.ADMIN_PASSWORD);
 
   if (isProd) {
     if (!emailRaw || !password) return null;
