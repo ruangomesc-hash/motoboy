@@ -61,6 +61,7 @@ import {
   patchPeriodStatsDelivery,
 } from "@/lib/stats-preview";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
+import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
 import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 
 export type { DeliveryListItem };
@@ -142,6 +143,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
+  const pendingDeliveries = useRef(createPendingDeliveryRegistry());
   /** Evita aplicar delta de stats duas vezes (ação local + evento sync na mesma aba). */
   const statsRemoveAdjusted = useRef(new Set<string>());
 
@@ -226,6 +228,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshToday = useCallback(async () => {
+    if (pendingDeliveries.current.hasLocal()) return;
     try {
       const data = await api<TodaySummary>("/me/today");
       const tomb = deletedDeliveries.current;
@@ -313,15 +316,25 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           };
         })();
 
+      if (item.id.startsWith("local-")) {
+        pendingDeliveries.current.mark(item.id);
+      } else if (prevPayload?.id.startsWith("local-")) {
+        pendingDeliveries.current.unmark(prevPayload.id);
+      }
+
       flushSync(() => {
         setDeliveries((prev) => {
-          const idx = prev.findIndex((d) => d.id === item.id);
+          let base =
+            prevPayload && prevPayload.id !== item.id
+              ? prev.filter((d) => d.id !== prevPayload.id)
+              : prev;
+          const idx = base.findIndex((d) => d.id === item.id);
           if (idx >= 0) {
-            const next = [...prev];
+            const next = [...base];
             next[idx] = item;
             return next;
           }
-          return [item, ...prev];
+          return [item, ...base];
         });
 
         setDeliveriesDate((current) => {
@@ -340,16 +353,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
               todayKey,
             );
             const isToday = isIsoOnDateInput(occurredAt, todayKey);
-            if (wasToday && isToday) {
-              return replaceDeliveryInToday(base, prevPayload, nextPayload);
+            const idChanged = prevPayload.id !== item.id;
+            let working = base;
+            if (idChanged && wasToday) {
+              working = removeDeliveryFromToday(working, prevPayload);
+            }
+            if (wasToday && isToday && !idChanged) {
+              return replaceDeliveryInToday(working, prevPayload, nextPayload);
             }
             if (wasToday && !isToday) {
-              return removeDeliveryFromToday(base, prevPayload);
+              return idChanged ? working : removeDeliveryFromToday(base, prevPayload);
             }
             if (!wasToday && isToday) {
-              return applyDeliveryToToday(base, nextPayload);
+              if (working.recentDeliveries.some((r) => r.id === item.id)) {
+                return working;
+              }
+              return applyDeliveryToToday(working, nextPayload);
             }
-            return base;
+            return working;
           }
           if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
           if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
@@ -357,6 +378,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         });
       });
 
+      const idReplaced = Boolean(
+        prevPayload && prevPayload.id !== item.id,
+      );
       const newGross = Number(delivery.grossValue);
       const oldGross = prevPayload ? Number(prevPayload.grossValue) : 0;
       const newKm =
@@ -366,7 +390,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       applyStatsDelta(occurredAt, {
         gross: newGross - oldGross,
         km: newKm - oldKm,
-        count: prevPayload ? 0 : 1,
+        count: prevPayload && !idReplaced ? 0 : 1,
       });
 
       if (userId) persistCacheNow(userId);
@@ -384,6 +408,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const removeDeliveryOptimistic = useCallback(
     (deliveryId: string, fallback?: CreatedDelivery) => {
       deletedDeliveries.current.mark(deliveryId);
+      pendingDeliveries.current.unmark(deliveryId);
       const s = stateRef.current;
       const todayKey = todayDateInputValue();
 
@@ -450,6 +475,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshDeliveries = useCallback(async () => {
+    if (pendingDeliveries.current.hasLocal()) return;
     const date = deliveriesDate || todayDateInputValue();
     const q = `?date=${date}`;
     try {
@@ -599,9 +625,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (userId) persistCacheNow(userId);
 
       if (detail.skipReconcile) {
-        if (!detail.removedDeliveryId) {
-          scheduleBackgroundReconcile();
-        }
         return;
       }
 
@@ -736,6 +759,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       bootstrapStarted.current = false;
       hydratedUser.current = null;
       deletedDeliveries.current.clear();
+      pendingDeliveries.current.clear();
       setIsBootstrapped(false);
       setConfigComplete(null);
       setMeSettings(null);

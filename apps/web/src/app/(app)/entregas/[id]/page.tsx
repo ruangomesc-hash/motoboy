@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
+import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,7 +144,7 @@ export default function EntregaDetailPage() {
     const optimisticPayload = toPayload(optimistic);
     setDelivery(optimistic);
     upsertDeliveryOptimistic(optimisticPayload, previousPayload);
-    publishAppSync(["deliveries", "today", "stats"], {
+    publishAppSync(DELIVERY_SYNC_TOPICS, {
       delivery: optimisticPayload,
       previousDelivery: previousPayload,
       skipReconcile: true,
@@ -168,7 +169,7 @@ export default function EntregaDetailPage() {
       setForm(toForm(updated));
       const serverPayload = toPayload(updated);
       upsertDeliveryOptimistic(serverPayload, previousPayload);
-      publishAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(DELIVERY_SYNC_TOPICS, {
         delivery: serverPayload,
         previousDelivery: previousPayload,
         skipReconcile: true,
@@ -176,7 +177,7 @@ export default function EntregaDetailPage() {
     } catch (err) {
       setDelivery(previous);
       upsertDeliveryOptimistic(previousPayload, optimisticPayload);
-      publishAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(DELIVERY_SYNC_TOPICS, {
         delivery: previousPayload,
         previousDelivery: optimisticPayload,
         skipReconcile: true,

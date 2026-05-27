@@ -3,14 +3,11 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useApi } from "@/hooks/use-api";
-import { useAppData } from "@/components/app-data-provider";
-import { extractDeliveryMutation } from "@/lib/app-data-cache";
+import { useCreateDelivery } from "@/hooks/use-create-delivery";
 import {
   datetimeLocalFromIso,
   formatDateTimeLabel,
   isoFromDatetimeLocal,
-  todayDateInputValue,
 } from "@/lib/local-date";
 import { sanitizeDecimalInput } from "@/lib/decimal-input";
 import { Plus, X } from "lucide-react";
@@ -24,13 +21,7 @@ const SOURCES = [
 ] as const;
 
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
-  const api = useApi();
-  const {
-    applyDeliveryOptimistic,
-    removeDeliveryOptimistic,
-    setDeliveriesDate,
-    publishAppSync,
-  } = useAppData();
+  const { createDelivery } = useCreateDelivery();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -83,59 +74,39 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
       ? isoFromDatetimeLocal(occurredAtLocal)
       : new Date().toISOString();
 
-    const tempId = `local-${Date.now()}`;
-    applyDeliveryOptimistic({
-      id: tempId,
+    const payload = {
       grossValue: value,
       source: form.source,
       originName: form.originName.trim() || null,
       distanceKm: parsedDistanceKm,
       occurredAt,
-    });
-    setDeliveriesDate(todayDateInputValue());
+    };
+
     setLoading(true);
     setError("");
-    resetForm();
     setOpen(false);
     onSuccess?.();
 
-    try {
-      const created = await api<Record<string, unknown>>(
-        "/me/deliveries",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            grossValue: value,
-            source: form.source,
-            originName: form.originName.trim() || null,
-            distanceKm: parsedDistanceKm,
-            occurredAt,
-          }),
-        },
-        { skipSync: true },
-      );
+    const result = await createDelivery(payload);
 
-      const parsed =
-        extractDeliveryMutation(created, "/me/deliveries", "POST").delivery ?? {
-          id: String(created.id ?? tempId),
-          grossValue: value,
-          source: form.source,
-          originName: form.originName.trim() || null,
-          distanceKm: parsedDistanceKm,
-          occurredAt,
-        };
-      removeDeliveryOptimistic(tempId);
-      applyDeliveryOptimistic({ ...parsed, occurredAt });
-      publishAppSync(["deliveries", "today", "stats"], {
-        delivery: { ...parsed, occurredAt },
-        skipReconcile: true,
-      });
-    } catch {
-      removeDeliveryOptimistic(tempId);
-      setError("Não foi possível salvar. Tente de novo.");
-    } finally {
-      setLoading(false);
+    setLoading(false);
+
+    if (result.ok) {
+      resetForm();
+      return;
     }
+
+    setError(result.error);
+    setForm({
+      grossValue: String(payload.grossValue).replace(".", ","),
+      source: payload.source,
+      originName: payload.originName ?? "",
+      distanceKm:
+        payload.distanceKm != null ? String(payload.distanceKm).replace(".", ",") : "",
+    });
+    setOccurredAtLocal(datetimeLocalFromIso(payload.occurredAt));
+    setEditDateTime(true);
+    setOpen(true);
   }
 
   if (!open) {
