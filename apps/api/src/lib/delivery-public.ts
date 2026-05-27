@@ -19,6 +19,11 @@ export type PublicDelivery = {
   parsedAt: string;
 };
 
+function safeIso(d: Date | null | undefined): string | null {
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 export function toPublicDelivery(row: Delivery): PublicDelivery {
   return {
     id: row.id,
@@ -33,9 +38,9 @@ export function toPublicDelivery(row: Delivery): PublicDelivery {
     proofPhotoUrl: row.proofPhotoUrl,
     proofLat: row.proofLat,
     proofLng: row.proofLng,
-    proofAt: row.proofAt?.toISOString() ?? null,
-    occurredAt: row.occurredAt.toISOString(),
-    parsedAt: row.parsedAt.toISOString(),
+    proofAt: safeIso(row.proofAt),
+    occurredAt: safeIso(row.occurredAt) ?? new Date().toISOString(),
+    parsedAt: safeIso(row.parsedAt) ?? new Date().toISOString(),
   };
 }
 

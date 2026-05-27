@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
+import { ZodError } from "zod";
 import type { Env } from "@motoboy/types";
 import type { Redis as RedisClient } from "ioredis";
 import { loadEnv } from "./lib/env.js";
@@ -63,6 +64,13 @@ export async function createApp(
         code: "MIGRATIONS_REQUIRED",
       });
     }
+    if (err.name === "PrismaClientValidationError") {
+      app.log.error(error);
+      return reply.status(400).send({
+        error: "Dados da entrega inválidos. Confira valor, origem e data.",
+        code: "PRISMA_VALIDATION",
+      });
+    }
     if (err.code?.startsWith("P20")) {
       app.log.error(error);
       return reply.status(503).send({
@@ -82,8 +90,12 @@ export async function createApp(
         code: "PRISMA_ENGINE_MISSING",
       });
     }
-    if (err.name === "ZodError") {
-      return reply.status(400).send({ error: "Dados inválidos" });
+    if (error instanceof ZodError) {
+      const first = error.errors[0]?.message ?? "Dados inválidos";
+      return reply.status(400).send({
+        error: first,
+        code: "VALIDATION_ERROR",
+      });
     }
     if (
       err.message?.includes("Body cannot be empty when content-type is set to")

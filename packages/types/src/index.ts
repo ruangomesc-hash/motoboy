@@ -407,12 +407,20 @@ export const deliveryPatchSchema = z.object({
 });
 
 export const deliveryCreateSchema = z.object({
-  grossValue: z.number().positive(),
+  grossValue: z.coerce.number().positive(),
   source: deliverySourceSchema.default("PARTICULAR"),
   originName: z.string().max(200).nullable().optional(),
   destinationAddr: z.string().max(500).nullable().optional(),
-  distanceKm: z.number().nonnegative().nullable().optional(),
-  occurredAt: z.string().optional(),
+  distanceKm: z
+    .union([z.coerce.number().nonnegative(), z.null()])
+    .optional(),
+  occurredAt: z
+    .string()
+    .optional()
+    .refine(
+      (v) => v === undefined || !Number.isNaN(new Date(v).getTime()),
+      { message: "Data/hora inválida" },
+    ),
 });
 
 export type DeliveryCreateInput = z.infer<typeof deliveryCreateSchema>;

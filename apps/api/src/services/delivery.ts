@@ -5,6 +5,12 @@ import type {
 } from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
 
+function parseOccurredAt(iso?: string): Date {
+  if (!iso) return new Date();
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
 export async function createDeliveryManual(
   userId: string,
   input: DeliveryCreateInput,
@@ -17,8 +23,11 @@ export async function createDeliveryManual(
       originName: input.originName ?? null,
       destinationAddr: input.destinationAddr ?? null,
       distanceKm: input.distanceKm ?? null,
-      occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
-      rawInput: { channel: "app_manual", payload: input },
+      occurredAt: parseOccurredAt(input.occurredAt),
+      rawInput: {
+        channel: "app_manual",
+        payload: JSON.parse(JSON.stringify(input)) as object,
+      },
     },
   });
 }

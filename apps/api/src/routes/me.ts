@@ -201,26 +201,30 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const body = deliveryCreateSchema.parse(request.body);
     const userId = request.sessionUser!.id;
     const delivery = await createDeliveryManual(userId, body);
-    await recordActivity(userId, {
-      category: "DELIVERY",
-      action: "CREATED",
-      title: "Entrega registrada",
-      entityId: delivery.id,
-      changes: [
-        {
-          field: "grossValue",
-          label: "Valor",
-          from: null,
-          to: formatMoney(delivery.grossValue),
-        },
-        {
-          field: "source",
-          label: "Origem",
-          from: null,
-          to: formatDeliverySource(delivery.source),
-        },
-      ],
-    });
+    await recordActivitySafe(
+      userId,
+      {
+        category: "DELIVERY",
+        action: "CREATED",
+        title: "Entrega registrada",
+        entityId: delivery.id,
+        changes: [
+          {
+            field: "grossValue",
+            label: "Valor",
+            from: null,
+            to: formatMoney(delivery.grossValue),
+          },
+          {
+            field: "source",
+            label: "Origem",
+            from: null,
+            to: formatDeliverySource(delivery.source),
+          },
+        ],
+      },
+      request.log,
+    );
     emitToUser(userId, "delivery:created", { id: delivery.id });
     return reply.status(201).send(toPublicDelivery(delivery));
   });
