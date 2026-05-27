@@ -41,6 +41,7 @@ const emptySummary: TodaySummary = {
   goalsPlan: null,
   weeklyGoal: null,
   recentDeliveries: [],
+  costsConfigured: false,
   fuel: {
     cost: 0,
     litersToday: 0,
@@ -95,6 +96,16 @@ export default function HomePage() {
       </header>
 
       <LucroCard value={s.netProfit} />
+
+      {s.costsConfigured === false && s.deliveryCount > 0 && (
+        <p className="text-[11px] text-muted-foreground text-center px-2 leading-snug">
+          Custos diários ainda não salvos em Config — o lucro usa só o bruto das
+          entregas (e gasolina real, se tiver cupom).{" "}
+          <Link href="/config" className="text-primary underline-offset-2 hover:underline">
+            Configurar custos
+          </Link>
+        </p>
+      )}
 
       {(s.weeklyGoal || s.goalTarget != null) && (
         <WeeklyGoalThermometer
@@ -162,6 +173,14 @@ export default function HomePage() {
                     Valor real (cupom ou Zap)
                   </p>
                 </>
+              ) : s.costsConfigured === false ? (
+                <>
+                  <p>Sem abastecimento registrado hoje</p>
+                  <p>
+                    Configure custos em Config para estimar por km, ou mande cupom
+                    no Zap
+                  </p>
+                </>
               ) : (
                 <>
                   <p>Estimado por km rodado</p>
@@ -200,8 +219,16 @@ export default function HomePage() {
                   <p>Estacionamento, pedágio, ferramentas</p>
                   <p>Valor diário em Config</p>
                 </>
+              ) : s.costsConfigured === false ? (
+                <p>
+                  Salve seus custos em{" "}
+                  <Link href="/config" className="text-primary underline-offset-2 hover:underline">
+                    Config
+                  </Link>{" "}
+                  para incluir alimentação e outros no dia
+                </p>
               ) : (
-                <p>Sem entregas hoje ou configure em Config</p>
+                <p>Sem entregas hoje ou valor zerado em Config</p>
               )
             }
           />

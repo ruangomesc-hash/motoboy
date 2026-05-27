@@ -324,10 +324,11 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const body = costUpdateSchema.parse(request.body);
     const userId = request.sessionUser!.id;
     const before = await prisma.costConfig.findUnique({ where: { userId } });
+    const now = new Date();
     const result = await prisma.costConfig.upsert({
       where: { userId },
-      create: { userId, ...body },
-      update: body,
+      create: { userId, ...body, costsConfiguredAt: now },
+      update: { ...body, costsConfiguredAt: now },
     });
     const changes = diffValues(
       (

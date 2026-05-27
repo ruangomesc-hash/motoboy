@@ -8,6 +8,7 @@ export function emptyTodaySummary(): TodaySummary {
     otherCost: 0,
     totalExpenses: 0,
     netProfit: 0,
+    costsConfigured: false,
     totalKm: 0,
     profitPerKm: 0,
     deliveryCount: 0,

@@ -202,6 +202,8 @@ export const todaySummarySchema = z.object({
   otherCost: z.number(),
   totalExpenses: z.number(),
   netProfit: z.number(),
+  /** false = custos diários/estimados ainda não foram salvos em Config */
+  costsConfigured: z.boolean().optional(),
   totalKm: z.number(),
   profitPerKm: z.number(),
   deliveryCount: z.number(),

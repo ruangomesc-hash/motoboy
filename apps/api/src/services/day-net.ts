@@ -1,4 +1,5 @@
 import { prisma } from "@motoboy/db";
+import { computeDayExpenses } from "./day-expenses.js";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
 
@@ -56,13 +57,17 @@ export async function getDayNetProfit(
     estimatedFuelCost,
   );
 
-  const fuelCost = fuel.cost;
   const hasActivity = deliveries.length > 0;
-  const maintenanceCost =
-    hasActivity && totalKm > 0 ? totalKm * maintenancePerKm : 0;
-  const otherCost = hasActivity ? dailyOther : 0;
+  const { totalExpenses } = computeDayExpenses({
+    costsConfigured: Boolean(costs?.costsConfiguredAt),
+    fuel,
+    totalKm,
+    hasActivity,
+    dailyOther,
+    maintenancePerKm,
+  });
 
-  return grossTotal - fuelCost - maintenanceCost - otherCost;
+  return grossTotal - totalExpenses;
 }
 
 export async function getRangeNetProfit(

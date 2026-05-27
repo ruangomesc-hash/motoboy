@@ -71,11 +71,22 @@ export function applyDeliveryToToday(
     occurredAt: delivery.occurredAt ?? new Date().toISOString(),
   };
 
+  const grossTotal = today.grossTotal + gross;
+  const totalKm = today.totalKm + (Number.isFinite(km) ? km : 0);
+  const totalExpenses = today.costsConfigured
+    ? today.totalExpenses
+    : today.fuel.isActual
+      ? today.fuelCost
+      : 0;
+
   return {
     ...today,
-    grossTotal: today.grossTotal + gross,
-    totalKm: today.totalKm + (Number.isFinite(km) ? km : 0),
+    grossTotal,
+    totalKm,
     deliveryCount: today.deliveryCount + 1,
+    totalExpenses,
+    netProfit: grossTotal - totalExpenses,
+    profitPerKm: totalKm > 0 ? (grossTotal - totalExpenses) / totalKm : 0,
     recentDeliveries: [newRecent, ...today.recentDeliveries].slice(0, 3),
   };
 }

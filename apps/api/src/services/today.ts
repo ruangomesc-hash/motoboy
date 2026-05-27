@@ -7,6 +7,7 @@ import {
   buildWeeklyGoalProgress,
   getUserGoalsContext,
 } from "./goals-plan.js";
+import { computeDayExpenses } from "./day-expenses.js";
 
 function toNumber(d: { toString(): string } | number | null | undefined): number {
   if (d == null) return 0;
@@ -74,12 +75,16 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     estimatedFuelCost,
   );
 
-  const fuelCost = fuel.cost;
   const hasActivity = deliveries.length > 0;
-  const maintenanceCost =
-    hasActivity && totalKm > 0 ? totalKm * maintenancePerKm : 0;
-  const otherCost = hasActivity ? dailyOther : 0;
-  const totalExpenses = fuelCost + maintenanceCost + otherCost;
+  const expenses = computeDayExpenses({
+    costsConfigured: Boolean(costs?.costsConfiguredAt),
+    fuel,
+    totalKm,
+    hasActivity,
+    dailyOther,
+    maintenancePerKm,
+  });
+  const { fuelCost, maintenanceCost, otherCost, totalExpenses } = expenses;
   const netProfit = grossTotal - totalExpenses;
   const profitPerKm = totalKm > 0 ? netProfit / totalKm : 0;
 
@@ -121,6 +126,7 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     otherCost,
     totalExpenses,
     netProfit,
+    costsConfigured: expenses.costsConfigured,
     totalKm,
     profitPerKm,
     deliveryCount: deliveries.length,
