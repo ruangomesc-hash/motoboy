@@ -22,6 +22,22 @@ const SOURCES = [
   { value: "OTHER", label: "Outro" },
 ] as const;
 
+function sanitizeDecimalInput(raw: string): string {
+  const cleaned = raw.replace(/[^\d.,]/g, "");
+  let separatorUsed = false;
+  let result = "";
+  for (const ch of cleaned) {
+    if (ch === "." || ch === ",") {
+      if (separatorUsed) continue;
+      separatorUsed = true;
+      result += ch;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();
   const { applyDeliveryOptimistic, setDeliveriesDate } = useAppData();
@@ -62,6 +78,16 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
       setError("Informe o valor da entrega");
       return;
     }
+    const parsedDistanceKm = form.distanceKm
+      ? Number(form.distanceKm.replace(",", "."))
+      : null;
+    if (
+      parsedDistanceKm != null &&
+      (!Number.isFinite(parsedDistanceKm) || parsedDistanceKm < 0)
+    ) {
+      setError("Km inválido. Use apenas números e ponto/vírgula.");
+      return;
+    }
 
     const occurredAt = editDateTime
       ? isoFromDatetimeLocal(occurredAtLocal)
@@ -76,9 +102,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
           grossValue: value,
           source: form.source,
           originName: form.originName.trim() || null,
-          distanceKm: form.distanceKm
-            ? Number(form.distanceKm.replace(",", "."))
-            : null,
+          distanceKm: parsedDistanceKm,
           occurredAt,
         }),
       });
@@ -89,9 +113,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
           grossValue: value,
           source: form.source,
           originName: form.originName.trim() || null,
-          distanceKm: form.distanceKm
-            ? Number(form.distanceKm.replace(",", "."))
-            : null,
+          distanceKm: parsedDistanceKm,
           occurredAt,
         };
 
@@ -224,7 +246,10 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
           placeholder="3,5"
           value={form.distanceKm}
           onChange={(e) =>
-            setForm((f) => ({ ...f, distanceKm: e.target.value }))
+            setForm((f) => ({
+              ...f,
+              distanceKm: sanitizeDecimalInput(e.target.value),
+            }))
           }
           className="mt-1"
         />
