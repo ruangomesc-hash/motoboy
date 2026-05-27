@@ -108,7 +108,7 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
 const POLL_MS = 8_000;
 const RECONCILE_MS = 60;
-const BACKGROUND_RECONCILE_MS = 2_500;
+const BACKGROUND_RECONCILE_MS = 500;
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
   return shouldHandleSync(subscribed, incoming);
