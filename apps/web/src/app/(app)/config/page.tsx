@@ -64,6 +64,7 @@ function ConfigPageInner() {
 
   const [form, setForm] = useState<ConfigFormSnapshot>(defaultForm);
   const [saved, setSaved] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -152,12 +153,11 @@ function ConfigPageInner() {
 
     setSaving(true);
     setSaveError(null);
+    setSaveSuccess(null);
     try {
       const { complete, me } = await saveMeSettings(form);
       clearPendingRegistration();
       clearSetupGuideHidden();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
 
       if (!complete) {
         const missing = me ? describeIncompleteConfig(me) : null;
@@ -169,9 +169,17 @@ function ConfigPageInner() {
         return;
       }
 
+      const message = "Configurações salvas com sucesso!";
+      setSaveSuccess(message);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2500);
+      window.setTimeout(() => setSaveSuccess(null), 5000);
+
       if (isSetup) {
-        if (!isAppTourSeen()) router.replace("/?tour=1");
-        else router.replace("/");
+        window.setTimeout(() => {
+          if (!isAppTourSeen()) router.replace("/?tour=1");
+          else router.replace("/");
+        }, 1600);
       }
     } catch (e) {
       setSaveError(
@@ -206,6 +214,16 @@ function ConfigPageInner() {
       {loadError && (
         <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/10 p-3">
           {loadError}
+        </p>
+      )}
+      {saveSuccess && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="text-sm text-emerald-300 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 flex items-center gap-2"
+        >
+          <Check className="h-4 w-4 shrink-0" strokeWidth={2} />
+          {saveSuccess}
         </p>
       )}
       {saveError && (
@@ -339,24 +357,25 @@ function ConfigPageInner() {
         </p>
       </section>
 
-      <Button
-        id="onboarding-save"
-        onClick={save}
-        className="w-full scroll-mt-4"
-        size="lg"
-        disabled={saving}
-      >
-        {saving ? (
-          "Salvando..."
-        ) : saved ? (
-          <span className="inline-flex items-center gap-2">
-            <Check className="h-4 w-4" strokeWidth={2} />
-            Salvo
-          </span>
-        ) : (
-          "Salvar configurações"
-        )}
-      </Button>
+      <div className="space-y-2 scroll-mt-4" id="onboarding-save">
+        <Button
+          onClick={save}
+          className="w-full"
+          size="lg"
+          disabled={saving}
+        >
+          {saving ? (
+            "Salvando..."
+          ) : saved ? (
+            <span className="inline-flex items-center gap-2">
+              <Check className="h-4 w-4" strokeWidth={2} />
+              Salvo!
+            </span>
+          ) : (
+            "Salvar configurações"
+          )}
+        </Button>
+      </div>
 
       <button
         type="button"

@@ -24,6 +24,7 @@ export default function EntregasPage() {
     deliveriesDate,
     setDeliveriesDate,
     refreshDeliveries,
+    refreshToday,
     isBootstrapped,
   } = useAppData();
 
@@ -31,7 +32,11 @@ export default function EntregasPage() {
     <AppPage className="p-3 space-y-3">
       <h1 className="text-lg font-bold px-1">Entregas</h1>
 
-      <AddDeliveryForm onSuccess={() => void refreshDeliveries()} />
+      <AddDeliveryForm
+        onSuccess={() => {
+          void Promise.all([refreshDeliveries(), refreshToday()]);
+        }}
+      />
 
       <Input
         type="date"

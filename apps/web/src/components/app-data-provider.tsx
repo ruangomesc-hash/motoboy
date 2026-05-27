@@ -14,6 +14,7 @@ import type { PeriodStats, TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
   APP_SYNC_EVENT,
+  APP_SYNC_BRIDGE_KEY,
   type AppSyncDetail,
   type AppSyncTopic,
   shouldHandleSync,
@@ -200,9 +201,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [loadMeSettings]);
 
   const bootstrap = useCallback(async () => {
-    await Promise.all([refreshToday(), loadMeSettings({ force: true })]);
+    await refreshToday();
     setIsBootstrapped(true);
-    void Promise.all([refreshDeliveries(), refreshStats("week")]);
+    void Promise.all([
+      loadMeSettings({ force: true }),
+      refreshDeliveries(),
+      refreshStats("week"),
+    ]);
   }, [refreshToday, loadMeSettings, refreshDeliveries, refreshStats]);
 
   useEffect(() => {
@@ -229,8 +234,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isBootstrapped) return;
 
-    const onSync = (event: Event) => {
-      const detail = (event as CustomEvent<AppSyncDetail>).detail;
+    const handleSyncDetail = (detail: AppSyncDetail | undefined) => {
       const incoming = detail?.topics ?? ["all"];
 
       if (detail?.delivery) {
@@ -265,8 +269,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         queueConfigRefresh();
       }
     };
+    const onSync = (event: Event) => {
+      handleSyncDetail((event as CustomEvent<AppSyncDetail>).detail);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== APP_SYNC_BRIDGE_KEY || !event.newValue) return;
+      try {
+        const parsed = JSON.parse(event.newValue) as { detail?: AppSyncDetail };
+        handleSyncDetail(parsed.detail);
+      } catch {
+        /* ignore malformed payload */
+      }
+    };
 
     window.addEventListener(APP_SYNC_EVENT, onSync);
+    window.addEventListener("storage", onStorage);
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       void refreshToday();
@@ -285,6 +302,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       window.removeEventListener(APP_SYNC_EVENT, onSync);
+      window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisible);
       if (poll) clearInterval(poll);
     };

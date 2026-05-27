@@ -1,4 +1,5 @@
 export const APP_SYNC_EVENT = "motoboy:sync";
+export const APP_SYNC_BRIDGE_KEY = "motoboy:sync:bridge";
 
 export type AppSyncTopic =
   | "today"
@@ -22,11 +23,21 @@ export function notifyAppSync(
 ): void {
   if (typeof window === "undefined") return;
   const list = Array.isArray(topics) ? topics : [topics];
+  const detail: AppSyncDetail = { topics: list, ...extra };
   window.dispatchEvent(
     new CustomEvent<AppSyncDetail>(APP_SYNC_EVENT, {
-      detail: { topics: list, ...extra },
+      detail,
     }),
   );
+  try {
+    // Cross-tab sync: other tabs receive this via "storage".
+    window.localStorage.setItem(
+      APP_SYNC_BRIDGE_KEY,
+      JSON.stringify({ ts: Date.now(), detail }),
+    );
+  } catch {
+    /* ignore storage errors */
+  }
 }
 
 export function syncTopicsForPath(path: string, method: string): AppSyncTopic[] {
