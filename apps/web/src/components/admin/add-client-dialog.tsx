@@ -134,7 +134,7 @@ export function AddClientDialog({
             }
             className="mt-1 w-full h-11 rounded-lg border border-border bg-background px-3 text-sm"
           >
-            <option value="TRIAL">Trial (14 dias)</option>
+            <option value="TRIAL">Trial (4 dias)</option>
             <option value="ACTIVE">Ativo (pago)</option>
             <option value="PAUSED">Pausado</option>
             <option value="CANCELED">Cancelado</option>

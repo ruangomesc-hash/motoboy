@@ -15,6 +15,7 @@ import type {
   SubscriptionStatus,
   UserProfile,
 } from "@motoboy/types";
+import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { cn } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 
@@ -100,7 +101,12 @@ export default function AssinarPage() {
         <p className="text-muted-foreground mt-2 text-sm">
           Trial de 4 dias grátis. Depois, continue por:
         </p>
-        <p className="text-4xl font-bold text-primary mt-3">R$ 14,90</p>
+        <p className="text-4xl font-bold text-primary mt-3">
+          {SUBSCRIPTION_PRICE_BRL.toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+          })}
+        </p>
         <p className="text-sm text-muted-foreground">/mês · cobrança via Asaas</p>
       </div>
 

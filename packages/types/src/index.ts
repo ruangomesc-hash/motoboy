@@ -3,6 +3,21 @@ import { z } from "zod";
 /** Dias de trial gratuito após o cadastro. */
 export const TRIAL_DAYS = 4;
 
+/** Valor mensal do Motocopiloto Pro (cobrança e telas do app). */
+export const SUBSCRIPTION_PRICE_BRL = 15.9;
+
+/** Data máxima do trial = cadastro + dias configurados (corrige trials antigos mais longos). */
+export function capTrialEndsAt(
+  trialEndsAt: Date | string,
+  createdAt: Date | string,
+  trialDays = TRIAL_DAYS,
+): Date {
+  const end = new Date(trialEndsAt);
+  const maxEnd = new Date(createdAt);
+  maxEnd.setDate(maxEnd.getDate() + trialDays);
+  return end.getTime() > maxEnd.getTime() ? maxEnd : end;
+}
+
 export const deliverySourceSchema = z.enum([
   "IFOOD",
   "NINETY_NINE",
@@ -341,6 +356,8 @@ export type SubscribeResponse = z.infer<typeof subscribeResponseSchema>;
 export const subscriptionStatusSchema = z.object({
   status: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELED"]),
   trialEndsAt: z.string().nullable(),
+  /** Dias de trial da política atual (ex.: 4). */
+  trialDays: z.number().int().positive(),
   subscribedAt: z.string().nullable(),
   subscriptionPaymentMethod: subscriptionPaymentMethodSchema,
   lastPayment: z

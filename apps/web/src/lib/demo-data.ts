@@ -138,6 +138,7 @@ function pushDemoActivity(
 export const demoSubscription: SubscriptionStatus = {
   status: "TRIAL",
   trialEndsAt: new Date(Date.now() + 4 * 86400_000).toISOString(),
+  trialDays: 4,
   subscribedAt: null,
   subscriptionPaymentMethod: "PIX",
   lastPayment: null,

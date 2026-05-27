@@ -1,5 +1,5 @@
 import type { AdminUserRow } from "@motoboy/types";
-import { TRIAL_DAYS } from "@motoboy/types";
+import { SUBSCRIPTION_PRICE_BRL, TRIAL_DAYS } from "@motoboy/types";
 
 export type AdminTrialCell = {
   headline: string;
@@ -81,5 +81,9 @@ export function formatAdminTrialCell(
 }
 
 export function trialPolicySummary(configuredDays = TRIAL_DAYS): string {
-  return `Novos cadastros recebem ${configuredDays} dias de trial gratuito. Depois precisam assinar o Pro (R$ 14,90/mês).`;
+  const price = SUBSCRIPTION_PRICE_BRL.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+  return `Novos cadastros recebem ${configuredDays} dias de trial gratuito. Depois precisam assinar o Pro (${price}/mês).`;
 }

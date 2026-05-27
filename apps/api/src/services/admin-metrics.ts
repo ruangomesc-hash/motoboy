@@ -10,9 +10,9 @@ import { buildCsv } from "../lib/csv.js";
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser } from "./affiliate.js";
 
-import { TRIAL_DAYS } from "@motoboy/types";
+import { SUBSCRIPTION_PRICE_BRL, TRIAL_DAYS } from "@motoboy/types";
 
-export const SUBSCRIPTION_PRICE = 14.9;
+export const SUBSCRIPTION_PRICE = SUBSCRIPTION_PRICE_BRL;
 
 type DelinquencyReason = "trial_expired" | "payment_pending" | "payment_failed";
 

@@ -30,7 +30,7 @@ function last7DaysSignups(): { date: string; count: number }[] {
 
 export const demoAdminOverview: AdminOverview = {
   generatedAt: new Date().toISOString(),
-  subscriptionPrice: 14.9,
+  subscriptionPrice: 15.9,
   trialDays: 4,
   users: {
     total: 48,
@@ -48,7 +48,7 @@ export const demoAdminOverview: AdminOverview = {
     last7Days: last7DaysSignups(),
   },
   revenue: {
-    mrr: 22 * 14.9,
+    mrr: 22 * 15.9,
     paidThisMonth: 298.0,
     paidCountThisMonth: 20,
   },
@@ -302,13 +302,13 @@ function demoPaymentLink(client: AdminUserRow): AdminPaymentLinkResponse {
   const invoiceUrl = `https://sandbox.asaas.com/i/demo-${client.id}`;
   const pixCopyPaste =
     "00020126580014br.gov.bcb.pix0136123e456789-e.mock-MOTOCOPILOTO520400005303986540514.905802BR5925Motocopiloto6009SAO PAULO62070503***6304DEMO";
-  const whatsappText = `Olá${client.name ? `, ${client.name}` : ""}!\n\nAssinatura *Motocopiloto* — R$ 14,90/mês.\n\n*Pix copia e cola:*\n${pixCopyPaste}\n\n*Link de pagamento:*\n${invoiceUrl}`;
+  const whatsappText = `Olá${client.name ? `, ${client.name}` : ""}!\n\nAssinatura *Motocopiloto* — R$ 15,90/mês.\n\n*Pix copia e cola:*\n${pixCopyPaste}\n\n*Link de pagamento:*\n${invoiceUrl}`;
   const digits = client.whatsappNumber.replace(/\D/g, "");
   return {
     paymentId: `demo-pay-${client.id}`,
     invoiceUrl,
     pixCopyPaste,
-    amount: 14.9,
+    amount: 15.9,
     whatsappText,
     whatsappUrl: `https://wa.me/${digits}?text=${encodeURIComponent(whatsappText)}`,
   };

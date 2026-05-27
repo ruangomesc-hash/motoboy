@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@motoboy/db";
 import {
+  TRIAL_DAYS,
   costUpdateSchema,
   goalUpdateSchema,
   deliveryPatchSchema,
@@ -8,6 +9,7 @@ import {
   profileUpdateSchema,
   goalsPlanUpdateSchema,
 } from "@motoboy/types";
+import { ensureTrialEndsAtPolicy } from "../services/trial.js";
 import {
   buildGoalsPlan,
   getUserGoalsContext,
@@ -534,7 +536,9 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const user = await prisma.user.findUnique({
       where: { id: request.sessionUser!.id },
       select: {
+        id: true,
         status: true,
+        createdAt: true,
         trialEndsAt: true,
         subscribedAt: true,
         subscriptionPaymentMethod: true,
@@ -545,9 +549,21 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { createdAt: "desc" },
     });
     const asaas = new AsaasService(env);
+
+    let trialEndsAt = user?.trialEndsAt ?? null;
+    if (user?.status === "TRIAL" && user.trialEndsAt) {
+      trialEndsAt = await ensureTrialEndsAtPolicy({
+        id: user.id,
+        status: user.status,
+        createdAt: user.createdAt,
+        trialEndsAt: user.trialEndsAt,
+      });
+    }
+
     return {
       status: user?.status ?? "TRIAL",
-      trialEndsAt: user?.trialEndsAt?.toISOString() ?? null,
+      trialEndsAt: trialEndsAt?.toISOString() ?? null,
+      trialDays: TRIAL_DAYS,
       subscribedAt: user?.subscribedAt?.toISOString() ?? null,
       subscriptionPaymentMethod: user?.subscriptionPaymentMethod ?? "PIX",
       lastPayment: lastPayment
