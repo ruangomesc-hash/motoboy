@@ -10,7 +10,6 @@ const withPWA = require("next-pwa")({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracingRoot: path.join(__dirname, "../.."),
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: false },
   env: {
@@ -26,6 +25,8 @@ const nextConfig = {
     "@motoboy/ai",
   ],
   experimental: {
+    // Monorepo: inclui arquivos fora de apps/web no tracing do bundle serverless.
+    outputFileTracingRoot: path.join(__dirname, "../.."),
     serverComponentsExternalPackages: [
       "@prisma/client",
       "bullmq",

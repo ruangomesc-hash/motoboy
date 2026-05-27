@@ -28,6 +28,24 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
+    const verify = await fetch("/api/backend/auth/whatsapp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: digits,
+        code: "000000",
+      }),
+    });
+    if (!verify.ok) {
+      const data = (await verify.json().catch(() => ({}))) as { error?: string };
+      setLoading(false);
+      setError(
+        data.error ??
+          "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail.",
+      );
+      return;
+    }
+
     const result = await signIn("whatsapp", {
       phone: digits,
       code: "000000",
