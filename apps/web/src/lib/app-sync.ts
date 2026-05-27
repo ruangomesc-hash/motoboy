@@ -41,7 +41,7 @@ export function syncTopicsForPath(path: string, method: string): AppSyncTopic[] 
     path.includes("/costs") ||
     path.includes("/goals")
   ) {
-    return ["profile", "today", "stats"];
+    return ["profile"];
   }
   if (path.includes("/subscribe") || path.includes("/subscription")) {
     return ["subscription"];

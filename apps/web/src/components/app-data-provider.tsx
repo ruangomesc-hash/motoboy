@@ -19,10 +19,17 @@ import {
   shouldHandleSync,
 } from "@/lib/app-sync";
 import { applyDeliveryToToday } from "@/lib/app-data-cache";
+import { isServerConfigComplete } from "@/lib/onboarding";
 import {
-  isServerConfigComplete,
-  type MeConfigSnapshot,
-} from "@/lib/onboarding";
+  type ConfigSavePayload,
+  type MeApiResponse,
+  type MeSettingsSnapshot,
+  parseMeSettings,
+  toCostsPutBody,
+  toGoalsPutBody,
+  toProfilePutBody,
+} from "@/lib/me-settings";
+import { notifyAppSync } from "@/lib/app-sync";
 
 export type DeliveryListItem = {
   id: string;
@@ -43,6 +50,12 @@ type AppDataContextValue = {
   statsMonth: PeriodStats | null;
   isBootstrapped: boolean;
   configComplete: boolean | null;
+  meSettings: MeSettingsSnapshot | null;
+  meSettingsLoading: boolean;
+  loadMeSettings: (opts?: { force?: boolean }) => Promise<MeSettingsSnapshot | null>;
+  saveMeSettings: (
+    payload: ConfigSavePayload,
+  ) => Promise<{ complete: boolean; me: MeSettingsSnapshot | null }>;
   refreshToday: () => Promise<void>;
   refreshDeliveries: () => Promise<void>;
   refreshStats: (period: "week" | "month") => Promise<void>;
@@ -60,7 +73,8 @@ function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): bool
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
-  const { status } = useSession();
+  const { status, data: session } = useSession();
+  const token = session?.accessToken;
   const [today, setToday] = useState<TodaySummary | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryListItem[]>([]);
@@ -69,8 +83,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [statsMonth, setStatsMonth] = useState<PeriodStats | null>(null);
   const [isBootstrapped, setIsBootstrapped] = useState(false);
   const [configComplete, setConfigComplete] = useState<boolean | null>(null);
+  const [meSettings, setMeSettings] = useState<MeSettingsSnapshot | null>(null);
+  const [meSettingsLoading, setMeSettingsLoading] = useState(false);
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const meLoadSeq = useRef(0);
 
   const refreshToday = useCallback(async () => {
     try {
@@ -105,48 +122,101 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [api],
   );
 
+  const applyMeSnapshot = useCallback((snap: MeSettingsSnapshot) => {
+    setMeSettings(snap);
+    const complete = isServerConfigComplete(snap);
+    setConfigComplete(complete);
+    setProfileName(snap.profile?.name ?? null);
+    return complete;
+  }, []);
+
+  const loadMeSettings = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (status !== "authenticated") return null;
+      if (!token && !session?.demo) return meSettings;
+
+      if (!opts?.force && meSettings) return meSettings;
+
+      const seq = ++meLoadSeq.current;
+      setMeSettingsLoading(true);
+      try {
+        const data = await api<MeApiResponse>("/me");
+        if (seq !== meLoadSeq.current) return null;
+        const snap = parseMeSettings(data);
+        applyMeSnapshot(snap);
+        return snap;
+      } catch {
+        if (seq === meLoadSeq.current) setConfigComplete(false);
+        return null;
+      } finally {
+        if (seq === meLoadSeq.current) setMeSettingsLoading(false);
+      }
+    },
+    [api, applyMeSnapshot, meSettings, session?.demo, status, token],
+  );
+
   const refreshConfigStatus = useCallback(async () => {
-    if (configRefreshTimer.current) {
-      clearTimeout(configRefreshTimer.current);
-      configRefreshTimer.current = null;
-    }
-    try {
-      const me = await api<MeConfigSnapshot>("/me");
-      const complete = isServerConfigComplete(me);
-      setConfigComplete(complete);
-      setProfileName(me.profile?.name ?? null);
-      return complete;
-    } catch {
-      setConfigComplete(false);
-      return false;
-    }
-  }, [api]);
+    const snap = await loadMeSettings({ force: true });
+    return snap ? isServerConfigComplete(snap) : false;
+  }, [loadMeSettings]);
+
+  const saveMeSettings = useCallback(
+    async (payload: ConfigSavePayload) => {
+      await Promise.all([
+        api("/me/profile", {
+          method: "PUT",
+          body: JSON.stringify(toProfilePutBody(payload.profile)),
+        }, { skipSync: true }),
+        api("/me/goals/plan", {
+          method: "PUT",
+          body: JSON.stringify(toGoalsPutBody(payload)),
+        }, { skipSync: true }),
+        api("/me/costs", {
+          method: "PUT",
+          body: JSON.stringify(toCostsPutBody(payload)),
+        }, { skipSync: true }),
+      ]);
+
+      const snap = await loadMeSettings({ force: true });
+      notifyAppSync(["profile"]);
+      void refreshToday();
+
+      return {
+        complete: snap ? isServerConfigComplete(snap) : false,
+        me: snap,
+      };
+    },
+    [api, loadMeSettings, refreshToday],
+  );
 
   const queueConfigRefresh = useCallback(() => {
     if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
     configRefreshTimer.current = setTimeout(() => {
       configRefreshTimer.current = null;
-      void refreshConfigStatus();
+      void loadMeSettings({ force: true });
     }, 400);
-  }, [refreshConfigStatus]);
+  }, [loadMeSettings]);
 
   const bootstrap = useCallback(async () => {
-    await Promise.all([refreshToday(), refreshConfigStatus()]);
+    await Promise.all([refreshToday(), loadMeSettings({ force: true })]);
     setIsBootstrapped(true);
     void Promise.all([refreshDeliveries(), refreshStats("week")]);
-  }, [refreshToday, refreshConfigStatus, refreshDeliveries, refreshStats]);
+  }, [refreshToday, loadMeSettings, refreshDeliveries, refreshStats]);
 
   useEffect(() => {
     if (status !== "authenticated") {
       bootstrapStarted.current = false;
       setIsBootstrapped(false);
       setConfigComplete(null);
+      setMeSettings(null);
+      meLoadSeq.current += 1;
       return;
     }
+    if (!token && !session?.demo) return;
     if (bootstrapStarted.current) return;
     bootstrapStarted.current = true;
     void bootstrap();
-  }, [status, bootstrap]);
+  }, [status, token, session?.demo, bootstrap]);
 
   useEffect(() => {
     if (!isBootstrapped) return;
@@ -216,12 +286,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (poll) clearInterval(poll);
     };
   }, [
-    api,
     isBootstrapped,
     refreshToday,
     refreshDeliveries,
     refreshStats,
-    refreshConfigStatus,
     queueConfigRefresh,
   ]);
 
@@ -236,6 +304,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       statsMonth,
       isBootstrapped,
       configComplete,
+      meSettings,
+      meSettingsLoading,
+      loadMeSettings,
+      saveMeSettings,
       refreshToday,
       refreshDeliveries,
       refreshStats,
@@ -250,6 +322,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       statsMonth,
       isBootstrapped,
       configComplete,
+      meSettings,
+      meSettingsLoading,
+      loadMeSettings,
+      saveMeSettings,
       refreshToday,
       refreshDeliveries,
       refreshStats,

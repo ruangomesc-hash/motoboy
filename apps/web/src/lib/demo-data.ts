@@ -23,6 +23,14 @@ export const demoProfile: UserProfile = {
   workDays: [...DEFAULT_WORK_DAYS],
 };
 
+export const demoCosts = {
+  fuelPricePerLiter: 6.2,
+  kmPerLiter: 35,
+  maintenancePerKm: 0.15,
+  dailyFoodCost: 25,
+  otherDailyCost: 33,
+};
+
 export const demoGoalsPlan: GoalsPlan = {
   monthlyTarget: 5000,
   weeklyTarget: 1153.85,
@@ -383,13 +391,7 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       whatsappNumber: demoProfile.whatsappNumber,
       profile: demoProfile,
       goalsPlan: demoGoalsPlan,
-      costs: {
-        fuelPricePerLiter: 6.2,
-        kmPerLiter: 35,
-        maintenancePerKm: 0.15,
-        dailyFoodCost: 25,
-        otherDailyCost: 33,
-      },
+      costs: { ...demoCosts },
       goals: [{ targetValue: demoGoalsPlan.monthlyTarget, period: "MONTHLY" }],
     } as T);
   }
@@ -481,6 +483,20 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
     return Promise.resolve(demoProfile as T);
   }
   if (path === "/me/costs" && method === "PUT") {
+    const body = JSON.parse((options.body as string) ?? "{}") as Partial<
+      typeof demoCosts
+    >;
+    if (body.fuelPricePerLiter != null) {
+      demoCosts.fuelPricePerLiter = body.fuelPricePerLiter;
+    }
+    if (body.kmPerLiter != null) demoCosts.kmPerLiter = body.kmPerLiter;
+    if (body.maintenancePerKm != null) {
+      demoCosts.maintenancePerKm = body.maintenancePerKm;
+    }
+    if (body.dailyFoodCost != null) demoCosts.dailyFoodCost = body.dailyFoodCost;
+    if (body.otherDailyCost != null) {
+      demoCosts.otherDailyCost = body.otherDailyCost;
+    }
     pushDemoActivity({
       category: "COSTS",
       action: "UPDATED",
@@ -489,14 +505,14 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
         {
           field: "otherDailyCost",
           label: "Outros custos/dia",
-          from: "R$ 33,00",
-          to: "R$ 58,00",
+          from: null,
+          to: `R$ ${demoCosts.otherDailyCost.toFixed(2).replace(".", ",")}`,
         },
       ],
       entityId: null,
       source: "app",
     });
-    return Promise.resolve({ ok: true } as T);
+    return Promise.resolve({ ...demoCosts } as T);
   }
   if (path === "/me/goals/plan" && method === "PUT") {
     const body = JSON.parse((options.body as string) ?? "{}") as {

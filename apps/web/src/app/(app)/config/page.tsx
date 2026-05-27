@@ -1,23 +1,20 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
-import { notifyAppSync } from "@/lib/app-sync";
 import {
   clearSetupGuideHidden,
   describeIncompleteConfig,
   getConfigSaveBlockers,
   isAppTourSeen,
-  isServerConfigComplete,
-  type MeConfigSnapshot,
 } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
-import type { FuelDayStats, GoalsPlan, UserProfile } from "@motoboy/types";
+import type { FuelDayStats } from "@motoboy/types";
 import { Check, Fuel, Gauge, History, Target } from "lucide-react";
 import Link from "next/link";
 import {
@@ -29,51 +26,50 @@ import {
   clearPendingRegistration,
   readPendingRegistration,
 } from "@/lib/registration-pending";
+import { meToConfigForm, type ConfigFormSnapshot } from "@/lib/me-settings";
 import { AppPage } from "@/components/app-page";
 
-interface Costs {
-  fuelPricePerLiter: string | number;
-  kmPerLiter: string | number;
-  maintenancePerKm: string | number;
-  dailyFoodCost?: string | number;
-  otherDailyCost: string | number;
-}
-
-interface MeResponse {
-  costs: Costs | null;
-  goalsPlan: GoalsPlan | null;
-  profile: UserProfile;
-}
-
-const emptyProfile: ProfileFormState = {
-  name: "",
-  email: "",
-  city: "",
-  workApps: [],
-  subscriptionPaymentMethod: "PIX",
-  workDays: [...DEFAULT_WORK_DAYS],
-};
-
-function ConfigPageInner() {
-  const api = useApi();
-  const { refreshConfigStatus } = useAppData();
-  const { status: sessionStatus } = useSession();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const isSetup = searchParams.get("setup") === "1";
-  const [profile, setProfile] = useState<ProfileFormState>(emptyProfile);
-  const [monthlyGoal, setMonthlyGoal] = useState("5000");
-  const [costs, setCosts] = useState({
+const defaultForm: ConfigFormSnapshot = {
+  profile: {
+    name: "",
+    email: "",
+    city: "",
+    workApps: [],
+    subscriptionPaymentMethod: "PIX",
+    workDays: [...DEFAULT_WORK_DAYS],
+  },
+  monthlyGoal: "5000",
+  costs: {
     fuelPricePerLiter: "6",
     kmPerLiter: "35",
     maintenancePerKm: "0.15",
     otherDailyCost: "33",
-  });
+  },
+};
+
+function ConfigPageInner() {
+  const api = useApi();
+  const pathname = usePathname();
+  const {
+    saveMeSettings,
+    loadMeSettings,
+    meSettings,
+    meSettingsLoading,
+    configComplete,
+  } = useAppData();
+  const { status: sessionStatus } = useSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isSetup = searchParams.get("setup") === "1";
+
+  const [form, setForm] = useState<ConfigFormSnapshot>(defaultForm);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
+  const { profile, monthlyGoal, costs } = form;
 
   const previewPlan = useMemo(() => {
     const monthly = Number(monthlyGoal);
@@ -107,76 +103,39 @@ function ConfigPageInner() {
   }, [monthlyGoal, profile.workDays]);
 
   useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    if (!pathname.startsWith("/config")) return;
+    setLoadError(null);
+    void loadMeSettings({ force: true }).catch((e: Error) => {
+      setLoadError(e.message);
+    });
+  }, [pathname, sessionStatus, loadMeSettings]);
+
+  useEffect(() => {
+    if (!meSettings || saving) return;
+    const pending = readPendingRegistration();
+    const next = meToConfigForm(meSettings, pending);
+    setForm(next);
+    if (next.profile.name?.trim() && next.profile.email?.trim()) {
+      clearPendingRegistration();
+    }
+  }, [meSettings, saving]);
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
     api<{ stats: FuelDayStats }>("/me/fuel").then((r) => setFuelStats(r.stats));
     api<{ currentKm: number | null }>("/me/odometer").then((r) =>
       setCurrentKm(r.currentKm),
     );
-  }, [api]);
-
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [configReady, setConfigReady] = useState(false);
-
-  useEffect(() => {
-    if (sessionStatus !== "authenticated") return;
-
-    setLoadError(null);
-    const pending = readPendingRegistration();
-
-    api<MeResponse>("/me")
-      .then((user) => {
-        if (user.profile) {
-          const serverName = user.profile.name?.trim() ?? "";
-          const serverEmail = user.profile.email?.trim() ?? "";
-          setProfile({
-            name: serverName || pending?.name || "",
-            email: serverEmail || pending?.email || "",
-            city: user.profile.city ?? "",
-            workApps: user.profile.workApps,
-            subscriptionPaymentMethod:
-              user.profile.subscriptionPaymentMethod ?? "PIX",
-            workDays:
-              user.profile.workDays?.length > 0
-                ? user.profile.workDays
-                : [...DEFAULT_WORK_DAYS],
-          });
-          if (serverName && serverEmail) clearPendingRegistration();
-        } else if (pending) {
-          setProfile((prev) => ({
-            ...prev,
-            name: pending.name,
-            email: pending.email,
-          }));
-        }
-        if (user.goalsPlan) {
-          setMonthlyGoal(String(Math.round(user.goalsPlan.monthlyTarget)));
-        }
-        if (user.costs) {
-          const combined =
-            Number(user.costs.dailyFoodCost ?? 0) +
-            Number(user.costs.otherDailyCost ?? 0);
-          setCosts({
-            fuelPricePerLiter: String(user.costs.fuelPricePerLiter),
-            kmPerLiter: String(user.costs.kmPerLiter),
-            maintenancePerKm: String(user.costs.maintenancePerKm),
-            otherDailyCost: String(combined || 33),
-          });
-        }
-      })
-      .catch((e: Error) => {
-        if (pending) {
-          setProfile((prev) => ({
-            ...prev,
-            name: pending.name,
-            email: pending.email,
-          }));
-        }
-        setLoadError(e.message);
-      });
-
-    api<MeConfigSnapshot>("/me")
-      .then((me) => setConfigReady(isServerConfigComplete(me)))
-      .catch(() => setConfigReady(false));
   }, [api, sessionStatus]);
+
+  function patchForm(patch: Partial<ConfigFormSnapshot>) {
+    setForm((prev) => ({ ...prev, ...patch }));
+  }
+
+  function setProfile(next: ProfileFormState) {
+    setForm((prev) => ({ ...prev, profile: next }));
+  }
 
   async function save() {
     const blocker = getConfigSaveBlockers({
@@ -194,71 +153,26 @@ function ConfigPageInner() {
     setSaving(true);
     setSaveError(null);
     try {
-      await api(
-        "/me/profile",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            name: profile.name.trim(),
-            email: profile.email.trim(),
-            city: profile.city.trim() || null,
-            workApps: profile.workApps,
-            subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
-            workDays: profile.workDays,
-          }),
-        },
-        { skipSync: true },
-      );
-      await api(
-        "/me/goals/plan",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            monthlyTarget: Number(monthlyGoal),
-            workDays: profile.workDays,
-          }),
-        },
-        { skipSync: true },
-      );
-      await api(
-        "/me/costs",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            fuelPricePerLiter: Number(costs.fuelPricePerLiter),
-            kmPerLiter: Number(costs.kmPerLiter),
-            maintenancePerKm: Number(costs.maintenancePerKm),
-            dailyFoodCost: 0,
-            otherDailyCost: Number(costs.otherDailyCost),
-          }),
-        },
-        { skipSync: true },
-      );
-
-      const ready = await refreshConfigStatus();
-      notifyAppSync(["profile", "today", "stats"]);
-      setConfigReady(ready);
+      const { complete, me } = await saveMeSettings(form);
       clearPendingRegistration();
       clearSetupGuideHidden();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
 
-      if (ready) {
-        if (!isAppTourSeen()) {
-          router.replace("/?tour=1");
-        } else {
-          router.replace("/");
-        }
+      if (!complete) {
+        const missing = me ? describeIncompleteConfig(me) : null;
+        setSaveError(
+          missing
+            ? `Não foi possível concluir. Falta: ${missing}.`
+            : "Salvo parcialmente. Confira os campos e tente de novo.",
+        );
         return;
       }
 
-      const me = await api<MeConfigSnapshot>("/me");
-      const missing = describeIncompleteConfig(me);
-      setSaveError(
-        missing
-          ? `Não foi possível concluir a configuração. Falta: ${missing}.`
-          : "Não foi possível concluir a configuração. Tente salvar novamente.",
-      );
+      if (isSetup) {
+        if (!isAppTourSeen()) router.replace("/?tour=1");
+        else router.replace("/");
+      }
     } catch (e) {
       setSaveError(
         e instanceof Error ? e.message : "Erro ao salvar. Tente novamente.",
@@ -267,6 +181,8 @@ function ConfigPageInner() {
       setSaving(false);
     }
   }
+
+  const showLoading = meSettingsLoading && !meSettings;
 
   return (
     <AppPage className="p-4 space-y-6 pb-8">
@@ -280,6 +196,12 @@ function ConfigPageInner() {
           Histórico
         </Link>
       </div>
+
+      {showLoading && (
+        <p className="text-sm text-muted-foreground animate-pulse">
+          Carregando suas configurações...
+        </p>
+      )}
 
       {loadError && (
         <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/10 p-3">
@@ -318,7 +240,7 @@ function ConfigPageInner() {
         <Field
           label="Meta mensal (R$)"
           value={monthlyGoal}
-          onChange={setMonthlyGoal}
+          onChange={(v) => patchForm({ monthlyGoal: v })}
         />
         {previewPlan && (
           <div className="text-xs text-muted-foreground space-y-1 rounded-lg bg-muted/30 p-3">
@@ -389,22 +311,28 @@ function ConfigPageInner() {
         <Field
           label="Gasolina estimada (R$/L)"
           value={costs.fuelPricePerLiter}
-          onChange={(v) => setCosts((c) => ({ ...c, fuelPricePerLiter: v }))}
+          onChange={(v) =>
+            patchForm({ costs: { ...costs, fuelPricePerLiter: v } })
+          }
         />
         <Field
           label="Km por litro"
           value={costs.kmPerLiter}
-          onChange={(v) => setCosts((c) => ({ ...c, kmPerLiter: v }))}
+          onChange={(v) => patchForm({ costs: { ...costs, kmPerLiter: v } })}
         />
         <Field
           label="Manutenção (R$/km)"
           value={costs.maintenancePerKm}
-          onChange={(v) => setCosts((c) => ({ ...c, maintenancePerKm: v }))}
+          onChange={(v) =>
+            patchForm({ costs: { ...costs, maintenancePerKm: v } })
+          }
         />
         <Field
           label="Outros custos (R$/dia)"
           value={costs.otherDailyCost}
-          onChange={(v) => setCosts((c) => ({ ...c, otherDailyCost: v }))}
+          onChange={(v) =>
+            patchForm({ costs: { ...costs, otherDailyCost: v } })
+          }
         />
         <p className="text-xs text-muted-foreground -mt-1">
           Inclui alimentação, bebidas, estacionamento, pedágio etc.
@@ -416,7 +344,7 @@ function ConfigPageInner() {
         onClick={save}
         className="w-full scroll-mt-4"
         size="lg"
-        disabled={saving}
+        disabled={saving || showLoading}
       >
         {saving ? (
           "Salvando..."
@@ -437,7 +365,7 @@ function ConfigPageInner() {
       >
         Ver explicação das configurações novamente
       </button>
-      {configReady && !isAppTourSeen() && (
+      {configComplete && !isAppTourSeen() && (
         <button
           type="button"
           className="w-full text-center text-xs text-muted-foreground hover:text-primary"
