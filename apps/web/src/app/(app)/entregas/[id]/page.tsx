@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { formatBRL, formatTime } from "@/lib/utils";
+import { AppPage } from "@/components/app-page";
 
 interface DeliveryDetail {
   id: string;
@@ -50,13 +51,13 @@ export default function EntregaDetailPage() {
       : null;
 
   return (
-    <div className="p-4 space-y-4">
+    <AppPage className="p-4 space-y-4">
       <h1 className="text-xl font-bold">{formatBRL(Number(delivery.grossValue))}</h1>
       <p className="text-muted-foreground">
         {delivery.originName ?? delivery.source} · {formatTime(delivery.occurredAt)}
       </p>
       {delivery.destinationAddr && (
-        <p className="text-sm">{delivery.destinationAddr}</p>
+        <p className="text-sm break-words">{delivery.destinationAddr}</p>
       )}
       {delivery.proofPhotoUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -73,6 +74,6 @@ export default function EntregaDetailPage() {
       <Button variant="outline" className="w-full text-destructive" onClick={handleDelete}>
         Apagar entrega
       </Button>
-    </div>
+    </AppPage>
   );
 }

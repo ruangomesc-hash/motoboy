@@ -7,6 +7,7 @@ import { useAppSync } from "@/hooks/use-app-sync";
 import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
+import { AppPage } from "@/components/app-page";
 
 interface Delivery {
   id: string;
@@ -47,7 +48,7 @@ export default function EntregasPage() {
   useAppSync(load, ["deliveries", "today"]);
 
   return (
-    <div className="p-3 space-y-3">
+    <AppPage className="p-3 space-y-3">
       <h1 className="text-lg font-bold px-1">Entregas</h1>
 
       <AddDeliveryForm onSuccess={load} />
@@ -66,15 +67,15 @@ export default function EntregasPage() {
               href={`/entregas/${d.id}`}
               className="block p-3 rounded-lg border border-border bg-card active:bg-muted/50"
             >
-              <div className="flex justify-between">
-                <span className="font-semibold text-sm">
+              <div className="flex justify-between gap-2 min-w-0">
+                <span className="font-semibold text-sm shrink-0 tabular-nums">
                   {formatBRL(Number(d.grossValue))}
                 </span>
-                <span className="text-muted-foreground text-xs">
+                <span className="text-muted-foreground text-xs shrink-0">
                   {formatTime(d.occurredAt)}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1 break-words">
                 {d.originName ?? sourceLabel(d.source)}
                 {d.distanceKm ? ` · ${Number(d.distanceKm)} km` : ""}
               </p>
@@ -87,6 +88,6 @@ export default function EntregasPage() {
           </p>
         )}
       </ul>
-    </div>
+    </AppPage>
   );
 }

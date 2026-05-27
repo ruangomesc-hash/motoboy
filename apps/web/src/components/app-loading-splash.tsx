@@ -41,7 +41,7 @@ export function AppLoadingSplash({
     <div
       className={cn(
         "flex flex-col items-center justify-center",
-        "min-h-[min(100%,calc(100dvh-7rem))] px-8 py-10",
+        "min-h-[min(100%,calc(100dvh-7rem))] w-full max-w-full px-6 py-10 box-border",
         className,
       )}
       role="status"

@@ -6,12 +6,20 @@
   * {
     @apply border-border;
   }
-  html,
-  body {
-    @apply h-dvh max-h-dvh overflow-hidden;
+  html {
+    @apply h-dvh max-h-dvh overflow-hidden overflow-x-hidden;
+    max-width: 100%;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply h-dvh max-h-dvh overflow-hidden overflow-x-hidden bg-background text-foreground antialiased;
+    max-width: 100%;
+    position: relative;
+  }
+}
+
+@layer utilities {
+  .touch-pan-y {
+    touch-action: pan-y;
   }
 }
 

@@ -14,6 +14,7 @@ import { formatBRL, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
 import { AppLoadingSplash } from "@/components/app-loading-splash";
+import { AppPage } from "@/components/app-page";
 import { WeeklyGoalThermometer } from "@/components/weekly-goal-thermometer";
 import {
   TrendingUp,
@@ -117,7 +118,7 @@ export default function HomePage() {
         : "Estimativa";
 
   return (
-    <div className="p-3 pb-3 space-y-2">
+    <AppPage className="p-3 pb-3 space-y-2">
       <header className="space-y-1">
         <MotocopilotoLogo size="sm" centered />
         <h1 className="text-sm font-medium text-muted-foreground text-center">
@@ -147,7 +148,7 @@ export default function HomePage() {
         <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
           Resumo do dia
         </p>
-        <div className="rounded-xl border border-border bg-card/80 px-2">
+        <div className="rounded-xl border border-border bg-card/80 px-2 w-full max-w-full min-w-0 overflow-hidden">
           <CollapsibleSummaryRow
             Icon={TrendingUp}
             label="Entrou"
@@ -299,14 +300,14 @@ export default function HomePage() {
             <li key={d.id}>
               <Link
                 href={`/entregas/${d.id}`}
-                className="flex justify-between items-center py-1.5 border-b border-border/40 text-[10px]"
+                className="flex justify-between items-center gap-2 py-1.5 border-b border-border/40 text-[10px] min-w-0"
               >
-                <span>
+                <span className="min-w-0 truncate">
                   <span className="font-medium">{formatBRL(d.grossValue)}</span>
                   {" · "}
                   {d.originName ?? sourceLabel(d.source)}
                 </span>
-                <span className="text-muted-foreground">
+                <span className="text-muted-foreground shrink-0 tabular-nums">
                   {formatTime(d.occurredAt)}
                 </span>
               </Link>
@@ -314,6 +315,6 @@ export default function HomePage() {
           ))}
         </ul>
       </section>
-    </div>
+    </AppPage>
   );
 }

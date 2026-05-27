@@ -23,8 +23,8 @@ export function MotocopilotoLogo({
   return (
     <div
       className={cn(
-        "flex flex-row items-center gap-2.5",
-        centered && "justify-center w-full",
+        "flex flex-row items-center gap-2 max-w-full min-w-0",
+        centered && "justify-center w-full mx-auto",
         className,
       )}
     >

@@ -9,11 +9,11 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-1 flex-col min-h-0 w-full overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full max-w-full overflow-hidden overflow-x-hidden">
       <AppRealtimeSync />
       <DemoBanner />
       <SubscriptionGate>
-        <main className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+        <main className="flex-1 min-h-0 min-w-0 w-full max-w-full overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y overscroll-y-contain [-webkit-overflow-scrolling:touch]">
           {children}
         </main>
         <BottomNav />

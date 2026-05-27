@@ -8,6 +8,7 @@ import { useApi } from "@/hooks/use-api";
 import { useAppSync } from "@/hooks/use-app-sync";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { Button } from "@/components/ui/button";
+import { AppPage } from "@/components/app-page";
 
 export default function HistoricoPage() {
   const api = useApi();
@@ -48,7 +49,7 @@ export default function HistoricoPage() {
     data != null && data.items.length < data.total && !loading;
 
   return (
-    <div className="p-4 pb-6 space-y-4">
+    <AppPage className="p-4 pb-6 space-y-4">
       <header className="flex items-center gap-2">
         <Link
           href="/config"
@@ -86,6 +87,6 @@ export default function HistoricoPage() {
           {loading ? "Carregando..." : "Carregar mais"}
         </Button>
       )}
-    </div>
+    </AppPage>
   );
 }

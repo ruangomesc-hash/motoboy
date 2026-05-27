@@ -7,6 +7,7 @@ import { useAppSync } from "@/hooks/use-app-sync";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
 import { formatHours } from "@/lib/format-hours";
+import { AppPage } from "@/components/app-page";
 
 export default function StatsPage() {
   const api = useApi();
@@ -43,7 +44,7 @@ export default function StatsPage() {
   const max = Math.max(...(stats?.series.map((s) => s.gross) ?? [1]), 1);
 
   return (
-    <div className="p-3 space-y-3">
+    <AppPage className="p-3 space-y-3">
       <h1 className="text-lg font-bold px-1">Estatísticas</h1>
 
       <div className="flex gap-2">
@@ -132,19 +133,24 @@ export default function StatsPage() {
           </div>
 
           {stats.series.length > 0 && (
-            <div className="rounded-xl border border-border bg-card p-3">
+            <div className="rounded-xl border border-border bg-card p-3 w-full max-w-full min-w-0 overflow-hidden">
               <p className="text-xs text-muted-foreground mb-3">
                 Faturamento por dia
               </p>
-              <div className="flex items-end gap-1 h-32">
-                {stats.series.map((s) => (
-                  <div
-                    key={s.date}
-                    className="flex-1 bg-primary rounded-t min-w-[4px]"
-                    style={{ height: `${(s.gross / max) * 100}%` }}
-                    title={`${s.date}: ${formatBRL(s.gross)}`}
-                  />
-                ))}
+              <div className="w-full max-w-full overflow-x-auto overscroll-x-contain -mx-0.5 px-0.5">
+                <div
+                  className="flex items-end gap-0.5 h-32 min-w-0"
+                  style={{ minWidth: `${Math.max(stats.series.length * 10, 100)}px` }}
+                >
+                  {stats.series.map((s) => (
+                    <div
+                      key={s.date}
+                      className="flex-1 min-w-[6px] max-w-[20px] bg-primary rounded-t"
+                      style={{ height: `${(s.gross / max) * 100}%` }}
+                      title={`${s.date}: ${formatBRL(s.gross)}`}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -157,7 +163,7 @@ export default function StatsPage() {
           )}
         </>
       )}
-    </div>
+    </AppPage>
   );
 }
 
@@ -174,12 +180,16 @@ function StatCard({
 }) {
   return (
     <div
-      className={`p-3 rounded-lg border bg-card ${
+      className={`p-3 rounded-lg border bg-card min-w-0 overflow-hidden ${
         highlight ? "border-emerald-500/40" : "border-border"
       } ${className ?? ""}`}
     >
-      <p className="text-[10px] text-muted-foreground leading-tight">{label}</p>
-      <p className="text-base font-bold tabular-nums mt-0.5">{value}</p>
+      <p className="text-[10px] text-muted-foreground leading-tight break-words">
+        {label}
+      </p>
+      <p className="text-sm sm:text-base font-bold tabular-nums mt-0.5 truncate">
+        {value}
+      </p>
     </div>
   );
 }

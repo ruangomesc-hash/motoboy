@@ -120,8 +120,8 @@ export default function AdminLoginPage() {
     configured || (!migrationsReady && envLogin) || phase === "login";
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md space-y-4">
+    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 w-full max-w-full overflow-x-hidden box-border">
+      <div className="w-full max-w-md min-w-0 space-y-4">
         {!migrationsReady && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100/90 space-y-2">
             <p className="font-medium">Banco sem tabela do admin</p>

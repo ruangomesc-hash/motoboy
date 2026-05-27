@@ -78,7 +78,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess: () => void }) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-xl border border-emerald-500/30 bg-card p-4 space-y-3"
+      className="rounded-xl border border-emerald-500/30 bg-card p-4 space-y-3 w-full max-w-full min-w-0"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Nova entrega</h2>

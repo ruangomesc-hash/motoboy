@@ -16,6 +16,7 @@ import type {
   UserProfile,
 } from "@motoboy/types";
 import { cn } from "@/lib/utils";
+import { AppPage } from "@/components/app-page";
 
 const CTA_LABEL: Record<SubscriptionPaymentMethod, string> = {
   PIX: "Gerar Pix e assinar",
@@ -74,7 +75,7 @@ export default function AssinarPage() {
 
   if (subStatus?.status === "ACTIVE") {
     return (
-      <div className="p-6 flex flex-col flex-1 justify-center gap-4 text-center">
+      <AppPage className="p-6 flex flex-col flex-1 justify-center gap-4 text-center">
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6">
           <Check className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
           <h1 className="text-xl font-bold">Assinatura ativa</h1>
@@ -88,12 +89,12 @@ export default function AssinarPage() {
             </p>
           )}
         </div>
-      </div>
+      </AppPage>
     );
   }
 
   return (
-    <div className="p-6 flex flex-col flex-1 gap-6">
+    <AppPage className="p-6 flex flex-col flex-1 gap-6">
       <div className="text-center">
         <h1 className="text-2xl font-bold">Motocopiloto Pro</h1>
         <p className="text-muted-foreground mt-2 text-sm">
@@ -212,6 +213,6 @@ export default function AssinarPage() {
           </p>
         </div>
       )}
-    </div>
+    </AppPage>
   );
 }

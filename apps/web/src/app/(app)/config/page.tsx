@@ -13,6 +13,7 @@ import {
   type ProfileFormState,
 } from "@/components/profile-form";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
+import { AppPage } from "@/components/app-page";
 
 interface Costs {
   fuelPricePerLiter: string | number;
@@ -161,7 +162,7 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="p-4 space-y-6 pb-8">
+    <AppPage className="p-4 space-y-6 pb-8">
       <div className="flex items-start justify-between gap-3">
         <h1 className="text-xl font-bold">Configurações</h1>
         <Link
@@ -289,7 +290,7 @@ export default function ConfigPage() {
           "Salvar"
         )}
       </Button>
-    </div>
+    </AppPage>
   );
 }
 

@@ -103,7 +103,7 @@ export function ActivityTimeline({ items }: { items: ActivityLogItem[] }) {
   const groups = groupByDay(items);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-full min-w-0 overflow-hidden">
       {groups.map((group) => (
         <div key={group.label}>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">
@@ -163,7 +163,10 @@ function TimelineItem({ item }: { item: ActivityLogItem }) {
         {item.changes.length > 0 && (
           <ul className="space-y-1.5 pt-1 border-t border-border/40">
             {item.changes.map((change) => (
-              <li key={`${item.id}-${change.field}`} className="text-xs">
+              <li
+                key={`${item.id}-${change.field}`}
+                className="text-xs break-words"
+              >
                 <span className="text-muted-foreground">{change.label}: </span>
                 {item.action === "CREATED" ? (
                   <span className="text-foreground font-medium">{change.to}</span>

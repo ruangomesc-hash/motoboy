@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AppPage } from "@/components/app-page";
 
 export default function RotaPage() {
   const api = useApi();
@@ -44,7 +45,7 @@ export default function RotaPage() {
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <AppPage className="p-4 space-y-4">
       <h1 className="text-xl font-bold">Roteirizador</h1>
       <p className="text-sm text-muted-foreground">
         Cole os endereços ou mande a lista no WhatsApp.
@@ -68,9 +69,11 @@ export default function RotaPage() {
           <p className="text-sm text-muted-foreground">
             {result.totalKm.toFixed(1)} km · ~{result.totalMin} min
           </p>
-          <ol className="list-decimal list-inside text-sm space-y-1">
+          <ol className="list-decimal list-inside text-sm space-y-1 break-words">
             {result.orderedAddresses.map((a) => (
-              <li key={a}>{a}</li>
+              <li key={a} className="break-words pr-1">
+                {a}
+              </li>
             ))}
           </ol>
           <Button asChild className="w-full">
@@ -80,6 +83,6 @@ export default function RotaPage() {
           </Button>
         </div>
       )}
-    </div>
+    </AppPage>
   );
 }

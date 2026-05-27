@@ -44,7 +44,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0 w-full max-w-full overflow-hidden">
       <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-white/10 bg-[#061210] p-4">
         <div className="flex items-center gap-2 px-2 py-3 mb-4">
           <Bike className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
@@ -87,7 +87,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           Sair
         </button>
       </aside>
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         <AdminDemoBanner />
         {children}
       </main>

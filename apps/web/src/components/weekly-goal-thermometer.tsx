@@ -96,14 +96,14 @@ export function WeeklyGoalThermometer({
     : 0;
 
   return (
-    <section className="rounded-lg border border-border/80 bg-card/90 px-2.5 py-1.5 space-y-1.5">
+    <section className="rounded-lg border border-border/80 bg-card/90 px-2.5 py-1.5 space-y-1.5 w-full max-w-full min-w-0 overflow-hidden">
       {weekly && paceConfig && (
         <div className="space-y-1">
-          <div className="flex items-center justify-between gap-1.5 text-[9px] leading-tight">
+          <div className="flex items-center justify-between gap-1 text-[9px] leading-tight min-w-0">
             <span className="text-muted-foreground uppercase tracking-wide font-medium shrink-0">
               Semana
             </span>
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
               <span
                 className={cn(
                   "inline-flex items-center gap-0.5 font-medium shrink-0",
@@ -113,11 +113,12 @@ export function WeeklyGoalThermometer({
                 {PaceIcon && <PaceIcon className="h-2.5 w-2.5" strokeWidth={2} />}
                 {paceConfig.label}
               </span>
-              <span className="font-bold tabular-nums text-[11px] text-foreground shrink-0">
+              <span className="font-bold tabular-nums text-[10px] text-foreground truncate">
                 {formatBRL(weekly.earned)}
-              </span>
-              <span className="text-muted-foreground truncate hidden min-[340px]:inline">
-                / {formatBRL(weekly.target)}
+                <span className="text-muted-foreground font-normal">
+                  {" "}
+                  / {formatBRL(weekly.target)}
+                </span>
               </span>
             </div>
           </div>
