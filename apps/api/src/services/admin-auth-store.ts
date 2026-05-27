@@ -1,12 +1,9 @@
 import { prisma } from "@motoboy/db";
-import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { hashPassword, verifyPassword } from "../lib/password.js";
 import {
   isPrismaTableMissingError,
   MIGRATIONS_REQUIRED_MESSAGE,
 } from "../lib/prisma-errors.js";
-
-const scryptAsync = promisify(scrypt);
 const ADMIN_ID = "primary";
 
 function normalizeEmail(email: string): string {
@@ -43,24 +40,6 @@ export async function isAdminConfigured(): Promise<boolean> {
     if (isPrismaTableMissingError(err)) return false;
     throw err;
   }
-}
-
-async function hashAdminPassword(password: string): Promise<string> {
-  const salt = randomBytes(16).toString("hex");
-  const derived = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${salt}:${derived.toString("hex")}`;
-}
-
-async function verifyAdminPassword(
-  password: string,
-  stored: string,
-): Promise<boolean> {
-  const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  const derived = (await scryptAsync(password, salt, 64)) as Buffer;
-  const expected = Buffer.from(hash, "hex");
-  if (expected.length !== derived.length) return false;
-  return timingSafeEqual(expected, derived);
 }
 
 function verifyEnvAdmin(email: string, password: string): boolean {
@@ -103,7 +82,7 @@ export async function setupAdminAccount(
       data: {
         id: ADMIN_ID,
         email: normalized,
-        passwordHash: await hashAdminPassword(password),
+        passwordHash: await hashPassword(password),
       },
     });
   } catch (err) {
@@ -129,7 +108,7 @@ export async function verifyAdminLoginWithEnvFallback(
     if (account) {
       return (
         normalizeEmail(email) === account.email &&
-        (await verifyAdminPassword(password, account.passwordHash))
+        (await verifyPassword(password, account.passwordHash))
       );
     }
   }

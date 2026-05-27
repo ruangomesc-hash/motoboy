@@ -2,9 +2,16 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "@motoboy/db";
 import {
   registerRequestSchema,
+  userPasswordLoginSchema,
   whatsappRequestSchema,
   whatsappVerifySchema,
 } from "@motoboy/types";
+import { hashPassword } from "../lib/password.js";
+import {
+  setUserPassword,
+  userHasPassword,
+  verifyUserPasswordLogin,
+} from "../services/user-password.js";
 import { normalizePhone } from "../lib/phone.js";
 import { signToken } from "../lib/auth.js";
 import { redisDel, redisGet, redisSetex } from "../lib/redis.js";
@@ -45,6 +52,40 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     skipAuthCode: isSkipAuthCodeEnabled(env),
     evolutionConfigured: isEvolutionConfigured(env),
   }));
+
+  app.get("/auth/password/status", async (request, reply) => {
+    const q = request.query as { phone?: string };
+    if (!q.phone?.trim()) {
+      return reply.status(400).send({ error: "Informe o WhatsApp" });
+    }
+    const hasPassword = await userHasPassword(q.phone);
+    return reply.send({ hasPassword });
+  });
+
+  app.post("/auth/password/login", async (request, reply) => {
+    const body = userPasswordLoginSchema.parse(request.body);
+    const phone = normalizePhone(body.phone);
+    const user = await verifyUserPasswordLogin(phone, body.password.trim());
+    if (!user) {
+      return reply.status(401).send({
+        error:
+          "WhatsApp ou senha incorretos. Se ainda não definiu senha, use Criar conta.",
+      });
+    }
+    const token = signToken(
+      { userId: user.id, whatsappNumber: user.whatsappNumber },
+      env.JWT_SECRET,
+    );
+    return reply
+      .setCookie("motoboy-token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 30 * 24 * 60 * 60,
+      })
+      .send({ ok: true, token, userId: user.id });
+  });
 
   app.get("/auth/affiliate/validate", async (request, reply) => {
     const q = request.query as { code?: string };
@@ -142,11 +183,24 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           code: "NEEDS_PROFILE",
         });
       }
+      if (!body.password?.trim()) {
+        return reply.status(400).send({
+          error: "Defina uma senha de no mínimo 8 caracteres no cadastro.",
+        });
+      }
+      let passwordHash: string;
+      try {
+        passwordHash = await hashPassword(body.password.trim());
+      } catch (err) {
+        const e = err as Error & { statusCode?: number };
+        return reply.status(e.statusCode ?? 400).send({ error: e.message });
+      }
       try {
         user = await createUserWithProfile({
           whatsappNumber: phone,
           name: body.name,
           email: body.email,
+          passwordHash,
           affiliateCode: body.affiliateCode,
         });
         isNewUser = true;
@@ -170,6 +224,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           return reply.status(409).send({ error: e.message });
         }
         throw err;
+      }
+    }
+
+    if (body.password?.trim() && user && !user.passwordHash) {
+      try {
+        await setUserPassword(user.id, body.password.trim());
+      } catch (err) {
+        const e = err as Error & { statusCode?: number };
+        return reply.status(e.statusCode ?? 400).send({ error: e.message });
       }
     }
 

@@ -12,9 +12,13 @@ import { maskPhone } from "@/lib/phone-mask";
 const demoLoginAllowed =
   process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
 
+type LoginMode = "whatsapp" | "password";
+
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<LoginMode>("password");
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState("");
@@ -45,9 +49,43 @@ export default function LoginPage() {
     router.push("/");
   }
 
+  async function enterWithPassword() {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setError("Informe um WhatsApp válido com DDD.");
+      return;
+    }
+    if (!password) {
+      setError("Informe sua senha.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+
+    const result = await signIn("password", {
+      phone: digits,
+      password,
+      redirect: false,
+    });
+    setLoading(false);
+    if (result?.error) {
+      setError(
+        result.error === "CredentialsSignin"
+          ? "WhatsApp ou senha incorretos."
+          : result.error,
+      );
+      return;
+    }
+    router.push("/");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    await enterWithPhone();
+    if (mode === "password") {
+      await enterWithPassword();
+    } else {
+      await enterWithPhone();
+    }
   }
 
   async function enterDemo() {
@@ -66,9 +104,38 @@ export default function LoginPage() {
     <AuthShell
       title="Entrar"
       subtitle={
-        "Use o WhatsApp da sua conta. Primeira vez? Faça o cadastro completo."
+        mode === "password"
+          ? "Use o WhatsApp e a senha definidos no cadastro."
+          : "Entrada rápida só com o número (contas antigas)."
       }
     >
+      <div className="flex gap-2 mb-1">
+        <Button
+          type="button"
+          variant={mode === "password" ? "default" : "outline"}
+          size="sm"
+          className="flex-1"
+          onClick={() => {
+            setMode("password");
+            setError("");
+          }}
+        >
+          Com senha
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "whatsapp" ? "default" : "outline"}
+          size="sm"
+          className="flex-1"
+          onClick={() => {
+            setMode("whatsapp");
+            setError("");
+          }}
+        >
+          Só WhatsApp
+        </Button>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
@@ -82,6 +149,22 @@ export default function LoginPage() {
             required
           />
         </div>
+        {mode === "password" && (
+          <div>
+            <label className="text-sm text-muted-foreground mb-2 block">
+              Senha
+            </label>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Sua senha"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </div>
+        )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button
           type="submit"

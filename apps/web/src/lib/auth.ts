@@ -25,6 +25,7 @@ export const authOptions: NextAuthOptions = {
         code: { label: "Código", type: "text" },
         name: { label: "Nome", type: "text" },
         email: { label: "E-mail", type: "text" },
+        password: { label: "Senha", type: "password" },
         affiliateCode: { label: "Cupom", type: "text" },
       },
       async authorize(credentials) {
@@ -34,6 +35,7 @@ export const authOptions: NextAuthOptions = {
           code: string;
           name?: string;
           email?: string;
+          password?: string;
           affiliateCode?: string;
         } = {
           phone: credentials.phone.replace(/\D/g, ""),
@@ -43,6 +45,9 @@ export const authOptions: NextAuthOptions = {
         if (credentials.email?.trim()) payload.email = credentials.email.trim();
         if (credentials.affiliateCode?.trim()) {
           payload.affiliateCode = credentials.affiliateCode.trim().toUpperCase();
+        }
+        if (credentials.password?.trim()) {
+          payload.password = credentials.password.trim();
         }
         const verify = await fetch(`${API_URL}/auth/whatsapp/verify`, {
           method: "POST",
@@ -56,6 +61,40 @@ export const authOptions: NextAuthOptions = {
         };
         if (!verify.ok) {
           throw new Error(data.error ?? "Falha ao validar WhatsApp");
+        }
+        if (!data.userId || !data.token) return null;
+        return {
+          id: data.userId,
+          phone: credentials.phone,
+          accessToken: data.token,
+          demo: false,
+        };
+      },
+    }),
+    CredentialsProvider({
+      id: "password",
+      name: "Senha",
+      credentials: {
+        phone: { label: "Telefone", type: "text" },
+        password: { label: "Senha", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.phone || !credentials?.password) return null;
+        const res = await fetch(`${API_URL}/auth/password/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: credentials.phone.replace(/\D/g, ""),
+            password: credentials.password,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          token: string;
+          userId: string;
+        };
+        if (!res.ok) {
+          throw new Error(data.error ?? "WhatsApp ou senha incorretos");
         }
         if (!data.userId || !data.token) return null;
         return {

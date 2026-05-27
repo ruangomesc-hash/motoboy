@@ -23,6 +23,8 @@ function CadastroForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [coupon, setCoupon] = useState("");
   const [couponHint, setCouponHint] = useState<string | null>(null);
   const [couponError, setCouponError] = useState("");
@@ -88,6 +90,16 @@ function CadastroForm() {
       setLoading(false);
       return;
     }
+    if (password.length < 8) {
+      setError("A senha deve ter no mínimo 8 caracteres.");
+      setLoading(false);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("As senhas não coincidem.");
+      setLoading(false);
+      return;
+    }
     try {
       const affiliateCode = coupon.trim()
         ? normalizeAffiliateCode(coupon)
@@ -105,6 +117,7 @@ function CadastroForm() {
         code: "000000",
         name: name.trim(),
         email: email.trim(),
+        password,
         affiliateCode: affiliateCode ?? "",
         redirect: false,
       });
@@ -129,7 +142,7 @@ function CadastroForm() {
   return (
     <AuthShell
       title="Criar conta"
-      subtitle="Preencha seus dados e entre direto no app — sem código no primeiro acesso."
+      subtitle="Crie sua senha de acesso — ela é salva no servidor e usada para entrar depois."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -166,6 +179,34 @@ function CadastroForm() {
             value={phone}
             onChange={(e) => setPhone(maskPhone(e.target.value))}
             required
+          />
+        </div>
+        <div>
+          <label className="text-sm text-muted-foreground mb-2 block">
+            Senha de acesso
+          </label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            placeholder="Mínimo 8 caracteres"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+        </div>
+        <div>
+          <label className="text-sm text-muted-foreground mb-2 block">
+            Confirmar senha
+          </label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            placeholder="Repita a senha"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            minLength={8}
           />
         </div>
         <div>

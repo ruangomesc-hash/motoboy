@@ -16,6 +16,7 @@ export async function createUserWithProfile(input: {
   whatsappNumber: string;
   name: string;
   email: string;
+  passwordHash?: string;
   affiliateCode?: string;
 }) {
   const normalized = normalizePhone(input.whatsappNumber);
@@ -40,6 +41,7 @@ export async function createUserWithProfile(input: {
       whatsappNumber: normalized,
       name: input.name.trim(),
       email,
+      passwordHash: input.passwordHash,
       status: "TRIAL",
       trialEndsAt,
       costs: { create: {} },

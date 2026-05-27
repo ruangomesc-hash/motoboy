@@ -291,10 +291,16 @@ export const affiliateCodeFieldSchema = z
   .regex(/^[A-Za-z0-9_-]+$/, "Cupom inválido")
   .transform((v) => v.toUpperCase());
 
+export const userPasswordSchema = z
+  .string()
+  .min(8, "Senha deve ter no mínimo 8 caracteres")
+  .max(128);
+
 export const registerRequestSchema = z.object({
   phone: z.string().min(10).max(15),
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(120),
+  password: userPasswordSchema,
   affiliateCode: affiliateCodeFieldSchema.optional(),
 });
 
@@ -303,7 +309,13 @@ export const whatsappVerifySchema = z.object({
   code: z.string().length(6),
   name: z.string().trim().min(1).max(80).optional(),
   email: z.string().trim().email().max(120).optional(),
+  password: userPasswordSchema.optional(),
   affiliateCode: affiliateCodeFieldSchema.optional(),
+});
+
+export const userPasswordLoginSchema = z.object({
+  phone: z.string().min(10).max(15),
+  password: z.string().min(1).max(128),
 });
 
 export const affiliateValidateResponseSchema = z.object({
