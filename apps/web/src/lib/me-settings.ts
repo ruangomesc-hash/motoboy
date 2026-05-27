@@ -36,6 +36,7 @@ export type ConfigSavePayload = {
   profile: ProfileFormState;
   monthlyGoal: string;
   costs: ConfigFormSnapshot["costs"];
+  saveCosts?: boolean;
 };
 
 export function parseMeSettings(data: MeApiResponse): MeSettingsSnapshot {
@@ -74,15 +75,14 @@ export function meToConfigForm(
         kmPerLiter: String(me.costs.kmPerLiter),
         maintenancePerKm: String(me.costs.maintenancePerKm),
         otherDailyCost: String(
-          Number(me.costs.dailyFoodCost ?? 0) +
-            Number(me.costs.otherDailyCost ?? 0) || 33,
+          Number(me.costs.dailyFoodCost ?? 0) + Number(me.costs.otherDailyCost ?? 0),
         ),
       }
     : {
         fuelPricePerLiter: "6",
         kmPerLiter: "35",
         maintenancePerKm: "0.15",
-        otherDailyCost: "33",
+        otherDailyCost: "0",
       };
 
   return { profile, monthlyGoal, costs };

@@ -43,7 +43,7 @@ const defaultForm: ConfigFormSnapshot = {
     fuelPricePerLiter: "6",
     kmPerLiter: "35",
     maintenancePerKm: "0.15",
-    otherDailyCost: "33",
+    otherDailyCost: "0",
   },
 };
 
@@ -70,6 +70,7 @@ function ConfigPageInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
+  const [initialCosts, setInitialCosts] = useState(defaultForm.costs);
   const { profile, monthlyGoal, costs } = form;
 
   const previewPlan = useMemo(() => {
@@ -117,6 +118,7 @@ function ConfigPageInner() {
     const pending = readPendingRegistration();
     const next = meToConfigForm(meSettings, pending);
     setForm(next);
+    setInitialCosts(next.costs);
     if (next.profile.name?.trim() && next.profile.email?.trim()) {
       clearPendingRegistration();
     }
@@ -155,7 +157,12 @@ function ConfigPageInner() {
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      const { complete, me } = await saveMeSettings(form);
+      const saveCosts =
+        costs.fuelPricePerLiter.trim() !== initialCosts.fuelPricePerLiter.trim() ||
+        costs.kmPerLiter.trim() !== initialCosts.kmPerLiter.trim() ||
+        costs.maintenancePerKm.trim() !== initialCosts.maintenancePerKm.trim() ||
+        costs.otherDailyCost.trim() !== initialCosts.otherDailyCost.trim();
+      const { complete, me } = await saveMeSettings({ ...form, saveCosts });
       clearPendingRegistration();
       clearSetupGuideHidden();
 

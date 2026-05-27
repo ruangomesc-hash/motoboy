@@ -319,7 +319,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const saveMeSettings = useCallback(
     async (payload: ConfigSavePayload) => {
-      await Promise.all([
+      const requests = [
         api(
           "/me/profile",
           {
@@ -336,15 +336,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           },
           { skipSync: true },
         ),
-        api(
+      ];
+
+      if (payload.saveCosts) {
+        requests.push(
+          api(
           "/me/costs",
           {
             method: "PUT",
             body: JSON.stringify(toCostsPutBody(payload)),
           },
           { skipSync: true },
-        ),
-      ]);
+          ),
+        );
+      }
+
+      await Promise.all(requests);
 
       const snap = await loadMeSettings({ force: true, silent: true });
       notifyAppSync(["profile"]);
