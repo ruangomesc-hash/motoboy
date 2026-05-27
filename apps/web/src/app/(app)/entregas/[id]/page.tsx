@@ -6,6 +6,7 @@ import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   datetimeLocalFromIso,
   formatDateTimeLabel,
@@ -48,6 +49,17 @@ function toForm(d: DeliveryDetail) {
   };
 }
 
+function toPayload(d: DeliveryDetail): CreatedDelivery {
+  return {
+    id: d.id,
+    grossValue: d.grossValue,
+    source: d.source,
+    originName: d.originName ?? null,
+    occurredAt: d.occurredAt,
+    distanceKm: d.distanceKm ?? null,
+  };
+}
+
 export default function EntregaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -55,7 +67,6 @@ export default function EntregaDetailPage() {
   const {
     deliveries,
     removeDeliveryOptimistic,
-    applyDeliveryOptimistic,
     upsertDeliveryOptimistic,
   } = useAppData();
 
@@ -74,6 +85,7 @@ export default function EntregaDetailPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,14 +134,7 @@ export default function EntregaDetailPage() {
     setSaving(true);
     setError(null);
     const previous = delivery;
-    const previousPayload: CreatedDelivery = {
-      id: previous.id,
-      grossValue: previous.grossValue,
-      source: previous.source,
-      originName: previous.originName ?? null,
-      occurredAt: previous.occurredAt,
-      distanceKm: previous.distanceKm ?? null,
-    };
+    const previousPayload = toPayload(previous);
     const optimistic: DeliveryDetail = {
       ...delivery,
       grossValue,
@@ -138,14 +143,7 @@ export default function EntregaDetailPage() {
       distanceKm,
       occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
     };
-    const optimisticPayload: CreatedDelivery = {
-      id: optimistic.id,
-      grossValue: optimistic.grossValue,
-      source: optimistic.source,
-      originName: optimistic.originName ?? null,
-      occurredAt: optimistic.occurredAt,
-      distanceKm: optimistic.distanceKm ?? null,
-    };
+    const optimisticPayload = toPayload(optimistic);
     setDelivery(optimistic);
     upsertDeliveryOptimistic(optimisticPayload, previousPayload);
     notifyAppSync(["deliveries", "today", "stats"], {
@@ -171,14 +169,7 @@ export default function EntregaDetailPage() {
 
       setDelivery(updated);
       setForm(toForm(updated));
-      const serverPayload: CreatedDelivery = {
-        id: updated.id,
-        grossValue: updated.grossValue,
-        source: updated.source,
-        originName: updated.originName ?? null,
-        occurredAt: updated.occurredAt,
-        distanceKm: updated.distanceKm ?? null,
-      };
+      const serverPayload = toPayload(updated);
       upsertDeliveryOptimistic(serverPayload, previousPayload);
       notifyAppSync(["deliveries", "today", "stats"], {
         delivery: serverPayload,
@@ -202,35 +193,26 @@ export default function EntregaDetailPage() {
   }
 
   async function handleDelete() {
-    if (!delivery) return;
+    if (!delivery || deleting) return;
     setDeleting(true);
-    setShowDeleteConfirm(false);
-    setError(null);
-    const removed = delivery;
-    const removedPayload: CreatedDelivery = {
-      id: removed.id,
-      grossValue: removed.grossValue,
-      source: removed.source,
-      originName: removed.originName ?? null,
-      occurredAt: removed.occurredAt,
-      distanceKm: removed.distanceKm ?? null,
-    };
-    removeDeliveryOptimistic(id);
-    notifyAppSync(["deliveries", "today", "stats"], {
-      removedDeliveryId: id,
-      skipReconcile: true,
-    });
-    router.push("/entregas");
+    setDeleteError(null);
+
+    const snapshot = toPayload(delivery);
+
     try {
       await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
-    } catch (err) {
-      applyDeliveryOptimistic(removedPayload);
+      removeDeliveryOptimistic(id, snapshot);
       notifyAppSync(["deliveries", "today", "stats"], {
-        delivery: removedPayload,
+        removedDeliveryId: id,
         skipReconcile: true,
       });
-      setError(
-        err instanceof Error ? err.message : "Não foi possível apagar.",
+      setShowDeleteConfirm(false);
+      router.replace("/entregas");
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error
+          ? err.message
+          : "Não foi possível apagar. Tente de novo.",
       );
     } finally {
       setDeleting(false);
@@ -254,154 +236,142 @@ export default function EntregaDetailPage() {
       : null;
 
   return (
-    <AppPage className="p-4 space-y-4 pb-8">
-      <h1 className="text-xl font-bold">Editar entrega</h1>
+    <>
+      <AppPage className="p-4 space-y-4 pb-8">
+        <h1 className="text-xl font-bold">Editar entrega</h1>
 
-      <form onSubmit={handleSave} className="space-y-3">
-        <Field label="Valor (R$)">
-          <Input
-            inputMode="decimal"
-            value={form.grossValue}
-            onChange={(e) =>
-              setForm((f) =>
-                f
-                  ? {
-                      ...f,
-                      grossValue: sanitizeDecimalInput(e.target.value),
-                    }
-                  : f,
-              )
-            }
-            required
-          />
-        </Field>
+        <form onSubmit={handleSave} className="space-y-3">
+          <Field label="Valor (R$)">
+            <Input
+              inputMode="decimal"
+              value={form.grossValue}
+              onChange={(e) =>
+                setForm((f) =>
+                  f
+                    ? {
+                        ...f,
+                        grossValue: sanitizeDecimalInput(e.target.value),
+                      }
+                    : f,
+                )
+              }
+              required
+            />
+          </Field>
 
-        <Field label="Nome / local">
-          <Input
-            value={form.originName}
-            onChange={(e) =>
-              setForm((f) => (f ? { ...f, originName: e.target.value } : f))
-            }
-            placeholder="Farmácia, mercado..."
-          />
-        </Field>
+          <Field label="Nome / local">
+            <Input
+              value={form.originName}
+              onChange={(e) =>
+                setForm((f) => (f ? { ...f, originName: e.target.value } : f))
+              }
+              placeholder="Farmácia, mercado..."
+            />
+          </Field>
 
-        <Field label="Km (opcional)">
-          <Input
-            inputMode="decimal"
-            placeholder="3,5"
-            value={form.distanceKm}
-            onChange={(e) =>
-              setForm((f) =>
-                f
-                  ? {
-                      ...f,
-                      distanceKm: sanitizeDecimalInput(e.target.value),
-                    }
-                  : f,
-              )
-            }
-          />
-        </Field>
+          <Field label="Km (opcional)">
+            <Input
+              inputMode="decimal"
+              placeholder="3,5"
+              value={form.distanceKm}
+              onChange={(e) =>
+                setForm((f) =>
+                  f
+                    ? {
+                        ...f,
+                        distanceKm: sanitizeDecimalInput(e.target.value),
+                      }
+                    : f,
+                )
+              }
+            />
+          </Field>
 
-        <Field label="Origem (app)">
-          <select
-            value={form.source}
-            onChange={(e) =>
-              setForm((f) => (f ? { ...f, source: e.target.value } : f))
-            }
-            className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
-          >
-            {SOURCES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+          <Field label="Origem (app)">
+            <select
+              value={form.source}
+              onChange={(e) =>
+                setForm((f) => (f ? { ...f, source: e.target.value } : f))
+              }
+              className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+            >
+              {SOURCES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-        <Field label="Data e hora">
-          <p className="text-xs text-muted-foreground mb-1">
-            {formatDateTimeLabel(
-              isoFromDatetimeLocal(form.occurredAtLocal),
-            )}
-          </p>
-          <Input
-            type="datetime-local"
-            value={form.occurredAtLocal}
-            onChange={(e) =>
-              setForm((f) =>
-                f ? { ...f, occurredAtLocal: e.target.value } : f,
-              )
-            }
-            className="h-10 text-sm"
-          />
-        </Field>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <Button type="submit" className="w-full" disabled={saving || deleting}>
-          {saving ? "Salvando..." : "Salvar alterações"}
-        </Button>
-      </form>
-
-      {delivery.destinationAddr && (
-        <p className="text-sm text-muted-foreground break-words">
-          {delivery.destinationAddr}
-        </p>
-      )}
-      {delivery.proofPhotoUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={delivery.proofPhotoUrl}
-          alt="Prova de entrega"
-          className="rounded-lg w-full"
-        />
-      )}
-      {staticMap && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={staticMap} alt="Mapa" className="rounded-lg w-full" />
-      )}
-
-      <Button
-        variant="outline"
-        className="w-full text-destructive"
-        disabled={saving || deleting}
-        onClick={() => setShowDeleteConfirm(true)}
-      >
-        {deleting ? "Apagando..." : "Apagar entrega"}
-      </Button>
-
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4 space-y-3">
-            <h2 className="font-semibold">Apagar entrega?</h2>
-            <p className="text-sm text-muted-foreground">
-              Essa ação remove a entrega do dia e do histórico.
+          <Field label="Data e hora">
+            <p className="text-xs text-muted-foreground mb-1">
+              {formatDateTimeLabel(isoFromDatetimeLocal(form.occurredAtLocal))}
             </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowDeleteConfirm(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1 text-destructive border-destructive/40 hover:bg-destructive/10"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? "Apagando..." : "Confirmar"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </AppPage>
+            <Input
+              type="datetime-local"
+              value={form.occurredAtLocal}
+              onChange={(e) =>
+                setForm((f) =>
+                  f ? { ...f, occurredAtLocal: e.target.value } : f,
+                )
+              }
+              className="h-10 text-sm"
+            />
+          </Field>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <Button type="submit" className="w-full" disabled={saving || deleting}>
+            {saving ? "Salvando..." : "Salvar alterações"}
+          </Button>
+        </form>
+
+        {delivery.destinationAddr && (
+          <p className="text-sm text-muted-foreground break-words">
+            {delivery.destinationAddr}
+          </p>
+        )}
+        {delivery.proofPhotoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={delivery.proofPhotoUrl}
+            alt="Prova de entrega"
+            className="rounded-lg w-full"
+          />
+        )}
+        {staticMap && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={staticMap} alt="Mapa" className="rounded-lg w-full" />
+        )}
+
+        <Button
+          variant="outline"
+          className="w-full text-destructive"
+          disabled={saving || deleting}
+          onClick={() => {
+            setDeleteError(null);
+            setShowDeleteConfirm(true);
+          }}
+        >
+          Apagar entrega
+        </Button>
+      </AppPage>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Apagar entrega?"
+        description="Essa ação remove a entrega do dia, da lista e do histórico. Não dá para desfazer."
+        confirmLabel="Apagar"
+        loading={deleting}
+        error={deleteError}
+        onCancel={() => {
+          if (deleting) return;
+          setShowDeleteConfirm(false);
+          setDeleteError(null);
+        }}
+        onConfirm={handleDelete}
+      />
+    </>
   );
 }
 

@@ -82,7 +82,7 @@ type AppDataContextValue = {
     delivery: CreatedDelivery,
     previous?: CreatedDelivery,
   ) => void;
-  removeDeliveryOptimistic: (id: string) => void;
+  removeDeliveryOptimistic: (id: string, fallback?: CreatedDelivery) => void;
   patchDeliveryInList: (item: DeliveryListItem) => void;
 };
 
@@ -300,28 +300,32 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const removeDeliveryOptimistic = useCallback(
-    (deliveryId: string) => {
+    (deliveryId: string, fallback?: CreatedDelivery) => {
       let removed: DeliveryListItem | undefined;
       setDeliveries((prev) => {
         removed = prev.find((d) => d.id === deliveryId);
         return prev.filter((d) => d.id !== deliveryId);
       });
 
-      if (removed) {
-        const payload: CreatedDelivery = {
-          id: removed.id,
-          grossValue: removed.grossValue,
-          source: removed.source,
-          originName: removed.originName,
-          occurredAt: removed.occurredAt,
-          distanceKm: removed.distanceKm ?? null,
-        };
-        if (isIsoOnDateInput(removed.occurredAt, todayDateInputValue())) {
-          setToday((prev) => {
-            if (!prev) return prev;
-            return removeDeliveryFromToday(prev, payload);
-          });
-        }
+      const payload: CreatedDelivery | undefined = removed
+        ? {
+            id: removed.id,
+            grossValue: removed.grossValue,
+            source: removed.source,
+            originName: removed.originName,
+            occurredAt: removed.occurredAt,
+            distanceKm: removed.distanceKm ?? null,
+          }
+        : fallback;
+
+      if (
+        payload &&
+        isIsoOnDateInput(payload.occurredAt ?? "", todayDateInputValue())
+      ) {
+        setToday((prev) => {
+          if (!prev) return prev;
+          return removeDeliveryFromToday(prev, payload);
+        });
       }
 
       if (userId) persistNow(userId);
