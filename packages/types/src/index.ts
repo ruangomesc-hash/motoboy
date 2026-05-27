@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Dias de trial gratuito após o cadastro. */
+export const TRIAL_DAYS = 4;
+
 export const deliverySourceSchema = z.enum([
   "IFOOD",
   "NINETY_NINE",

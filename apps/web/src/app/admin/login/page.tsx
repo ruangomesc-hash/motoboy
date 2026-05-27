@@ -14,6 +14,7 @@ const adminDevAllowed =
 type AdminAuthStatus = {
   configured: boolean;
   migrationsReady: boolean;
+  databaseConnected?: boolean;
   envLoginAvailable: boolean;
   bootstrapEmail: string | null;
 };
@@ -111,31 +112,49 @@ export default function AdminLoginPage() {
     }
   }
 
+  const statusLoading = status === null;
   const migrationsReady = status?.migrationsReady ?? true;
+  const databaseConnected = status?.databaseConnected ?? true;
   const configured = status?.configured ?? false;
   const envLogin = status?.envLoginAvailable ?? false;
   const showSetup = migrationsReady && !configured && phase === "setup";
   const showFirst = migrationsReady && !configured && phase === "first";
   const showLogin =
-    configured || (!migrationsReady && envLogin) || phase === "login";
+    configured || envLogin || phase === "login" || statusLoading;
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 w-full max-w-full overflow-x-hidden box-border">
       <div className="w-full max-w-md min-w-0 space-y-4">
-        {!migrationsReady && (
+        {!statusLoading && !databaseConnected && (
+          <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100/90 space-y-2">
+            <p className="font-medium">Supabase inacessível</p>
+            <p className="text-red-100/70 text-xs leading-relaxed">
+              Confira <strong>DATABASE_URL</strong> e{" "}
+              <strong>DIRECT_URL</strong> na Vercel (Production + Build) e faça
+              redeploy. O painel só carrega dados com o banco online.
+            </p>
+            {envLogin && (
+              <p className="text-xs text-emerald-200/90">
+                Você ainda pode entrar com ADMIN_EMAIL / ADMIN_PASSWORD para
+                validar o login.
+              </p>
+            )}
+          </div>
+        )}
+        {!statusLoading && databaseConnected && !migrationsReady && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100/90 space-y-2">
-            <p className="font-medium">Banco sem tabela do admin</p>
+            <p className="font-medium">Migrations do admin pendentes</p>
             <p className="text-amber-100/70 text-xs leading-relaxed">
-              Na Vercel: marque <strong>DATABASE_URL</strong> e{" "}
-              <strong>DIRECT_URL</strong> em Production e em{" "}
-              <strong>Build</strong>, depois Redeploy sem cache. Ou no Mac, com
-              o .env do Supabase:{" "}
+              Rode{" "}
+              <code className="text-[11px]">
+                pnpm --filter @motoboy/db exec prisma migrate deploy
+              </code>{" "}
+              ou{" "}
               <code className="text-[11px]">bash scripts/setup-supabase.sh</code>
             </p>
             {envLogin && (
               <p className="text-xs text-emerald-200/90">
-                Enquanto isso, use o e-mail e a senha definidos em ADMIN_EMAIL /
-                ADMIN_PASSWORD na Vercel.
+                Enquanto isso, use ADMIN_EMAIL / ADMIN_PASSWORD na Vercel.
               </p>
             )}
           </div>

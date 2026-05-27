@@ -4,6 +4,7 @@ import { AppRealtimeSync } from "@/components/app-realtime-sync";
 import { BottomNav } from "@/components/bottom-nav";
 import { DemoBanner } from "@/components/demo-banner";
 import { SubscriptionGate } from "@/components/subscription-gate";
+import { TrialBanner } from "@/components/trial-banner";
 
 export default function AppLayout({
   children,
@@ -14,6 +15,7 @@ export default function AppLayout({
     <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full max-w-full overflow-hidden overflow-x-hidden">
       <AppRealtimeSync />
       <DemoBanner />
+      <TrialBanner />
       <SubscriptionGate>
         <AppDataProvider>
           <OnboardingManager />

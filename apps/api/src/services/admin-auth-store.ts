@@ -4,6 +4,7 @@ import {
   isPrismaTableMissingError,
   MIGRATIONS_REQUIRED_MESSAGE,
 } from "../lib/prisma-errors.js";
+
 const ADMIN_ID = "primary";
 
 function normalizeEmail(email: string): string {
@@ -21,13 +22,22 @@ export function envAdminCredentialsConfigured(): boolean {
   return Boolean(email && password);
 }
 
+export async function isDatabaseConnected(): Promise<boolean> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function isAdminTableReady(): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1 FROM "AdminAccount" LIMIT 1`;
     return true;
   } catch (err) {
     if (isPrismaTableMissingError(err)) return false;
-    throw err;
+    return false;
   }
 }
 
@@ -38,7 +48,7 @@ export async function isAdminConfigured(): Promise<boolean> {
     return Boolean(row);
   } catch (err) {
     if (isPrismaTableMissingError(err)) return false;
-    throw err;
+    return false;
   }
 }
 
@@ -101,16 +111,19 @@ export async function verifyAdminLoginWithEnvFallback(
   email: string,
   password: string,
 ): Promise<boolean> {
-  if (await isAdminTableReady()) {
-    const account = await prisma.adminAccount.findUnique({
-      where: { id: ADMIN_ID },
-    });
-    if (account) {
-      return (
-        normalizeEmail(email) === account.email &&
-        (await verifyPassword(password, account.passwordHash))
-      );
-    }
+  if (envAdminCredentialsConfigured() && verifyEnvAdmin(email, password)) {
+    return true;
   }
-  return verifyEnvAdmin(email, password);
+
+  if (!(await isAdminTableReady())) return false;
+
+  const account = await prisma.adminAccount.findUnique({
+    where: { id: ADMIN_ID },
+  });
+  if (!account) return false;
+
+  return (
+    normalizeEmail(email) === account.email &&
+    (await verifyPassword(password, account.passwordHash))
+  );
 }

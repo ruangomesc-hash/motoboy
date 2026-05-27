@@ -14,9 +14,19 @@ let appPromise: Promise<FastifyInstance> | null = null;
 
 async function getApp(): Promise<FastifyInstance> {
   if (!appPromise) {
-    appPromise = createApp({ logger: process.env.NODE_ENV !== "production" });
-    const app = await appPromise;
-    await app.ready();
+    appPromise = (async () => {
+      const app = await createApp({
+        logger: process.env.NODE_ENV !== "production",
+      });
+      await app.ready();
+      try {
+        const { prisma } = await import("@motoboy/db");
+        await prisma.$connect();
+      } catch {
+        /* conexão lazy na primeira query se falhar aqui */
+      }
+      return app;
+    })();
   }
   return appPromise;
 }

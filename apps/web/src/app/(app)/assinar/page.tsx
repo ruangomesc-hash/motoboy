@@ -98,7 +98,7 @@ export default function AssinarPage() {
       <div className="text-center">
         <h1 className="text-2xl font-bold">Motocopiloto Pro</h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          Trial de 14 dias. Depois, continue por:
+          Trial de 4 dias grátis. Depois, continue por:
         </p>
         <p className="text-4xl font-bold text-primary mt-3">R$ 14,90</p>
         <p className="text-sm text-muted-foreground">/mês · cobrança via Asaas</p>

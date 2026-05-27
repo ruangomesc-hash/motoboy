@@ -9,7 +9,7 @@ import type {
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser } from "./affiliate.js";
 
-const TRIAL_DAYS = 14;
+import { TRIAL_DAYS } from "@motoboy/types";
 
 export const SUBSCRIPTION_PRICE = 14.9;
 

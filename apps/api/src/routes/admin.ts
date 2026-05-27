@@ -9,6 +9,7 @@ import {
   envAdminCredentialsConfigured,
   isAdminConfigured,
   isAdminTableReady,
+  isDatabaseConnected,
   setupAdminAccount,
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
@@ -34,11 +35,15 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
   app.get("/admin/auth/status", async (_request, reply) => {
-    const migrationsReady = await isAdminTableReady();
+    const [databaseConnected, migrationsReady] = await Promise.all([
+      isDatabaseConnected(),
+      isAdminTableReady(),
+    ]);
     const configured = migrationsReady ? await isAdminConfigured() : false;
     return reply.send({
       configured,
       migrationsReady,
+      databaseConnected,
       envLoginAvailable: envAdminCredentialsConfigured(),
       bootstrapEmail: process.env.ADMIN_EMAIL?.trim() ?? null,
     });
@@ -72,17 +77,19 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const body = adminLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const password = body.password.trim();
+    const envLogin = envAdminCredentialsConfigured();
+
     const migrationsReady = await isAdminTableReady();
     const configured = migrationsReady ? await isAdminConfigured() : false;
 
-    if (!migrationsReady && !envAdminCredentialsConfigured()) {
+    if (!migrationsReady && !envLogin) {
       return reply.status(503).send({
         error: MIGRATIONS_REQUIRED_MESSAGE,
         code: "MIGRATIONS_REQUIRED",
       });
     }
 
-    if (!configured && migrationsReady) {
+    if (!configured && migrationsReady && !envLogin) {
       return reply.status(400).send({
         error:
           "Primeiro acesso: use Continuar sem senha e defina sua senha de administrador.",
@@ -100,7 +107,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
     });
-    return { token };
+    return reply.send({ token });
   });
 
   app.addHook("preHandler", async (request, reply) => {
@@ -115,7 +122,21 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     await requireAdmin(request, reply);
   });
 
-  app.get("/admin/overview", async () => getAdminOverview());
+  app.get("/admin/overview", async (_request, reply) => {
+    try {
+      return await getAdminOverview();
+    } catch (err) {
+      const connected = await isDatabaseConnected();
+      if (!connected) {
+        return reply.status(503).send({
+          error:
+            "Não conectou ao Supabase. Confira DATABASE_URL e DIRECT_URL na Vercel.",
+          code: "DATABASE_UNAVAILABLE",
+        });
+      }
+      throw err;
+    }
+  });
 
   app.get("/admin/users", async (request) => {
     const q = request.query as { page?: string; limit?: string; status?: string };
