@@ -6,6 +6,7 @@ import type {
   AdminUserRow,
   AdminUsersList,
 } from "@motoboy/types";
+import { buildCsv } from "../lib/csv.js";
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser } from "./affiliate.js";
 
@@ -434,6 +435,145 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   };
 }
 
+const EXPORT_BATCH_SIZE = 250;
+
+const STATUS_EXPORT_LABEL: Record<AdminUserRow["status"], string> = {
+  ACTIVE: "Ativo",
+  TRIAL: "Trial",
+  PAUSED: "Pausado",
+  CANCELED: "Cancelado",
+};
+
+const PAYMENT_EXPORT_LABEL: Record<
+  NonNullable<AdminUserRow["lastPaymentStatus"]>,
+  string
+> = {
+  PENDING: "Pendente",
+  PAID: "Pago",
+  FAILED: "Falhou",
+  REFUNDED: "Estornado",
+};
+
+const DELINQUENCY_EXPORT_LABEL: Record<
+  NonNullable<AdminUserRow["delinquencyReason"]>,
+  string
+> = {
+  trial_expired: "Trial vencido",
+  payment_pending: "Cobrança pendente",
+  payment_failed: "Pagamento falhou",
+};
+
+function usersWhereFromStatus(status?: string) {
+  if (!status || status === "ALL") return undefined;
+  return { status: status as "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELED" };
+}
+
+function formatIsoDateBr(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("pt-BR");
+}
+
+function adminUserRowToCsvCells(row: AdminUserRow): string[] {
+  const usageParts: string[] = [];
+  if (row.usageMonths > 0) {
+    usageParts.push(
+      row.usageMonths === 1 ? "1 mês" : `${row.usageMonths} meses`,
+    );
+  }
+  if (row.usageRemainderDays > 0 || row.usageMonths === 0) {
+    usageParts.push(
+      row.usageRemainderDays === 1
+        ? "1 dia"
+        : `${row.usageRemainderDays} dias`,
+    );
+  }
+  const tempoNoApp =
+    usageParts.length > 0 ? usageParts.join(" e ") : "Hoje";
+
+  return [
+    row.id,
+    row.name ?? "",
+    row.email ?? "",
+    row.whatsappNumber,
+    row.city ?? "",
+    STATUS_EXPORT_LABEL[row.status],
+    formatIsoDateBr(row.createdAt),
+    formatIsoDateBr(row.trialEndsAt),
+    formatIsoDateBr(row.subscribedAt),
+    row.affiliateCode ?? "",
+    row.affiliateName ?? "",
+    String(row.deliveryCount),
+    row.lastPaymentStatus
+      ? PAYMENT_EXPORT_LABEL[row.lastPaymentStatus]
+      : "",
+    row.isDelinquent ? "Sim" : "Não",
+    row.delinquencyReason
+      ? DELINQUENCY_EXPORT_LABEL[row.delinquencyReason]
+      : "",
+    row.daysOverdue != null ? String(row.daysOverdue) : "",
+    tempoNoApp,
+    String(row.usageDays),
+  ];
+}
+
+const CLIENT_CSV_HEADERS = [
+  "ID",
+  "Nome",
+  "E-mail",
+  "WhatsApp",
+  "Cidade",
+  "Status",
+  "Cadastro",
+  "Trial até",
+  "Assinante desde",
+  "Cupom indicação",
+  "Afiliado",
+  "Entregas",
+  "Último pagamento",
+  "Inadimplente",
+  "Motivo inadimplência",
+  "Dias em atraso",
+  "Tempo no app",
+  "Dias no app (total)",
+];
+
+/** Exporta 100% dos clientes (lotes no servidor, sem limite de paginação da UI). */
+export async function exportAllAdminUsersCsv(status?: string): Promise<{
+  csv: string;
+  total: number;
+}> {
+  const now = new Date();
+  const baseWhere = usersWhereFromStatus(status);
+  const rows: AdminUserRow[] = [];
+  let lastId: string | undefined;
+
+  for (;;) {
+    const batch = await prisma.user.findMany({
+      where: lastId
+        ? { ...baseWhere, id: { gt: lastId } }
+        : baseWhere,
+      orderBy: { id: "asc" },
+      take: EXPORT_BATCH_SIZE,
+      include: userInclude,
+    });
+    if (batch.length === 0) break;
+    for (const u of batch) {
+      rows.push(mapUserRow(u, now));
+    }
+    lastId = batch[batch.length - 1]?.id;
+    if (batch.length < EXPORT_BATCH_SIZE) break;
+  }
+
+  const csv = buildCsv(
+    CLIENT_CSV_HEADERS,
+    rows.map((r) => adminUserRowToCsvCells(r)),
+  );
+
+  return { csv, total: rows.length };
+}
+
 export async function getAdminUsersList(
   page: number,
   limit: number,
@@ -441,10 +581,7 @@ export async function getAdminUsersList(
 ): Promise<AdminUsersList> {
   const now = new Date();
   const skip = (page - 1) * limit;
-  const where =
-    status && status !== "ALL"
-      ? { status: status as "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELED" }
-      : undefined;
+  const where = usersWhereFromStatus(status);
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({

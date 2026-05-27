@@ -1,13 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import type { AdminUserRow, AdminUsersList } from "@motoboy/types";
-import { useAdminApi } from "@/hooks/use-admin-api";
+import { useAdminApi, useIsAdminDemoMode } from "@/hooks/use-admin-api";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ClientsTable } from "@/components/admin/clients-table";
 import { AddClientDialog } from "@/components/admin/add-client-dialog";
+import { downloadAdminFile } from "@/lib/admin-download";
+import { downloadClientsCsv } from "@/lib/admin-clients-csv";
+import { demoClients } from "@/lib/admin-demo-data";
 
 const STATUS_FILTERS = [
   { id: "ALL", label: "Todos" },
@@ -19,11 +23,15 @@ const STATUS_FILTERS = [
 
 export default function AdminClientesPage() {
   const api = useAdminApi();
+  const { data: session } = useSession();
+  const isDemo = useIsAdminDemoMode();
   const [status, setStatus] = useState("ALL");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<AdminUsersList | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -45,16 +53,67 @@ export default function AdminClientesPage() {
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 1;
 
+  async function downloadSpreadsheet() {
+    setExporting(true);
+    setExportError(null);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    try {
+      if (isDemo) {
+        const total = downloadClientsCsv(
+          demoClients,
+          `clientes-motocopiloto-todos-${stamp}.csv`,
+        );
+        if (total === 0) {
+          setExportError("Nenhum cliente para exportar.");
+        }
+        return;
+      }
+
+      const token = session?.accessToken;
+      if (!token) {
+        setExportError("Sessão admin inválida. Entre de novo.");
+        return;
+      }
+
+      // Sempre exporta 100% dos cadastrados (sem limite de página da lista).
+      const path = "/admin/users/export";
+      const { total } = await downloadAdminFile(path, token);
+      if (total === 0) {
+        setExportError("Nenhum cliente para exportar.");
+      }
+    } catch (e) {
+      setExportError(
+        e instanceof Error ? e.message : "Não foi possível baixar a planilha.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="p-4 md:p-8 pb-24 md:pb-8 space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Lista de clientes</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Todos os motoboys cadastrados — trial, pagos e cancelados
+            {data
+              ? `${data.total} cadastrados — a planilha baixa todos de uma vez`
+              : "Todos os motoboys cadastrados — trial, pagos e cancelados"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exporting || loading}
+            onClick={() => void downloadSpreadsheet()}
+          >
+            <Download
+              className={`h-4 w-4 mr-1.5 ${exporting ? "animate-pulse" : ""}`}
+            />
+            {exporting ? "Gerando..." : "Baixar planilha"}
+          </Button>
           <AddClientDialog
             onCreated={load}
             onSubmit={(body) =>
@@ -94,9 +153,9 @@ export default function AdminClientesPage() {
         ))}
       </div>
 
-      {error && (
+      {(error || exportError) && (
         <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/10 p-3">
-          {error}
+          {exportError ?? error}
         </p>
       )}
 

@@ -145,7 +145,7 @@ const demoAffiliates: AdminAffiliateRow[] = [
   },
 ];
 
-const demoClients: AdminUserRow[] = [
+export const demoClients: AdminUserRow[] = [
   withUsage({
     id: "c1",
     name: "Carlos Silva",
@@ -487,13 +487,19 @@ export function adminDemoFetch<T>(
     } as T);
   }
 
+  if (path.startsWith("/admin/users/export")) {
+    return Promise.reject(
+      new Error("Use o botão Baixar planilha (exportação direta no demo)."),
+    );
+  }
+
   if (path.startsWith("/admin/users")) {
     const url = new URL(path, "http://local");
     const status = url.searchParams.get("status");
     const items =
       status && status !== "ALL"
         ? demoClients.filter((c) => c.status === status)
-        : demoClients;
+        : [...demoClients];
     return Promise.resolve({
       items,
       total: items.length,

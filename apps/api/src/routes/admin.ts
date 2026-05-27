@@ -25,6 +25,7 @@ import {
 } from "../services/affiliate.js";
 import {
   createAdminUser,
+  exportAllAdminUsersCsv,
   getAdminDelinquentList,
   getAdminOverview,
   getAdminUsageLogs,
@@ -136,6 +137,23 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       }
       throw err;
     }
+  });
+
+  app.get("/admin/users/export", async (request, reply) => {
+    const q = request.query as { status?: string };
+    const status =
+      q.status && q.status !== "ALL" ? q.status : undefined;
+    const { csv, total } = await exportAllAdminUsersCsv(status);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const suffix = status ? `-${status.toLowerCase()}` : "-todos";
+    return reply
+      .header("Content-Type", "text/csv; charset=utf-8")
+      .header(
+        "Content-Disposition",
+        `attachment; filename="clientes-motocopiloto${suffix}-${stamp}.csv"`,
+      )
+      .header("X-Export-Total", String(total))
+      .send(csv);
   });
 
   app.get("/admin/users", async (request) => {
