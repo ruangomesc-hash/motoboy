@@ -67,13 +67,58 @@ function run(cmd, opts = {}) {
   }
 }
 
+function extractCommandErrorOutput(error) {
+  const out =
+    error && typeof error === "object" && "stdout" in error
+      ? String(error.stdout ?? "")
+      : "";
+  const err =
+    error && typeof error === "object" && "stderr" in error
+      ? String(error.stderr ?? "")
+      : "";
+  return `${out}\n${err}`;
+}
+
+function runDbDeployWithRecovery() {
+  const deployCmd = "pnpm db:deploy";
+  console.log(`\n> ${deployCmd}`);
+  try {
+    execSync(deployCmd, {
+      stdio: "inherit",
+      cwd: root,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=6144",
+      },
+    });
+    return;
+  } catch (error) {
+    const output = extractCommandErrorOutput(error);
+    const failedMigration = "20260527190000_costs_configured_at";
+    const shouldRecover =
+      output.includes("Error: P3009") && output.includes(failedMigration);
+    if (!shouldRecover) {
+      console.error(`\n[vercel-build] FALHOU: ${deployCmd}\n`);
+      process.exit(1);
+    }
+
+    console.warn(
+      `\n[vercel-build] Detectado P3009 na migration ${failedMigration}. Tentando recuperação automática...\n`,
+    );
+    run(
+      `pnpm --filter @motoboy/db exec prisma migrate resolve --rolled-back ${failedMigration}`,
+    );
+    run(deployCmd);
+  }
+}
+
 run(
   "pnpm --filter @motoboy/db exec prisma generate --schema=./prisma/schema.prisma",
 );
 
 if (hasRealDatabase()) {
   console.log("\n[vercel-build] Supabase detectado — aplicando migrations…\n");
-  run("pnpm db:deploy");
+  runDbDeployWithRecovery();
 } else {
   console.warn(
     "\n[vercel-build] AVISO: migrations NÃO rodaram (DATABASE_URL de placeholder).\n" +
