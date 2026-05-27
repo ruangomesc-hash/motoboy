@@ -19,6 +19,10 @@ import {
   shouldHandleSync,
 } from "@/lib/app-sync";
 import { applyDeliveryToToday } from "@/lib/app-data-cache";
+import {
+  isServerConfigComplete,
+  type MeConfigSnapshot,
+} from "@/lib/onboarding";
 
 export type DeliveryListItem = {
   id: string;
@@ -38,9 +42,11 @@ type AppDataContextValue = {
   statsWeek: PeriodStats | null;
   statsMonth: PeriodStats | null;
   isBootstrapped: boolean;
+  configComplete: boolean | null;
   refreshToday: () => Promise<void>;
   refreshDeliveries: () => Promise<void>;
   refreshStats: (period: "week" | "month") => Promise<void>;
+  refreshConfigStatus: () => Promise<boolean>;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -62,6 +68,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [statsWeek, setStatsWeek] = useState<PeriodStats | null>(null);
   const [statsMonth, setStatsMonth] = useState<PeriodStats | null>(null);
   const [isBootstrapped, setIsBootstrapped] = useState(false);
+  const [configComplete, setConfigComplete] = useState<boolean | null>(null);
   const bootstrapStarted = useRef(false);
 
   const refreshToday = useCallback(async () => {
@@ -97,22 +104,30 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [api],
   );
 
+  const refreshConfigStatus = useCallback(async () => {
+    try {
+      const me = await api<MeConfigSnapshot>("/me");
+      const complete = isServerConfigComplete(me);
+      setConfigComplete(complete);
+      setProfileName(me.profile?.name ?? null);
+      return complete;
+    } catch {
+      setConfigComplete(false);
+      return false;
+    }
+  }, [api]);
+
   const bootstrap = useCallback(async () => {
-    await Promise.all([
-      refreshToday(),
-      api<{ profile: { name: string | null } }>("/me")
-        .then((u) => setProfileName(u.profile?.name ?? null))
-        .catch(() => setProfileName(null)),
-      refreshDeliveries(),
-      refreshStats("week"),
-    ]);
+    await Promise.all([refreshToday(), refreshConfigStatus()]);
     setIsBootstrapped(true);
-  }, [api, refreshToday, refreshDeliveries, refreshStats]);
+    void Promise.all([refreshDeliveries(), refreshStats("week")]);
+  }, [refreshToday, refreshConfigStatus, refreshDeliveries, refreshStats]);
 
   useEffect(() => {
     if (status !== "authenticated") {
       bootstrapStarted.current = false;
       setIsBootstrapped(false);
+      setConfigComplete(null);
       return;
     }
     if (bootstrapStarted.current) return;
@@ -161,9 +176,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         void Promise.all([refreshStats("week"), refreshStats("month")]);
       }
       if (topicsMatch(["profile", "all"], incoming)) {
-        void api<{ profile: { name: string | null } }>("/me")
-          .then((u) => setProfileName(u.profile?.name ?? null))
-          .catch(() => {});
+        void refreshConfigStatus();
       }
     };
 
@@ -195,6 +208,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     refreshToday,
     refreshDeliveries,
     refreshStats,
+    refreshConfigStatus,
   ]);
 
   const value = useMemo(
@@ -207,9 +221,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       statsWeek,
       statsMonth,
       isBootstrapped,
+      configComplete,
       refreshToday,
       refreshDeliveries,
       refreshStats,
+      refreshConfigStatus,
     }),
     [
       today,
@@ -219,9 +235,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       statsWeek,
       statsMonth,
       isBootstrapped,
+      configComplete,
       refreshToday,
       refreshDeliveries,
       refreshStats,
+      refreshConfigStatus,
     ],
   );
 

@@ -11,7 +11,6 @@ import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
-import { AppLoadingSplash } from "@/components/app-loading-splash";
 import { AppPage } from "@/components/app-page";
 import { WeeklyGoalThermometer } from "@/components/weekly-goal-thermometer";
 import {
@@ -69,17 +68,13 @@ function sourceLabel(source: string): string {
 }
 
 export default function HomePage() {
-  const { today, profileName, isBootstrapped } = useAppData();
+  const { today, profileName } = useAppData();
 
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
 
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
-
-  if (!isBootstrapped && !today) {
-    return <AppLoadingSplash variant="home" />;
-  }
 
   const s = today ?? emptySummary;
   const kmSourceLabel =

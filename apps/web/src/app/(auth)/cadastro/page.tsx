@@ -112,8 +112,7 @@ function CadastroForm() {
         return;
       }
       clearPersistedAffiliateCode();
-      router.push("/");
-      router.refresh();
+      router.push("/config?setup=1");
     } catch {
       setError("Não foi possível concluir o cadastro. Tente de novo.");
     } finally {

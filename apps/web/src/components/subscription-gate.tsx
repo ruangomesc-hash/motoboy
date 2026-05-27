@@ -1,32 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { SubscriptionStatus } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
-import { AppLoadingSplash } from "@/components/app-loading-splash";
-
 const ALLOWED_PATHS = ["/assinar", "/config"];
 
-/** Redireciona para assinatura se trial expirou (área exclusiva só com acesso válido). */
+/** Redireciona para assinatura se trial expirou (checagem em background, sem bloquear a UI). */
 export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { status: sessionStatus } = useSession();
   const api = useApi();
-  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (sessionStatus !== "authenticated") {
-      setChecked(true);
-      return;
-    }
-
-    if (ALLOWED_PATHS.some((p) => pathname.startsWith(p))) {
-      setChecked(true);
-      return;
-    }
+    if (sessionStatus !== "authenticated") return;
+    if (ALLOWED_PATHS.some((p) => pathname.startsWith(p))) return;
 
     let cancelled = false;
     api<SubscriptionStatus>("/me/subscription")
@@ -38,24 +28,14 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
           new Date(sub.trialEndsAt) > new Date();
         const active =
           sub.status === "ACTIVE" || sub.status === "PAUSED" || trialOk;
-        if (!active) {
-          router.replace("/assinar");
-          return;
-        }
-        setChecked(true);
+        if (!active) router.replace("/assinar");
       })
-      .catch(() => {
-        if (!cancelled) setChecked(true);
-      });
+      .catch(() => {});
 
     return () => {
       cancelled = true;
     };
   }, [api, pathname, router, sessionStatus]);
-
-  if (!checked && sessionStatus === "authenticated") {
-    return <AppLoadingSplash variant="account" className="flex-1" />;
-  }
 
   return <>{children}</>;
 }

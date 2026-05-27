@@ -28,38 +28,21 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const verify = await fetch("/api/backend/auth/whatsapp/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phone: digits,
-        code: "000000",
-      }),
-    });
-    if (!verify.ok) {
-      const data = (await verify.json().catch(() => ({}))) as { error?: string };
-      setLoading(false);
-      setError(
-        data.error ??
-          "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail.",
-      );
-      return;
-    }
-
     const result = await signIn("whatsapp", {
       phone: digits,
       code: "000000",
       redirect: false,
     });
-    setLoading(false);
     if (result?.error) {
+      setLoading(false);
       setError(
-        "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail.",
+        result.error === "CredentialsSignin"
+          ? "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail."
+          : result.error,
       );
       return;
     }
     router.push("/");
-    router.refresh();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -77,7 +60,6 @@ export default function LoginPage() {
       return;
     }
     router.push("/");
-    router.refresh();
   }
 
   return (
