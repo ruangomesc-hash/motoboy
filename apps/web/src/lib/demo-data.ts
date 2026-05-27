@@ -619,12 +619,29 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
     const body = JSON.parse((options.body as string) ?? "{}") as {
       addresses?: string[];
     };
-    const addresses = body.addresses ?? ["Endereço A", "Endereço B"];
+    const addresses = (body.addresses ?? []).map((a) => a.trim()).filter(Boolean);
+    if (addresses.length < 2) {
+      return Promise.reject(new Error("Informe pelo menos 2 endereços."));
+    }
+    const invalid = addresses.filter(
+      (a) =>
+        a.length < 8 ||
+        (/^[a-zA-Z0-9]+$/i.test(a) && !/\d/.test(a) && a.length < 12),
+    );
+    if (invalid.length > 0) {
+      return Promise.reject(
+        new Error(
+          "Endereço inválido no demo. Use rua, número e cidade (ex.: Av. Paulista, 1000, São Paulo).",
+        ),
+      );
+    }
     return Promise.resolve({
       orderedAddresses: addresses,
-      totalKm: addresses.length * 3.2,
-      totalMin: addresses.length * 9,
+      totalKm: 12.4,
+      totalMin: 28,
       googleMapsUrl: `https://www.google.com/maps/dir/${addresses.map(encodeURIComponent).join("/")}`,
+      wazeUrl: `https://waze.com/ul?q=${encodeURIComponent(addresses[0]!)}&navigate=yes`,
+      source: "google",
     } as T);
   }
   if (method === "PUT" || method === "PATCH" || method === "DELETE" || method === "POST") {

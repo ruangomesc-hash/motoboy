@@ -16,7 +16,7 @@ import {
   recordActivity,
 } from "../services/activity-log.js";
 import { getTodaySummary, formatCurrency } from "../services/today.js";
-import { optimizeRoute } from "../services/maps.js";
+import { optimizeRoute, RouteMapsError } from "../services/maps.js";
 import {
   registerFuelRefuel,
   getFuelDayStats,
@@ -276,23 +276,33 @@ export function startWhatsAppWorker(
       }
 
       if (extraction.type === "route_request") {
-        const route = await optimizeRoute(extraction.addresses, env, log);
-        await prisma.route.create({
-          data: {
-            userId: user.id,
-            addresses: extraction.addresses,
-            optimizedOrder: route.orderedAddresses,
-            totalKm: route.totalKm,
-            totalMin: route.totalMin,
-          },
-        });
-        const lines = route.orderedAddresses
-          .map((a, i) => `${i + 1}. ${a}`)
-          .join("\n");
-        await evolution.sendText(
-          phone,
-          `🗺️ Rota otimizada (${route.totalKm.toFixed(1)} km, ~${route.totalMin} min):\n${lines}\n\n${route.googleMapsUrl}`,
-        );
+        try {
+          const route = await optimizeRoute(extraction.addresses, env, log);
+          await prisma.route.create({
+            data: {
+              userId: user.id,
+              addresses: extraction.addresses,
+              optimizedOrder: route.orderedAddresses,
+              totalKm: route.totalKm,
+              totalMin: route.totalMin,
+            },
+          });
+          const lines = route.orderedAddresses
+            .map((a, i) => `${i + 1}. ${a}`)
+            .join("\n");
+          await evolution.sendText(
+            phone,
+            `🗺️ Rota otimizada (${route.totalKm.toFixed(1)} km, ~${route.totalMin} min):\n${lines}\n\nGoogle Maps: ${route.googleMapsUrl}\nWaze (1º ponto): ${route.wazeUrl}`,
+          );
+        } catch (err) {
+          const msg =
+            err instanceof RouteMapsError
+              ? err.details?.length
+                ? `${err.message}\n${err.details.join("\n")}`
+                : err.message
+              : "Não consegui montar a rota. Confira os endereços e tente de novo.";
+          await evolution.sendText(phone, `⚠️ ${msg}`);
+        }
         return;
       }
 

@@ -18,8 +18,15 @@ export async function apiFetch<T>(
     const text = await res.text();
     let message: string | undefined;
     try {
-      const err = JSON.parse(text) as { error?: string; message?: string };
+      const err = JSON.parse(text) as {
+        error?: string;
+        message?: string;
+        details?: string[];
+      };
       message = err.error ?? err.message;
+      if (err.details?.length) {
+        message = `${message}\n${err.details.join("\n")}`;
+      }
     } catch {
       /* body não é JSON (ex.: proxy do Next quando a API está offline) */
     }

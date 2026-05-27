@@ -32,7 +32,7 @@ import {
 import { getTodaySummary } from "../services/today.js";
 import { getFuelDayStats } from "../services/fuel.js";
 import { getOdometerDayStats } from "../services/odometer.js";
-import { optimizeRoute } from "../services/maps.js";
+import { optimizeRoute, RouteMapsError } from "../services/maps.js";
 import { AsaasApiError } from "../lib/asaas-client.js";
 import { AsaasService } from "../services/asaas.js";
 
@@ -416,22 +416,35 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.post("/me/routes/optimize", async (request) => {
+  app.post("/me/routes/optimize", async (request, reply) => {
     const body = request.body as { addresses: string[] };
     if (!body.addresses?.length) {
-      return { error: "Endereços obrigatórios" };
+      return reply.status(400).send({ error: "Endereços obrigatórios" });
     }
-    const route = await optimizeRoute(body.addresses, env, app.log);
-    await prisma.route.create({
-      data: {
-        userId: request.sessionUser!.id,
-        addresses: body.addresses,
-        optimizedOrder: route.orderedAddresses,
-        totalKm: route.totalKm,
-        totalMin: route.totalMin,
-      },
-    });
-    return route;
+    try {
+      const route = await optimizeRoute(body.addresses, env, app.log);
+      await prisma.route.create({
+        data: {
+          userId: request.sessionUser!.id,
+          addresses: body.addresses,
+          optimizedOrder: route.orderedAddresses,
+          totalKm: route.totalKm,
+          totalMin: route.totalMin,
+        },
+      });
+      return route;
+    } catch (err) {
+      if (err instanceof RouteMapsError) {
+        const status =
+          err.code === "MAPS_NOT_CONFIGURED" ? 503 : 400;
+        return reply.status(status).send({
+          error: err.message,
+          code: err.code,
+          details: err.details,
+        });
+      }
+      throw err;
+    }
   });
 
   app.get("/me/fuel", async (request) => {
