@@ -44,7 +44,7 @@ export function MotocopilotoLogo({
           Moto<span className="text-emerald-400">copiloto</span>
         </p>
         <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider leading-tight">
-          Seu copiloto na rua
+          Seu copiloto financeiro
         </p>
       </div>
     </div>

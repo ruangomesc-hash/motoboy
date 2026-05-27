@@ -10,7 +10,7 @@ const HOME_PHRASES = [
   "Sincronizando entregas e custos…",
   "Calculando lucro e km rodados…",
   "Organizando o resumo de hoje…",
-  "Quase lá — seu copiloto na rua.",
+  "Quase lá — lucro e gastos na mão.",
 ];
 
 const ACCOUNT_PHRASES = [
