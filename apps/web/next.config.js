@@ -27,6 +27,14 @@ const nextConfig = {
   experimental: {
     // Monorepo: inclui arquivos fora de apps/web no tracing do bundle serverless.
     outputFileTracingRoot: path.join(__dirname, "../.."),
+    outputFileTracingIncludes: {
+      // Garante o Prisma engine no bundle da rota backend (Vercel serverless).
+      "/api/backend/[...path]": [
+        "../../node_modules/.pnpm/@prisma+client@*/node_modules/@prisma/client/runtime/**/*",
+        "../../node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/**/*",
+        "../../node_modules/.pnpm/prisma@*/node_modules/prisma/**/*",
+      ],
+    },
     serverComponentsExternalPackages: [
       "@prisma/client",
       "bullmq",
