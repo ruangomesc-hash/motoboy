@@ -1,5 +1,6 @@
 import { prisma } from "@motoboy/db";
 import type { PeriodStats } from "@motoboy/types";
+import { getRangeNetProfit } from "./day-net.js";
 
 function toNumber(d: { toString(): string } | number): number {
   return typeof d === "number" ? d : Number(d);
@@ -33,7 +34,7 @@ export async function getPeriodStats(
     start.setMonth(start.getMonth() - 1);
   }
 
-  const [deliveries, shifts, costs] = await Promise.all([
+  const [deliveries, shifts, totalNet] = await Promise.all([
     prisma.delivery.findMany({
       where: { userId, occurredAt: { gte: start } },
       orderBy: { occurredAt: "asc" },
@@ -45,7 +46,7 @@ export async function getPeriodStats(
         OR: [{ endedAt: null }, { endedAt: { gte: start } }],
       },
     }),
-    prisma.costConfig.findUnique({ where: { userId } }),
+    getRangeNetProfit(userId, start, now),
   ]);
 
   const byDay = new Map<string, number>();
@@ -72,22 +73,6 @@ export async function getPeriodStats(
       now,
     );
   }
-
-  const kmPerLiter = toNumber(costs?.kmPerLiter ?? 35);
-  const fuelPrice = toNumber(costs?.fuelPricePerLiter ?? 6);
-  const maintenancePerKm = toNumber(costs?.maintenancePerKm ?? 0.15);
-  const dailyOther =
-    toNumber(costs?.otherDailyCost ?? 0) +
-    toNumber(costs?.dailyFoodCost ?? 0);
-
-  const daysWithDeliveries = new Set(
-    deliveries.map((d) => d.occurredAt.toISOString().slice(0, 10)),
-  ).size;
-  const estimatedFuel =
-    totalKm > 0 ? (totalKm / kmPerLiter) * fuelPrice : 0;
-  const maintenanceCost = totalKm * maintenancePerKm;
-  const otherCost = daysWithDeliveries * dailyOther;
-  const totalNet = totalGross - estimatedFuel - maintenanceCost - otherCost;
 
   const grossPerHour =
     hoursWorked > 0 ? totalGross / hoursWorked : null;

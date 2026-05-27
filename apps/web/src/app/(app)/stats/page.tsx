@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PeriodStats } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
@@ -8,21 +8,67 @@ import { formatBRL } from "@/lib/utils";
 import { formatHours } from "@/lib/format-hours";
 import { AppPage } from "@/components/app-page";
 import { useApi } from "@/hooks/use-api";
+import { buildPreviewPeriodStats } from "@/lib/stats-preview";
+
+function mergeDisplayStats(
+  api: PeriodStats | null,
+  preview: PeriodStats,
+  costsConfigured: boolean,
+): PeriodStats {
+  if (!api) return preview;
+  if (!costsConfigured) {
+    return {
+      ...api,
+      totalGross: preview.totalGross,
+      totalNet: preview.totalNet,
+      count: preview.count,
+      totalKm: preview.totalKm,
+      series: preview.series.length > 0 ? preview.series : api.series,
+    };
+  }
+  return api;
+}
 
 export default function StatsPage() {
   const api = useApi();
-  const { statsWeek, statsMonth, refreshStats, isBootstrapped } = useAppData();
+  const {
+    statsWeek,
+    statsMonth,
+    refreshStats,
+    today,
+    deliveries,
+  } = useAppData();
   const [period, setPeriod] = useState<"week" | "month">("week");
   const [shiftLoading, setShiftLoading] = useState(false);
 
-  const stats: PeriodStats | null =
+  const apiStats: PeriodStats | null =
     period === "week" ? statsWeek : statsMonth;
 
+  const preview = useMemo(
+    () =>
+      buildPreviewPeriodStats(
+        period,
+        deliveries,
+        today,
+        apiStats,
+      ),
+    [period, deliveries, today, apiStats],
+  );
+
+  const stats = useMemo(
+    () =>
+      mergeDisplayStats(
+        apiStats,
+        preview,
+        today?.costsConfigured ?? false,
+      ),
+    [apiStats, preview, today?.costsConfigured],
+  );
+
   useEffect(() => {
-    if (!isBootstrapped) return;
-    if (period === "month" && !statsMonth) void refreshStats("month");
-    if (period === "week" && !statsWeek) void refreshStats("week");
-  }, [period, isBootstrapped, statsMonth, statsWeek, refreshStats]);
+    void refreshStats("week");
+    void refreshStats("month");
+  }, [refreshStats]);
 
   async function toggleShift() {
     setShiftLoading(true);
@@ -38,7 +84,7 @@ export default function StatsPage() {
     }
   }
 
-  const max = Math.max(...(stats?.series.map((s) => s.gross) ?? [1]), 1);
+  const max = Math.max(...(stats.series.map((s) => s.gross) ?? [1]), 1);
 
   return (
     <AppPage className="p-3 space-y-3">
@@ -65,7 +111,7 @@ export default function StatsPage() {
 
       <div className="rounded-xl border border-border bg-card p-3 space-y-2">
         <p className="text-xs text-muted-foreground">Controle de horas</p>
-        {stats?.activeShift ? (
+        {stats.activeShift ? (
           <p className="text-sm">
             Turno em andamento desde{" "}
             {new Date(stats.activeShift.startedAt).toLocaleTimeString("pt-BR", {
@@ -79,93 +125,83 @@ export default function StatsPage() {
           </p>
         )}
         <Button
-          variant={stats?.activeShift ? "outline" : "default"}
+          variant={stats.activeShift ? "outline" : "default"}
           size="sm"
           className="w-full"
-          disabled={shiftLoading || !stats}
+          disabled={shiftLoading}
           onClick={toggleShift}
         >
           {shiftLoading
             ? "..."
-            : stats?.activeShift
+            : stats.activeShift
               ? "Encerrar turno"
               : "Iniciar turno"}
         </Button>
       </div>
 
-      {!stats && !isBootstrapped ? (
-        <p className="text-sm text-muted-foreground text-center py-8 animate-pulse">
-          Carregando estatísticas...
-        </p>
-      ) : stats ? (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            <StatCard label="Total bruto" value={formatBRL(stats.totalGross)} />
-            <StatCard label="Entregas" value={String(stats.count)} />
-            <StatCard
-              label="Horas trabalhadas"
-              value={formatHours(stats.hoursWorked)}
-              highlight
-            />
-            <StatCard
-              label="Ganho / hora (bruto)"
-              value={
-                stats.grossPerHour != null
-                  ? formatBRL(stats.grossPerHour)
-                  : "—"
-              }
-              highlight
-            />
-            <StatCard
-              label="Ganho / hora (líquido)"
-              value={
-                stats.netPerHour != null ? formatBRL(stats.netPerHour) : "—"
-              }
-              className="col-span-2"
-            />
-            <StatCard
-              label="Líquido no período"
-              value={formatBRL(stats.totalNet)}
-            />
-            <StatCard
-              label="Km rodados"
-              value={`${stats.totalKm.toFixed(0)} km`}
-            />
-          </div>
+      <div className="grid grid-cols-2 gap-2">
+        <StatCard label="Total bruto" value={formatBRL(stats.totalGross)} />
+        <StatCard label="Entregas" value={String(stats.count)} />
+        <StatCard
+          label="Horas trabalhadas"
+          value={formatHours(stats.hoursWorked)}
+          highlight
+        />
+        <StatCard
+          label="Ganho / hora (bruto)"
+          value={
+            stats.grossPerHour != null ? formatBRL(stats.grossPerHour) : "—"
+          }
+          highlight
+        />
+        <StatCard
+          label="Ganho / hora (líquido)"
+          value={
+            stats.netPerHour != null ? formatBRL(stats.netPerHour) : "—"
+          }
+          className="col-span-2"
+        />
+        <StatCard
+          label="Líquido no período"
+          value={formatBRL(stats.totalNet)}
+        />
+        <StatCard
+          label="Km rodados"
+          value={`${stats.totalKm.toFixed(0)} km`}
+        />
+      </div>
 
-          {stats.series.length > 0 && (
-            <div className="rounded-xl border border-border bg-card p-3 w-full max-w-full min-w-0 overflow-hidden">
-              <p className="text-xs text-muted-foreground mb-3">
-                Faturamento por dia
-              </p>
-              <div className="w-full max-w-full overflow-x-auto overscroll-x-contain -mx-0.5 px-0.5">
+      {stats.series.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-3 w-full max-w-full min-w-0 overflow-hidden">
+          <p className="text-xs text-muted-foreground mb-3">
+            Faturamento por dia
+          </p>
+          <div className="w-full max-w-full overflow-x-auto overscroll-x-contain -mx-0.5 px-0.5">
+            <div
+              className="flex items-end gap-0.5 h-32 min-w-0"
+              style={{
+                minWidth: `${Math.max(stats.series.length * 10, 100)}px`,
+              }}
+            >
+              {stats.series.map((s) => (
                 <div
-                  className="flex items-end gap-0.5 h-32 min-w-0"
-                  style={{
-                    minWidth: `${Math.max(stats.series.length * 10, 100)}px`,
-                  }}
-                >
-                  {stats.series.map((s) => (
-                    <div
-                      key={s.date}
-                      className="flex-1 min-w-[6px] max-w-[20px] bg-primary rounded-t"
-                      style={{ height: `${(s.gross / max) * 100}%` }}
-                      title={`${s.date}: ${formatBRL(s.gross)}`}
-                    />
-                  ))}
-                </div>
-              </div>
+                  key={s.date}
+                  className="flex-1 min-w-[6px] max-w-[20px] bg-primary rounded-t"
+                  style={{ height: `${(s.gross / max) * 100}%` }}
+                  title={`${s.date}: ${formatBRL(s.gross)}`}
+                />
+              ))}
             </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {stats.hoursWorked === 0 && (
-            <p className="text-xs text-center text-muted-foreground px-2">
-              Ganho/hora aparece quando você inicia e encerra turnos, ou registra
-              turno pelo WhatsApp (&quot;começar turno&quot;).
-            </p>
-          )}
-        </>
-      ) : null}
+      {stats.hoursWorked === 0 && (
+        <p className="text-xs text-center text-muted-foreground px-2">
+          Ganho/hora aparece quando você inicia e encerra turnos, ou registra
+          turno pelo WhatsApp (&quot;começar turno&quot;).
+        </p>
+      )}
     </AppPage>
   );
 }

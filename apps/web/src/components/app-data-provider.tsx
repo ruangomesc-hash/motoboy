@@ -9,6 +9,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import { useSession } from "next-auth/react";
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
@@ -51,6 +53,11 @@ import {
   type PersistedAppCache,
 } from "@/lib/app-persist-cache";
 import { DEMO_USER_ID } from "@/lib/demo-data";
+import {
+  buildPreviewPeriodStats,
+  isInStatsPeriod,
+  patchPeriodStatsDelivery,
+} from "@/lib/stats-preview";
 
 export type { DeliveryListItem };
 
@@ -132,6 +139,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     deliveries,
     deliveriesDate,
     statsWeek,
+    statsMonth,
     configComplete,
     meSettings,
   });
@@ -141,6 +149,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     deliveries,
     deliveriesDate,
     statsWeek,
+    statsMonth,
     configComplete,
     meSettings,
   };
@@ -154,6 +163,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         deliveries: s.deliveries,
         deliveriesDate: s.deliveriesDate,
         statsWeek: s.statsWeek,
+        statsMonth: s.statsMonth,
         profileName: s.profileName,
         configComplete: s.configComplete,
       });
@@ -184,6 +194,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (cached.deliveries.length > 0) setDeliveries(cached.deliveries);
     setDeliveriesDate(cached.deliveriesDate || todayDateInputValue());
     if (cached.statsWeek) setStatsWeek(cached.statsWeek);
+    if (cached.statsMonth) setStatsMonth(cached.statsMonth);
     if (cached.profileName) setProfileName(cached.profileName);
     setIsBootstrapped(true);
   }, []);
@@ -206,6 +217,38 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       /* mantém cache */
     }
   }, [api, schedulePersist, userId]);
+
+  const applyStatsDelta = useCallback(
+    (
+      occurredAt: string,
+      delta: { gross: number; km: number; count: number },
+    ) => {
+      const costsConfigured =
+        stateRef.current.today?.costsConfigured ?? false;
+
+      const bump = (
+        period: "week" | "month",
+        setter: Dispatch<SetStateAction<PeriodStats | null>>,
+      ) => {
+        if (!isInStatsPeriod(occurredAt, period)) return;
+        setter((prev) => {
+          const fallback = buildPreviewPeriodStats(
+            period,
+            stateRef.current.deliveries,
+            stateRef.current.today,
+            prev,
+          );
+          const base = prev ?? fallback;
+          return patchPeriodStatsDelivery(base, delta, costsConfigured);
+        });
+      };
+
+      bump("week", setStatsWeek);
+      bump("month", setStatsMonth);
+      if (userId) schedulePersist(userId);
+    },
+    [schedulePersist, userId],
+  );
 
   const upsertDeliveryOptimistic = useCallback(
     (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
@@ -287,9 +330,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return applyDeliveryToToday(base, nextPayload);
       });
 
+      const newGross = Number(delivery.grossValue);
+      const oldGross = prevPayload ? Number(prevPayload.grossValue) : 0;
+      const newKm =
+        delivery.distanceKm != null ? Number(delivery.distanceKm) : 0;
+      const oldKm =
+        prevPayload?.distanceKm != null ? Number(prevPayload.distanceKm) : 0;
+      applyStatsDelta(occurredAt, {
+        gross: newGross - oldGross,
+        km: newKm - oldKm,
+        count: prevPayload ? 0 : 1,
+      });
+
       if (userId) persistNow(userId);
     },
-    [userId, persistNow],
+    [userId, persistNow, applyStatsDelta],
   );
 
   const applyDeliveryOptimistic = useCallback(
@@ -328,9 +383,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
+      if (payload) {
+        const gross = Number(payload.grossValue);
+        const km =
+          payload.distanceKm != null ? Number(payload.distanceKm) : 0;
+        applyStatsDelta(payload.occurredAt ?? new Date().toISOString(), {
+          gross: -gross,
+          km: -km,
+          count: -1,
+        });
+      }
+
       if (userId) persistNow(userId);
     },
-    [userId, persistNow],
+    [userId, persistNow, applyStatsDelta],
   );
 
   const patchDeliveryInList = useCallback(
@@ -365,13 +431,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const data = await api<PeriodStats>(`/me/stats?period=${period}`);
         if (period === "week") {
           setStatsWeek(data);
-          if (userId) schedulePersist(userId);
         } else {
           setStatsMonth(data);
         }
+        if (userId) schedulePersist(userId);
       } catch {
-        if (period === "week") setStatsWeek(null);
-        else setStatsMonth(null);
+        /* mantém cache */
       }
     },
     [api, schedulePersist, userId],
@@ -445,6 +510,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         refreshToday(),
         refreshDeliveries(),
         refreshStats("week"),
+        refreshStats("month"),
       ]);
     }, RECONCILE_MS);
   }, [refreshToday, refreshDeliveries, refreshStats]);
@@ -570,17 +636,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  const bootstrap = useCallback(async () => {
-    setIsBootstrapped(true);
+  const bootstrap = useCallback(() => {
     const cached = userId ? readAppCache(userId) : null;
     const stale = !cached || isCacheStale(cached.savedAt, 45_000);
 
-    await Promise.all([
-      refreshToday(),
-      loadMeSettings({ force: stale, silent: Boolean(cached) }),
-      refreshDeliveries(),
-      refreshStats("week"),
-    ]);
+    void refreshToday();
+    void loadMeSettings({ force: stale, silent: Boolean(cached) });
+    void refreshDeliveries();
+    void refreshStats("week");
+    void refreshStats("month");
   }, [loadMeSettings, refreshDeliveries, refreshStats, refreshToday, userId]);
 
   useLayoutEffect(() => {
@@ -628,6 +692,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     deliveries,
     deliveriesDate,
     statsWeek,
+    statsMonth,
     profileName,
     configComplete,
     isBootstrapped,

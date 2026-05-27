@@ -18,6 +18,7 @@ export type PersistedAppCache = {
   deliveries: DeliveryListItem[];
   deliveriesDate: string;
   statsWeek: PeriodStats | null;
+  statsMonth: PeriodStats | null;
   profileName: string | null;
   configComplete: boolean | null;
   savedAt: number;
