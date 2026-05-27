@@ -53,6 +53,7 @@ export default function EntregaDetailPage() {
   const {
     deliveries,
     removeDeliveryOptimistic,
+    applyDeliveryOptimistic,
     patchDeliveryInList,
     refreshToday,
     refreshDeliveries,
@@ -72,14 +73,15 @@ export default function EntregaDetailPage() {
   const [loadingExtra, setLoadingExtra] = useState(!cached);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!cached) return;
+    if (!cached || delivery) return;
     setDelivery(cached as DeliveryDetail);
     setForm(toForm(cached as DeliveryDetail));
     setLoadingExtra(false);
-  }, [cached]);
+  }, [cached, delivery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,8 +121,26 @@ export default function EntregaDetailPage() {
 
     setSaving(true);
     setError(null);
+    const previous = delivery;
+    const optimistic: DeliveryDetail = {
+      ...delivery,
+      grossValue,
+      originName: form.originName.trim() || null,
+      source: form.source,
+      distanceKm,
+      occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
+    };
+    setDelivery(optimistic);
+    patchDeliveryInList({
+      id: optimistic.id,
+      grossValue: optimistic.grossValue,
+      originName: optimistic.originName ?? null,
+      source: optimistic.source,
+      occurredAt: optimistic.occurredAt,
+      distanceKm: optimistic.distanceKm ?? null,
+    });
+    void refreshToday();
     try {
-      const occurredAt = isoFromDatetimeLocal(form.occurredAtLocal);
       const updated = await api<DeliveryDetail>(`/me/deliveries/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -128,7 +148,7 @@ export default function EntregaDetailPage() {
           originName: form.originName.trim() || null,
           source: form.source,
           distanceKm,
-          occurredAt,
+          occurredAt: optimistic.occurredAt,
         }),
       });
 
@@ -145,6 +165,16 @@ export default function EntregaDetailPage() {
       void refreshToday();
       void refreshDeliveries();
     } catch (err) {
+      setDelivery(previous);
+      patchDeliveryInList({
+        id: previous.id,
+        grossValue: previous.grossValue,
+        originName: previous.originName ?? null,
+        source: previous.source,
+        occurredAt: previous.occurredAt,
+        distanceKm: previous.distanceKm ?? null,
+      });
+      void refreshToday();
       setError(
         err instanceof Error ? err.message : "Não foi possível salvar.",
       );
@@ -154,16 +184,28 @@ export default function EntregaDetailPage() {
   }
 
   async function handleDelete() {
-    if (!delivery || !confirm("Apagar esta entrega?")) return;
+    if (!delivery) return;
     setDeleting(true);
+    setShowDeleteConfirm(false);
     setError(null);
+    const removed = delivery;
+    removeDeliveryOptimistic(id);
+    router.push("/entregas");
     try {
       await api(`/me/deliveries/${id}`, { method: "DELETE" });
-      removeDeliveryOptimistic(id);
       void refreshToday();
       void refreshDeliveries();
-      router.push("/entregas");
     } catch (err) {
+      applyDeliveryOptimistic({
+        id: removed.id,
+        grossValue: removed.grossValue,
+        source: removed.source,
+        originName: removed.originName ?? null,
+        occurredAt: removed.occurredAt,
+        distanceKm: removed.distanceKm ?? null,
+      });
+      void refreshToday();
+      void refreshDeliveries();
       setError(
         err instanceof Error ? err.message : "Não foi possível apagar.",
       );
@@ -302,10 +344,40 @@ export default function EntregaDetailPage() {
         variant="outline"
         className="w-full text-destructive"
         disabled={saving || deleting}
-        onClick={handleDelete}
+        onClick={() => setShowDeleteConfirm(true)}
       >
         {deleting ? "Apagando..." : "Apagar entrega"}
       </Button>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4 space-y-3">
+            <h2 className="font-semibold">Apagar entrega?</h2>
+            <p className="text-sm text-muted-foreground">
+              Essa ação remove a entrega do dia e do histórico.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Apagando..." : "Confirmar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppPage>
   );
 }

@@ -25,7 +25,13 @@ const SOURCES = [
 
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();
-  const { applyDeliveryOptimistic, setDeliveriesDate } = useAppData();
+  const {
+    applyDeliveryOptimistic,
+    removeDeliveryOptimistic,
+    setDeliveriesDate,
+    refreshToday,
+    refreshDeliveries,
+  } = useAppData();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -78,8 +84,22 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
       ? isoFromDatetimeLocal(occurredAtLocal)
       : new Date().toISOString();
 
+    const tempId = `local-${Date.now()}`;
+    applyDeliveryOptimistic({
+      id: tempId,
+      grossValue: value,
+      source: form.source,
+      originName: form.originName.trim() || null,
+      distanceKm: parsedDistanceKm,
+      occurredAt,
+    });
+    setDeliveriesDate(todayDateInputValue());
     setLoading(true);
     setError("");
+    resetForm();
+    setOpen(false);
+    onSuccess?.();
+
     try {
       const created = await api<Record<string, unknown>>("/me/deliveries", {
         method: "POST",
@@ -101,13 +121,12 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
           distanceKm: parsedDistanceKm,
           occurredAt,
         };
-
+      removeDeliveryOptimistic(tempId);
       applyDeliveryOptimistic({ ...parsed, occurredAt });
-      setDeliveriesDate(todayDateInputValue());
-      resetForm();
-      setOpen(false);
-      onSuccess?.();
+      void refreshToday();
+      void refreshDeliveries();
     } catch {
+      removeDeliveryOptimistic(tempId);
       setError("Não foi possível salvar. Tente de novo.");
     } finally {
       setLoading(false);
@@ -187,7 +206,10 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
           placeholder="25,00"
           value={form.grossValue}
           onChange={(e) =>
-            setForm((f) => ({ ...f, grossValue: e.target.value }))
+            setForm((f) => ({
+              ...f,
+              grossValue: sanitizeDecimalInput(e.target.value),
+            }))
           }
           className="mt-1"
           required
