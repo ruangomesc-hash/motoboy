@@ -272,6 +272,10 @@ export const envSchema = z.object({
   ),
   EVOLUTION_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   EVOLUTION_INSTANCE: z.preprocess(emptyToUndefined, z.string().optional()),
+  EVOLUTION_WEBHOOK_SECRET: z.preprocess(
+    emptyToUndefined,
+    z.string().optional(),
+  ),
   EVOLUTION_BOT_NUMBER: z.preprocess(emptyToUndefined, z.string().optional()),
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_MAPS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
@@ -292,6 +296,10 @@ export const envSchema = z.object({
   ADMIN_PASSWORD: z.preprocess(
     emptyToUndefined,
     z.string().min(8).optional(),
+  ),
+  ADMIN_SETUP_TOKEN: z.preprocess(
+    emptyToUndefined,
+    z.string().min(16).optional(),
   ),
 });
 
@@ -392,7 +400,7 @@ export const goalUpdateSchema = z.object({
 
 export const deliveryPatchSchema = z.object({
   grossValue: z.number().positive().optional(),
-  originName: z.string().nullable().optional(),
+  originName: z.string().max(200).nullable().optional(),
   distanceKm: z.number().nonnegative().nullable().optional(),
   source: deliverySourceSchema.optional(),
   occurredAt: z.string().datetime().optional(),
@@ -401,8 +409,8 @@ export const deliveryPatchSchema = z.object({
 export const deliveryCreateSchema = z.object({
   grossValue: z.number().positive(),
   source: deliverySourceSchema.default("PARTICULAR"),
-  originName: z.string().nullable().optional(),
-  destinationAddr: z.string().nullable().optional(),
+  originName: z.string().max(200).nullable().optional(),
+  destinationAddr: z.string().max(500).nullable().optional(),
   distanceKm: z.number().nonnegative().nullable().optional(),
   occurredAt: z.string().optional(),
 });

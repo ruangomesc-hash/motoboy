@@ -2,6 +2,7 @@ import { config } from "dotenv";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { envSchema, type Env } from "@motoboy/types";
+import { assertProductionSecurity } from "./runtime-env.js";
 
 const envCandidates = [
   resolve(process.cwd(), ".env"),
@@ -45,5 +46,9 @@ export function loadEnv(): Env {
     throw new Error("JWT_SECRET é obrigatório em produção.");
   }
 
-  return parsed.data;
+  const env = parsed.data;
+  if (!isNextBuild) {
+    assertProductionSecurity(env);
+  }
+  return env;
 }

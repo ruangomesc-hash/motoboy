@@ -20,10 +20,13 @@ export function useAuthConfig() {
       .finally(() => setLoaded(true));
   }, []);
 
-  const skipAuthCode = !loaded
-    ? true
-    : (config?.skipAuthCode ??
-      process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true");
+  const skipAuthCode = loaded
+    ? Boolean(config?.skipAuthCode)
+    : false;
 
-  return { skipAuthCode, loaded };
+  const evolutionConfigured = loaded
+    ? Boolean(config?.evolutionConfigured)
+    : false;
+
+  return { skipAuthCode, evolutionConfigured, loaded };
 }

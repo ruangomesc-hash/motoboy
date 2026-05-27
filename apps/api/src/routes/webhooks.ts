@@ -4,6 +4,12 @@ import { z } from "zod";
 import type { WhatsAppJobData } from "../workers/whatsapp-processor.js";
 import { normalizePhone } from "../lib/phone.js";
 import { AsaasService } from "../services/asaas.js";
+import {
+  verifyAsaasWebhook,
+  verifyEvolutionWebhook,
+} from "../lib/webhook-auth.js";
+import { isProductionRuntime } from "../lib/runtime-env.js";
+import { authRateLimit } from "../lib/rate-limit.js";
 
 const evolutionPayloadSchema = z.object({
   event: z.string().optional(),
@@ -60,7 +66,14 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
   const asaas = new AsaasService(env);
 
+  app.addHook("preHandler", authRateLimit);
+
   app.post("/webhooks/whatsapp", async (request, reply) => {
+    if (!verifyEvolutionWebhook(env, request.headers)) {
+      request.log.warn("Webhook WhatsApp rejeitado: assinatura inválida");
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
     const parsed = evolutionPayloadSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "Invalid payload" });
@@ -130,11 +143,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/webhooks/asaas", async (request, reply) => {
-    const token = request.headers["asaas-access-token"];
-    if (
-      env.ASAAS_WEBHOOK_TOKEN &&
-      token !== env.ASAAS_WEBHOOK_TOKEN
-    ) {
+    if (!verifyAsaasWebhook(env, request.headers)) {
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
@@ -150,10 +159,14 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       await asaas.handleWebhook(body);
+      return reply.send({ ok: true });
     } catch (err) {
       request.log.error({ err, event: body.event }, "Asaas webhook handler");
+      return reply.status(500).send({
+        error: isProductionRuntime()
+          ? "Falha ao processar webhook"
+          : (err as Error).message,
+      });
     }
-
-    return reply.send({ ok: true });
   });
 }

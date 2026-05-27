@@ -16,10 +16,13 @@ import {
   clearPersistedAffiliateCode,
 } from "@/lib/affiliate-ref";
 import { savePendingRegistration } from "@/lib/registration-pending";
+import { resolveApiBase } from "@/lib/api-base";
+import { useAuthConfig } from "@/lib/use-auth-config";
 
 function CadastroForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { skipAuthCode, evolutionConfigured, loaded } = useAuthConfig();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -112,13 +115,60 @@ function CadastroForm() {
         }
         persistAffiliateCode(affiliateCode);
       }
-      const result = await signIn("whatsapp", {
+      const apiBase = resolveApiBase();
+
+      if (loaded && evolutionConfigured && !skipAuthCode) {
+        const req = await fetch(`${apiBase}/auth/register/request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            phone: digits,
+            name: name.trim(),
+            email: email.trim(),
+            password,
+            affiliateCode,
+          }),
+        });
+        const reqData = (await req.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        if (!req.ok) {
+          setError(reqData.error ?? "Não foi possível iniciar o cadastro.");
+          return;
+        }
+        savePendingRegistration({
+          name: name.trim(),
+          email: email.trim(),
+          phone: digits,
+        });
+        router.push(
+          `/verify?phone=${encodeURIComponent(digits)}&register=1`,
+        );
+        return;
+      }
+
+      const reg = await fetch(`${apiBase}/auth/register/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          phone: digits,
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          affiliateCode,
+        }),
+      });
+      const regData = (await reg.json().catch(() => ({}))) as { error?: string };
+      if (!reg.ok) {
+        setError(regData.error ?? "Não foi possível criar a conta.");
+        return;
+      }
+
+      const result = await signIn("password", {
         phone: digits,
-        code: "000000",
-        name: name.trim(),
-        email: email.trim(),
         password,
-        affiliateCode: affiliateCode ?? "",
         redirect: false,
       });
       if (result?.error) {

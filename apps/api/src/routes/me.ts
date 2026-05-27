@@ -38,6 +38,19 @@ import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
 import { AsaasApiError } from "../lib/asaas-client.js";
 import { AsaasService } from "../services/asaas.js";
+import {
+  toPublicDeliveries,
+  toPublicDelivery,
+} from "../lib/delivery-public.js";
+import { z } from "zod";
+import { isProductionRuntime } from "../lib/runtime-env.js";
+
+const routeOptimizeSchema = z.object({
+  addresses: z
+    .array(z.string().trim().min(3).max(500))
+    .min(2)
+    .max(10),
+});
 
 export async function meRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
@@ -145,15 +158,19 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     return getTodaySummary(request.sessionUser!.id);
   });
 
-  app.get("/me/deliveries", async (request) => {
+  app.get("/me/deliveries", async (request, reply) => {
     const query = request.query as { page?: string; limit?: string; date?: string };
-    const page = Number(query.page ?? 1);
-    const limit = Math.min(Number(query.limit ?? 20), 50);
+    const page = Math.max(1, Number(query.page ?? 1) || 1);
+    const limit = Math.min(Math.max(1, Number(query.limit ?? 20) || 20), 50);
     const skip = (page - 1) * limit;
 
     let dateFilter = {};
     if (query.date) {
-      const start = new Date(query.date);
+      const parsedDate = z.string().date().safeParse(query.date);
+      if (!parsedDate.success) {
+        return reply.status(400).send({ error: "Data inválida" });
+      }
+      const start = new Date(parsedDate.data);
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
       end.setDate(end.getDate() + 1);
@@ -172,7 +189,12 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       }),
     ]);
 
-    return { items, total, page, limit };
+    return {
+      items: toPublicDeliveries(items),
+      total,
+      page,
+      limit,
+    };
   });
 
   app.post("/me/deliveries", async (request, reply) => {
@@ -200,7 +222,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       ],
     });
     emitToUser(userId, "delivery:created", { id: delivery.id });
-    return reply.status(201).send(delivery);
+    return reply.status(201).send(toPublicDelivery(delivery));
   });
 
   app.get("/me/deliveries/:id", async (request, reply) => {
@@ -209,7 +231,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       where: { id, userId: request.sessionUser!.id },
     });
     if (!delivery) return reply.status(404).send({ error: "Não encontrado" });
-    return delivery;
+    return toPublicDelivery(delivery);
   });
 
   app.delete("/me/deliveries/:id", async (request, reply) => {
@@ -331,7 +353,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         changes,
       });
     }
-    return delivery;
+    return toPublicDelivery(delivery);
   });
 
   app.get("/me/stats", async (request) => {
@@ -436,10 +458,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/me/routes/optimize", async (request, reply) => {
-    const body = request.body as { addresses: string[] };
-    if (!body.addresses?.length) {
-      return reply.status(400).send({ error: "Endereços obrigatórios" });
-    }
+    const body = routeOptimizeSchema.parse(request.body);
     try {
       const route = await optimizeRoute(body.addresses, env, app.log);
       await prisma.route.create({
@@ -459,7 +478,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(status).send({
           error: err.message,
           code: err.code,
-          details: err.details,
+          ...(isProductionRuntime() ? {} : { details: err.details }),
         });
       }
       throw err;

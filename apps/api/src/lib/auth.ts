@@ -14,20 +14,27 @@ export interface JwtPayload {
   role?: "admin" | "user";
 }
 
+const JWT_ALG = "HS256" as const;
+
 export function signToken(payload: JwtPayload, secret: string): string {
-  return jwt.sign(payload, secret, { expiresIn: "30d" });
+  return jwt.sign(payload, secret, {
+    expiresIn: "30d",
+    algorithm: JWT_ALG,
+  });
 }
 
 export function signAdminToken(secret: string): string {
   return jwt.sign(
     { userId: "admin", role: "admin" as const },
     secret,
-    { expiresIn: "7d" },
+    { expiresIn: "7d", algorithm: JWT_ALG },
   );
 }
 
 export function verifyToken(token: string, secret: string): JwtPayload {
-  return jwt.verify(token, secret) as JwtPayload;
+  return jwt.verify(token, secret, {
+    algorithms: [JWT_ALG],
+  }) as JwtPayload;
 }
 
 export async function requireAuth(

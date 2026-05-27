@@ -26,6 +26,7 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -80,9 +81,16 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (setupToken.trim()) {
+        headers["X-Admin-Setup-Token"] = setupToken.trim();
+      }
       const res = await fetch("/api/backend/admin/auth/setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
+        credentials: "include",
         body: JSON.stringify({ email: email.trim(), password }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -203,6 +211,20 @@ export default function AdminLoginPage() {
           </div>
           {showSetup && (
             <>
+              <div>
+                <label className="text-sm text-muted-foreground">
+                  Token de configuração (ADMIN_SETUP_TOKEN na Vercel)
+                </label>
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={setupToken}
+                  onChange={(e) => setSetupToken(e.target.value)}
+                  className="mt-1"
+                  placeholder="Cole o token definido no deploy"
+                  required
+                />
+              </div>
               <div>
                 <label className="text-sm text-muted-foreground">
                   Nova senha

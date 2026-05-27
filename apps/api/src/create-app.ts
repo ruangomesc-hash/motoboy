@@ -103,6 +103,22 @@ export async function createApp(
   app.decorate("redis", isRedisEnabled(env) ? getRedis(env) : null);
   app.decorate("evolution", new EvolutionService(env, app.log));
 
+  app.addHook("onSend", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
+      reply.header(
+        "Strict-Transport-Security",
+        "max-age=63072000; includeSubDomains; preload",
+      );
+    }
+  });
+
   const origins = new Set<string>([
     env.APP_URL,
     "http://localhost:3002",
@@ -116,7 +132,17 @@ export async function createApp(
   }
 
   await app.register(cors, {
-    origin: [...origins],
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (origins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("CORS não permitido"), false);
+    },
     credentials: true,
   });
   await app.register(cookie);

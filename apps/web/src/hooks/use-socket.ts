@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { io, type Socket } from "socket.io-client";
 import { notifyAppSync } from "@/lib/app-sync";
 
@@ -14,11 +15,14 @@ function resolveSocketUrl(): string {
 }
 
 export function useSocket(userId: string | undefined, enabled = true): void {
+  const { data: session } = useSession();
+  const token = session?.accessToken;
+
   useEffect(() => {
-    if (!SOCKET_ENABLED || !userId || !enabled) return;
+    if (!SOCKET_ENABLED || !userId || !enabled || !token) return;
     let socket: Socket | undefined;
     socket = io(resolveSocketUrl(), {
-      auth: { userId },
+      auth: { token },
       transports: ["websocket", "polling"],
     });
     const bump = () => notifyAppSync("all");
@@ -29,5 +33,5 @@ export function useSocket(userId: string | undefined, enabled = true): void {
     return () => {
       socket?.disconnect();
     };
-  }, [userId, enabled]);
+  }, [userId, enabled, token]);
 }

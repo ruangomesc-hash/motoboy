@@ -4,6 +4,7 @@ import { isRedisEnabled } from "./lib/redis.js";
 import { createApp } from "./create-app.js";
 import { startWhatsAppWorker } from "./workers/whatsapp-processor.js";
 import { setSocketServer } from "./lib/socket.js";
+import { verifyToken } from "./lib/auth.js";
 
 const env = loadEnv();
 const app = await createApp();
@@ -15,8 +16,27 @@ const io = new SocketServer(app.server, {
 });
 setSocketServer(io);
 
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token as string | undefined;
+  if (!token?.trim()) {
+    next(new Error("Unauthorized"));
+    return;
+  }
+  try {
+    const payload = verifyToken(token, env.JWT_SECRET);
+    if (payload.role === "admin" || !payload.userId) {
+      next(new Error("Unauthorized"));
+      return;
+    }
+    socket.data.userId = payload.userId;
+    next();
+  } catch {
+    next(new Error("Unauthorized"));
+  }
+});
+
 io.on("connection", (socket) => {
-  const userId = socket.handshake.auth.userId as string | undefined;
+  const userId = socket.data.userId as string | undefined;
   if (userId) {
     socket.join(`user:${userId}`);
   }

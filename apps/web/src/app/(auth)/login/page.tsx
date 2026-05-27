@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
 import { maskPhone } from "@/lib/phone-mask";
+import { useAuthConfig } from "@/lib/use-auth-config";
 
 const demoLoginAllowed =
   process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
@@ -16,6 +17,7 @@ type LoginMode = "whatsapp" | "password";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { skipAuthCode, loaded } = useAuthConfig();
   const [mode, setMode] = useState<LoginMode>("password");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -29,24 +31,14 @@ export default function LoginPage() {
       setError("Informe um WhatsApp válido com DDD.");
       return;
     }
-    setLoading(true);
-    setError("");
-
-    const result = await signIn("whatsapp", {
-      phone: digits,
-      code: "000000",
-      redirect: false,
-    });
-    if (result?.error) {
-      setLoading(false);
-      setError(
-        result.error === "CredentialsSignin"
-          ? "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail."
-          : result.error,
-      );
+    if (!skipAuthCode) {
+      setError("Use a aba Com senha ou confirme o código no WhatsApp.");
       return;
     }
-    router.push("/");
+    setLoading(true);
+    setError("");
+    router.push(`/verify?phone=${encodeURIComponent(digits)}`);
+    setLoading(false);
   }
 
   async function enterWithPassword() {
@@ -122,18 +114,20 @@ export default function LoginPage() {
         >
           Com senha
         </Button>
-        <Button
-          type="button"
-          variant={mode === "whatsapp" ? "default" : "outline"}
-          size="sm"
-          className="flex-1"
-          onClick={() => {
-            setMode("whatsapp");
-            setError("");
-          }}
-        >
-          Só WhatsApp
-        </Button>
+        {loaded && skipAuthCode && (
+          <Button
+            type="button"
+            variant={mode === "whatsapp" ? "default" : "outline"}
+            size="sm"
+            className="flex-1"
+            onClick={() => {
+              setMode("whatsapp");
+              setError("");
+            }}
+          >
+            Código WhatsApp
+          </Button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

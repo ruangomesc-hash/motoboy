@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { randomInt } from "node:crypto";
 import { prisma } from "@motoboy/db";
 import {
   registerRequestSchema,
@@ -25,9 +26,11 @@ import {
   createUserWithProfile,
   findUserByPhone,
 } from "../services/user.js";
+import { authRateLimit, strictAuthRateLimit } from "../lib/rate-limit.js";
+import { isProductionRuntime } from "../lib/runtime-env.js";
 
 function generateCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100_000, 1_000_000));
 }
 
 async function sendAuthCode(
@@ -48,8 +51,12 @@ async function sendAuthCode(
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
+  app.addHook("preHandler", authRateLimit);
+
   app.get("/auth/config", async () => ({
-    skipAuthCode: isSkipAuthCodeEnabled(env),
+    skipAuthCode: isProductionRuntime()
+      ? false
+      : isSkipAuthCodeEnabled(env),
     evolutionConfigured: isEvolutionConfigured(env),
   }));
 
@@ -133,6 +140,82 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
+  /** Cadastro com senha sem OTP (produção). */
+  app.post("/auth/register/complete", {
+    preHandler: strictAuthRateLimit,
+  }, async (request, reply) => {
+    const body = registerRequestSchema.parse(request.body);
+    const phone = normalizePhone(body.phone);
+    const email = body.email.trim().toLowerCase();
+
+    if (!isSkipAuthCodeEnabled(env) && isEvolutionConfigured(env)) {
+      return reply.status(400).send({
+        error:
+          "Confirme o código enviado no WhatsApp ou desative OTP no servidor.",
+      });
+    }
+
+    const existingPhone = await findUserByPhone(phone);
+    if (existingPhone) {
+      return reply.status(409).send({
+        error: "Este WhatsApp já tem conta. Use Entrar.",
+      });
+    }
+
+    const existingEmail = await prisma.user.findUnique({ where: { email } });
+    if (existingEmail) {
+      return reply.status(409).send({
+        error: "Este e-mail já está em uso.",
+      });
+    }
+
+    if (body.affiliateCode) {
+      const affiliate = await validateAffiliateCode(body.affiliateCode);
+      if (!affiliate.valid) {
+        return reply.status(400).send({
+          error: "Cupom de indicação inválido ou inativo.",
+        });
+      }
+    }
+
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(body.password.trim());
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.status(e.statusCode ?? 400).send({ error: e.message });
+    }
+
+    try {
+      const user = await createUserWithProfile({
+        whatsappNumber: phone,
+        name: body.name,
+        email: body.email,
+        passwordHash,
+        affiliateCode: body.affiliateCode,
+      });
+      const token = signToken(
+        { userId: user.id, whatsappNumber: user.whatsappNumber },
+        env.JWT_SECRET,
+      );
+      return reply
+        .setCookie("motoboy-token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 30 * 24 * 60 * 60,
+        })
+        .send({ ok: true, token, userId: user.id, isNewUser: true });
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      if (e.statusCode === 409) {
+        return reply.status(409).send({ error: e.message });
+      }
+      throw err;
+    }
+  });
+
   app.post("/auth/whatsapp/request", async (request, reply) => {
     const body = whatsappRequestSchema.parse(request.body);
     const phone = normalizePhone(body.phone);
@@ -154,7 +237,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
-  app.post("/auth/whatsapp/verify", async (request, reply) => {
+  app.post("/auth/whatsapp/verify", {
+    preHandler: strictAuthRateLimit,
+  }, async (request, reply) => {
     const body = whatsappVerifySchema.parse(request.body);
     const phone = normalizePhone(body.phone);
     const stored = await redisGet(app.redis, `auth:${phone}`);
@@ -163,11 +248,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       where: { phone, code: body.code, expiresAt: { gt: new Date() } },
     });
 
-    const bypassCode =
-      isSkipAuthCodeEnabled(env) && body.code === "000000";
-
-    const codeValid =
-      bypassCode || record?.code === body.code || stored === body.code;
+    const codeValid = record?.code === body.code || stored === body.code;
 
     if (!codeValid) {
       return reply.status(400).send({ error: "Código inválido ou expirado" });

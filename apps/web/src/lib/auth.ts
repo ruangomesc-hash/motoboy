@@ -7,13 +7,14 @@ import { resolveApiBase } from "./api-base";
 
 const API_URL = resolveApiBase();
 
+const isProd =
+  process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+
 const demoAllowed =
-  process.env.NODE_ENV === "development" ||
-  process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
+  !isProd && process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
 
 const adminDevAllowed =
-  process.env.NODE_ENV === "development" ||
-  process.env.NEXT_PUBLIC_ALLOW_ADMIN_DEV_LOGIN === "true";
+  !isProd && process.env.NEXT_PUBLIC_ALLOW_ADMIN_DEV_LOGIN === "true";
 
 export const authOptions: NextAuthOptions = {
   providers: [

@@ -14,6 +14,8 @@ import {
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
 import { MIGRATIONS_REQUIRED_MESSAGE } from "../lib/prisma-errors.js";
+import { strictAuthRateLimit } from "../lib/rate-limit.js";
+import { isProductionRuntime } from "../lib/runtime-env.js";
 import {
   activateAdminUser,
   createAdminPaymentLink,
@@ -45,12 +47,37 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       configured,
       migrationsReady,
       databaseConnected,
-      envLoginAvailable: envAdminCredentialsConfigured(),
-      bootstrapEmail: process.env.ADMIN_EMAIL?.trim() ?? null,
+      envLoginAvailable: isProductionRuntime()
+        ? false
+        : envAdminCredentialsConfigured(),
+      bootstrapEmail: isProductionRuntime()
+        ? null
+        : process.env.ADMIN_EMAIL?.trim() ?? null,
     });
   });
 
-  app.post("/admin/auth/setup", async (request, reply) => {
+  app.post("/admin/auth/setup", {
+    preHandler: strictAuthRateLimit,
+  }, async (request, reply) => {
+    const setupToken = process.env.ADMIN_SETUP_TOKEN?.trim();
+    if (isProductionRuntime() && setupToken) {
+      const provided =
+        (request.headers["x-admin-setup-token"] as string | undefined)?.trim() ??
+        (request.body as { setupToken?: string })?.setupToken?.trim();
+      if (provided !== setupToken) {
+        return reply.status(403).send({
+          error: "Token de configuração do admin inválido.",
+          code: "ADMIN_SETUP_FORBIDDEN",
+        });
+      }
+    } else if (isProductionRuntime() && !(await isAdminConfigured())) {
+      return reply.status(503).send({
+        error:
+          "Defina ADMIN_SETUP_TOKEN na Vercel antes do primeiro acesso ao painel admin.",
+        code: "ADMIN_SETUP_TOKEN_REQUIRED",
+      });
+    }
+
     const body = adminLoginSchema.parse(request.body);
     try {
       const { email } = await setupAdminAccount(
@@ -74,7 +101,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post("/admin/auth/login", async (request, reply) => {
+  app.post("/admin/auth/login", {
+    preHandler: strictAuthRateLimit,
+  }, async (request, reply) => {
     const body = adminLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const password = body.password.trim();
