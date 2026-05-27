@@ -9,16 +9,22 @@ export type AppSyncTopic =
   | "history"
   | "all";
 
-export type AppSyncDetail = { topics: AppSyncTopic[] };
+import type { CreatedDelivery } from "./app-data-cache";
+
+export type AppSyncDetail = {
+  topics: AppSyncTopic[];
+  delivery?: CreatedDelivery;
+};
 
 export function notifyAppSync(
   topics: AppSyncTopic | AppSyncTopic[] = "all",
+  extra?: Pick<AppSyncDetail, "delivery">,
 ): void {
   if (typeof window === "undefined") return;
   const list = Array.isArray(topics) ? topics : [topics];
   window.dispatchEvent(
     new CustomEvent<AppSyncDetail>(APP_SYNC_EVENT, {
-      detail: { topics: list },
+      detail: { topics: list, ...extra },
     }),
   );
 }

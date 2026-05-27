@@ -24,7 +24,24 @@ export function useApi() {
             },
           });
       const syncTopics = syncTopicsForPath(path, method);
-      if (syncTopics.length > 0) notifyAppSync(syncTopics);
+      if (syncTopics.length > 0) {
+        const delivery =
+          method === "POST" &&
+          path.includes("/deliveries") &&
+          result &&
+          typeof result === "object" &&
+          "id" in (result as object)
+            ? (result as {
+                id: string;
+                grossValue: number | string;
+                source: string;
+                originName?: string | null;
+                occurredAt?: string;
+                distanceKm?: number | string | null;
+              })
+            : undefined;
+        notifyAppSync(syncTopics, delivery ? { delivery } : undefined);
+      }
       return result;
     },
     [token, isDemo],

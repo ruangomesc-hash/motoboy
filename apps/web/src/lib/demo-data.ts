@@ -6,6 +6,7 @@ import type {
   UserProfile,
   WeeklyGoalProgress,
 } from "@motoboy/types";
+import { applyDeliveryToToday } from "@/lib/app-data-cache";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 
 export const DEMO_USER_ID = "demo-user";
@@ -312,6 +313,17 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       item as (typeof demoDeliveries.items)[number],
     );
     demoDeliveries.total += 1;
+    Object.assign(
+      demoToday,
+      applyDeliveryToToday(demoToday, {
+        id: item.id,
+        grossValue: body.grossValue,
+        source: body.source,
+        originName: body.originName ?? null,
+        occurredAt: item.occurredAt,
+        distanceKm: body.distanceKm ?? null,
+      }),
+    );
     pushDemoActivity({
       category: "DELIVERY",
       action: "CREATED",

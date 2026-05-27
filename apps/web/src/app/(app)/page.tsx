@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import type { TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
@@ -8,8 +7,7 @@ import {
   CollapsibleSummarySection,
 } from "@/components/collapsible-summary-row";
 import { Button } from "@/components/ui/button";
-import { useApi } from "@/hooks/use-api";
-import { useAppSync } from "@/hooks/use-app-sync";
+import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
@@ -71,33 +69,7 @@ function sourceLabel(source: string): string {
 }
 
 export default function HomePage() {
-  const api = useApi();
-  const [summary, setSummary] = useState<TodaySummary | null>(null);
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api<TodaySummary>("/me/today");
-      setSummary(data);
-    } catch {
-      setSummary(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    api<{ profile: { name: string | null } }>("/me")
-      .then((u) => setDisplayName(u.profile?.name ?? null))
-      .catch(() => setDisplayName(null));
-  }, [api]);
-
-  useAppSync(load, ["today", "deliveries", "stats", "profile"]);
+  const { today, profileName, isBootstrapped } = useAppData();
 
   const hour = new Date().getHours();
   const greeting =
@@ -105,11 +77,11 @@ export default function HomePage() {
 
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
 
-  if (loading) {
+  if (!isBootstrapped && !today) {
     return <AppLoadingSplash variant="home" />;
   }
 
-  const s = summary ?? emptySummary;
+  const s = today ?? emptySummary;
   const kmSourceLabel =
     s.odometer.kmSource === "odometer"
       ? "Hodômetro (painel)"
@@ -123,7 +95,7 @@ export default function HomePage() {
         <MotocopilotoLogo size="sm" centered />
         <h1 className="text-sm font-medium text-muted-foreground text-center">
           {greeting}
-          {displayName ? `, ${displayName.split(" ")[0]}` : ""}
+          {profileName ? `, ${profileName.split(" ")[0]}` : ""}
         </h1>
       </header>
 

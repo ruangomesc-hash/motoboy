@@ -1,31 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { PeriodStats } from "@motoboy/types";
-import { useApi } from "@/hooks/use-api";
-import { useAppSync } from "@/hooks/use-app-sync";
+import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
 import { formatHours } from "@/lib/format-hours";
 import { AppPage } from "@/components/app-page";
+import { useApi } from "@/hooks/use-api";
 
 export default function StatsPage() {
   const api = useApi();
+  const { statsWeek, statsMonth, refreshStats, isBootstrapped } = useAppData();
   const [period, setPeriod] = useState<"week" | "month">("week");
-  const [stats, setStats] = useState<PeriodStats | null>(null);
   const [shiftLoading, setShiftLoading] = useState(false);
 
-  const load = useCallback(() => {
-    api<PeriodStats>(`/me/stats?period=${period}`)
-      .then(setStats)
-      .catch(() => setStats(null));
-  }, [api, period]);
+  const stats: PeriodStats | null =
+    period === "week" ? statsWeek : statsMonth;
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useAppSync(load, ["stats", "today"]);
+    if (!isBootstrapped) return;
+    if (period === "month" && !statsMonth) void refreshStats("month");
+    if (period === "week" && !statsWeek) void refreshStats("week");
+  }, [period, isBootstrapped, statsMonth, statsWeek, refreshStats]);
 
   async function toggleShift() {
     setShiftLoading(true);
@@ -35,7 +32,7 @@ export default function StatsPage() {
       } else {
         await api("/me/shifts/start", { method: "POST" });
       }
-      load();
+      await Promise.all([refreshStats("week"), refreshStats("month")]);
     } finally {
       setShiftLoading(false);
     }
@@ -85,7 +82,7 @@ export default function StatsPage() {
           variant={stats?.activeShift ? "outline" : "default"}
           size="sm"
           className="w-full"
-          disabled={shiftLoading}
+          disabled={shiftLoading || !stats}
           onClick={toggleShift}
         >
           {shiftLoading
@@ -96,7 +93,11 @@ export default function StatsPage() {
         </Button>
       </div>
 
-      {stats && (
+      {!stats && !isBootstrapped ? (
+        <p className="text-sm text-muted-foreground text-center py-8 animate-pulse">
+          Carregando estatísticas...
+        </p>
+      ) : stats ? (
         <>
           <div className="grid grid-cols-2 gap-2">
             <StatCard label="Total bruto" value={formatBRL(stats.totalGross)} />
@@ -140,7 +141,9 @@ export default function StatsPage() {
               <div className="w-full max-w-full overflow-x-auto overscroll-x-contain -mx-0.5 px-0.5">
                 <div
                   className="flex items-end gap-0.5 h-32 min-w-0"
-                  style={{ minWidth: `${Math.max(stats.series.length * 10, 100)}px` }}
+                  style={{
+                    minWidth: `${Math.max(stats.series.length * 10, 100)}px`,
+                  }}
                 >
                   {stats.series.map((s) => (
                     <div
@@ -162,7 +165,7 @@ export default function StatsPage() {
             </p>
           )}
         </>
-      )}
+      ) : null}
     </AppPage>
   );
 }
