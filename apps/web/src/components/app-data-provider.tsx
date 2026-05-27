@@ -14,15 +14,16 @@ import { useSession } from "next-auth/react";
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
-  APP_SYNC_BRIDGE_KEY,
-  APP_SYNC_EVENT,
   type AppSyncDetail,
   type AppSyncTopic,
+  notifyAppSync,
   shouldHandleSync,
+  subscribeAppSync,
 } from "@/lib/app-sync";
 import {
   applyDeliveryToToday,
   removeDeliveryFromToday,
+  replaceDeliveryInToday,
   type CreatedDelivery,
 } from "@/lib/app-data-cache";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
@@ -40,7 +41,6 @@ import {
   toGoalsPutBody,
   toProfilePutBody,
 } from "@/lib/me-settings";
-import { notifyAppSync } from "@/lib/app-sync";
 import {
   appCacheStorageKey,
   clearAppCache,
@@ -78,6 +78,10 @@ type AppDataContextValue = {
   refreshStats: (period: "week" | "month") => Promise<void>;
   refreshConfigStatus: () => Promise<boolean>;
   applyDeliveryOptimistic: (delivery: CreatedDelivery) => void;
+  upsertDeliveryOptimistic: (
+    delivery: CreatedDelivery,
+    previous?: CreatedDelivery,
+  ) => void;
   removeDeliveryOptimistic: (id: string) => void;
   patchDeliveryInList: (item: DeliveryListItem) => void;
 };
@@ -85,8 +89,9 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 60_000;
-const RECONCILE_MS = 800;
+const POLL_MS = 8_000;
+const RECONCILE_MS = 60;
+const BACKGROUND_RECONCILE_MS = 2_500;
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
   return shouldHandleSync(subscribed, incoming);
@@ -114,6 +119,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const meLoadSeq = useRef(0);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,7 +167,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       persistTimer.current = setTimeout(() => {
         persistTimer.current = null;
         persistNow(uid);
-      }, 120);
+      }, 50);
     },
     [persistNow],
   );
@@ -199,8 +207,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [api, schedulePersist, userId]);
 
-  const applyDeliveryOptimistic = useCallback(
-    (delivery: CreatedDelivery) => {
+  const upsertDeliveryOptimistic = useCallback(
+    (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
       const occurredAt = delivery.occurredAt ?? new Date().toISOString();
       const todayKey = todayDateInputValue();
       const item: DeliveryListItem = {
@@ -212,30 +220,83 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         distanceKm: delivery.distanceKm ?? null,
       };
 
-      if (isIsoOnDateInput(occurredAt, todayKey)) {
-        setToday((prev) => {
-          const base = prev ?? emptyTodaySummary();
-          if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
-          return applyDeliveryToToday(base, { ...delivery, occurredAt });
-        });
-      }
+      const prevPayload =
+        previous ??
+        (() => {
+          const row = stateRef.current.deliveries.find((d) => d.id === item.id);
+          if (row) {
+            return {
+              id: row.id,
+              grossValue: row.grossValue,
+              source: row.source,
+              originName: row.originName,
+              occurredAt: row.occurredAt,
+              distanceKm: row.distanceKm ?? null,
+            };
+          }
+          const recent = stateRef.current.today?.recentDeliveries.find(
+            (r) => r.id === item.id,
+          );
+          if (!recent) return undefined;
+          return {
+            id: recent.id,
+            grossValue: recent.grossValue,
+            source: recent.source,
+            originName: recent.originName,
+            occurredAt: recent.occurredAt,
+            distanceKm: null,
+          };
+        })();
+
+      setDeliveries((prev) => {
+        const idx = prev.findIndex((d) => d.id === item.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = item;
+          return next;
+        }
+        return [item, ...prev];
+      });
 
       setDeliveriesDate((current) => {
         const filter = isIsoOnDateInput(occurredAt, todayKey)
           ? todayKey
           : current || todayKey;
-        if (isIsoOnDateInput(occurredAt, filter)) {
-          setDeliveries((prev) => {
-            if (prev.some((x) => x.id === item.id)) return prev;
-            return [item, ...prev];
-          });
-        }
         return filter;
+      });
+
+      setToday((prev) => {
+        const base = prev ?? emptyTodaySummary();
+        const nextPayload = { ...delivery, occurredAt };
+        if (prevPayload) {
+          const wasToday = isIsoOnDateInput(prevPayload.occurredAt ?? "", todayKey);
+          const isToday = isIsoOnDateInput(occurredAt, todayKey);
+          if (wasToday && isToday) {
+            return replaceDeliveryInToday(base, prevPayload, nextPayload);
+          }
+          if (wasToday && !isToday) {
+            return removeDeliveryFromToday(base, prevPayload);
+          }
+          if (!wasToday && isToday) {
+            return applyDeliveryToToday(base, nextPayload);
+          }
+          return base;
+        }
+        if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
+        if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
+        return applyDeliveryToToday(base, nextPayload);
       });
 
       if (userId) persistNow(userId);
     },
     [userId, persistNow],
+  );
+
+  const applyDeliveryOptimistic = useCallback(
+    (delivery: CreatedDelivery) => {
+      upsertDeliveryOptimistic(delivery);
+    },
+    [upsertDeliveryOptimistic],
   );
 
   const removeDeliveryOptimistic = useCallback(
@@ -364,8 +425,94 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return snap ? isServerConfigComplete(snap) : false;
   }, [loadMeSettings]);
 
+  const queueConfigRefresh = useCallback(() => {
+    if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
+    configRefreshTimer.current = setTimeout(() => {
+      configRefreshTimer.current = null;
+      void loadMeSettings({ force: true, silent: true });
+    }, 80);
+  }, [loadMeSettings]);
+
+  const flushReconcile = useCallback(() => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => {
+      reconcileTimer.current = null;
+      void Promise.all([
+        refreshToday(),
+        refreshDeliveries(),
+        refreshStats("week"),
+      ]);
+    }, RECONCILE_MS);
+  }, [refreshToday, refreshDeliveries, refreshStats]);
+
+  const scheduleBackgroundReconcile = useCallback(() => {
+    if (backgroundReconcileTimer.current) {
+      clearTimeout(backgroundReconcileTimer.current);
+    }
+    backgroundReconcileTimer.current = setTimeout(() => {
+      backgroundReconcileTimer.current = null;
+      flushReconcile();
+    }, BACKGROUND_RECONCILE_MS);
+  }, [flushReconcile]);
+
+  const applySyncDetail = useCallback(
+    (detail: AppSyncDetail | undefined) => {
+      if (!detail) return;
+      const incoming = detail.topics ?? ["all"];
+
+      if (detail.removedDeliveryId) {
+        removeDeliveryOptimistic(detail.removedDeliveryId);
+      } else if (detail.delivery) {
+        upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
+      }
+
+      if (detail.skipReconcile) {
+        scheduleBackgroundReconcile();
+        return;
+      }
+
+      if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
+        flushReconcile();
+      }
+      if (topicsMatch(["profile", "all"], incoming)) {
+        queueConfigRefresh();
+      }
+    },
+    [
+      flushReconcile,
+      queueConfigRefresh,
+      removeDeliveryOptimistic,
+      scheduleBackgroundReconcile,
+      upsertDeliveryOptimistic,
+    ],
+  );
+
   const saveMeSettings = useCallback(
     async (payload: ConfigSavePayload) => {
+      const current = meSettingsRef.current;
+      if (current) {
+        const optimistic: MeSettingsSnapshot = {
+          profile: {
+            ...current.profile,
+            ...toProfilePutBody(payload.profile),
+            workApps: payload.profile.workApps,
+            workDays: payload.profile.workDays,
+            subscriptionPaymentMethod:
+              payload.profile.subscriptionPaymentMethod,
+          },
+          goalsPlan: current.goalsPlan
+            ? {
+                ...current.goalsPlan,
+                monthlyTarget: Number(payload.monthlyGoal),
+                workDays: payload.profile.workDays,
+              }
+            : null,
+          costs: current.costs,
+        };
+        applyMeSnapshot(optimistic);
+        if (userId) persistNow(userId);
+      }
+
       const requests = [
         api(
           "/me/profile",
@@ -388,12 +535,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (payload.saveCosts) {
         requests.push(
           api(
-          "/me/costs",
-          {
-            method: "PUT",
-            body: JSON.stringify(toCostsPutBody(payload)),
-          },
-          { skipSync: true },
+            "/me/costs",
+            {
+              method: "PUT",
+              body: JSON.stringify(toCostsPutBody(payload)),
+            },
+            { skipSync: true },
           ),
         );
       }
@@ -401,36 +548,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       await Promise.all(requests);
 
       const snap = await loadMeSettings({ force: true, silent: true });
-      notifyAppSync(["profile"]);
-      void refreshToday();
+      notifyAppSync(["profile", "today", "stats"], { skipReconcile: true });
+      scheduleBackgroundReconcile();
 
       return {
         complete: snap ? isServerConfigComplete(snap) : false,
         me: snap,
       };
     },
-    [api, loadMeSettings, refreshToday],
+    [
+      api,
+      applyMeSnapshot,
+      loadMeSettings,
+      persistNow,
+      scheduleBackgroundReconcile,
+      userId,
+    ],
   );
-
-  const queueConfigRefresh = useCallback(() => {
-    if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
-    configRefreshTimer.current = setTimeout(() => {
-      configRefreshTimer.current = null;
-      void loadMeSettings({ force: true, silent: true });
-    }, 400);
-  }, [loadMeSettings]);
-
-  const queueReconcile = useCallback(() => {
-    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
-    reconcileTimer.current = setTimeout(() => {
-      reconcileTimer.current = null;
-      void Promise.all([
-        refreshToday(),
-        refreshDeliveries(),
-        refreshStats("week"),
-      ]);
-    }, RECONCILE_MS);
-  }, [refreshToday, refreshDeliveries, refreshStats]);
 
   const bootstrap = useCallback(async () => {
     setIsBootstrapped(true);
@@ -505,81 +639,50 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isBootstrapped || !userId) return;
 
-    const handleSyncDetail = (detail: AppSyncDetail | undefined) => {
-      const incoming = detail?.topics ?? ["all"];
-
-      if (detail?.delivery) {
-        applyDeliveryOptimistic(detail.delivery);
-        void refreshToday();
-        return;
-      }
-
-      if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        queueReconcile();
-      }
-      if (topicsMatch(["profile", "all"], incoming)) {
-        queueConfigRefresh();
-      }
-    };
-
-    const onSync = (event: Event) => {
-      handleSyncDetail((event as CustomEvent<AppSyncDetail>).detail);
-    };
+    const unsubscribe = subscribeAppSync(applySyncDetail);
 
     const onStorage = (event: StorageEvent) => {
-      if (!userId) return;
-      if (
-        event.key !== appCacheStorageKey(userId) &&
-        event.key !== APP_SYNC_BRIDGE_KEY
-      ) {
-        return;
-      }
-      const cached = readAppCache(userId);
-      if (cached) applyCacheSnapshot(cached);
-      if (event.key === APP_SYNC_BRIDGE_KEY && event.newValue) {
-        try {
-          const parsed = JSON.parse(event.newValue) as { detail?: AppSyncDetail };
-          handleSyncDetail(parsed.detail);
-        } catch {
-          /* ignore */
-        }
+      if (event.key === appCacheStorageKey(userId)) {
+        const cached = readAppCache(userId);
+        if (cached) applyCacheSnapshot(cached);
       }
     };
-
-    window.addEventListener(APP_SYNC_EVENT, onSync);
-    window.addEventListener("storage", onStorage);
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       const cached = readAppCache(userId);
       if (cached) applyCacheSnapshot(cached);
-      if (!cached || isCacheStale(cached.savedAt, 20_000)) {
-        queueReconcile();
+      if (!cached || isCacheStale(cached.savedAt, 12_000)) {
+        flushReconcile();
       }
     };
+
+    window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    window.addEventListener("focus", onVisible);
 
     let poll: ReturnType<typeof setInterval> | undefined;
     if (!SOCKET_ENABLED) {
       poll = setInterval(() => {
         if (document.visibilityState !== "visible") return;
-        queueReconcile();
+        flushReconcile();
       }, POLL_MS);
     }
 
     return () => {
-      window.removeEventListener(APP_SYNC_EVENT, onSync);
+      unsubscribe();
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+      window.removeEventListener("focus", onVisible);
       if (poll) clearInterval(poll);
     };
   }, [
     applyCacheSnapshot,
-    applyDeliveryOptimistic,
+    applySyncDetail,
+    flushReconcile,
     isBootstrapped,
-    queueConfigRefresh,
-    queueReconcile,
-    refreshToday,
     userId,
   ]);
 
@@ -603,6 +706,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshStats,
       refreshConfigStatus,
       applyDeliveryOptimistic,
+      upsertDeliveryOptimistic,
       removeDeliveryOptimistic,
       patchDeliveryInList,
     }),
@@ -624,6 +728,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshStats,
       refreshConfigStatus,
       applyDeliveryOptimistic,
+      upsertDeliveryOptimistic,
       removeDeliveryOptimistic,
       patchDeliveryInList,
     ],

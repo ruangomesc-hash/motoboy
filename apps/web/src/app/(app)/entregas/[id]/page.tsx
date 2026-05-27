@@ -17,6 +17,8 @@ import {
 } from "@/lib/decimal-input";
 import { AppPage } from "@/components/app-page";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
+import { notifyAppSync } from "@/lib/app-sync";
+import type { CreatedDelivery } from "@/lib/app-data-cache";
 
 interface DeliveryDetail extends DeliveryListItem {
   destinationAddr?: string | null;
@@ -54,9 +56,7 @@ export default function EntregaDetailPage() {
     deliveries,
     removeDeliveryOptimistic,
     applyDeliveryOptimistic,
-    patchDeliveryInList,
-    refreshToday,
-    refreshDeliveries,
+    upsertDeliveryOptimistic,
   } = useAppData();
 
   const cached = useMemo(
@@ -122,6 +122,14 @@ export default function EntregaDetailPage() {
     setSaving(true);
     setError(null);
     const previous = delivery;
+    const previousPayload: CreatedDelivery = {
+      id: previous.id,
+      grossValue: previous.grossValue,
+      source: previous.source,
+      originName: previous.originName ?? null,
+      occurredAt: previous.occurredAt,
+      distanceKm: previous.distanceKm ?? null,
+    };
     const optimistic: DeliveryDetail = {
       ...delivery,
       grossValue,
@@ -130,51 +138,61 @@ export default function EntregaDetailPage() {
       distanceKm,
       occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
     };
-    setDelivery(optimistic);
-    patchDeliveryInList({
+    const optimisticPayload: CreatedDelivery = {
       id: optimistic.id,
       grossValue: optimistic.grossValue,
-      originName: optimistic.originName ?? null,
       source: optimistic.source,
+      originName: optimistic.originName ?? null,
       occurredAt: optimistic.occurredAt,
       distanceKm: optimistic.distanceKm ?? null,
+    };
+    setDelivery(optimistic);
+    upsertDeliveryOptimistic(optimisticPayload, previousPayload);
+    notifyAppSync(["deliveries", "today", "stats"], {
+      delivery: optimisticPayload,
+      previousDelivery: previousPayload,
+      skipReconcile: true,
     });
-    void refreshToday();
     try {
-      const updated = await api<DeliveryDetail>(`/me/deliveries/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          grossValue,
-          originName: form.originName.trim() || null,
-          source: form.source,
-          distanceKm,
-          occurredAt: optimistic.occurredAt,
-        }),
-      });
+      const updated = await api<DeliveryDetail>(
+        `/me/deliveries/${id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            grossValue,
+            originName: form.originName.trim() || null,
+            source: form.source,
+            distanceKm,
+            occurredAt: optimistic.occurredAt,
+          }),
+        },
+        { skipSync: true },
+      );
 
       setDelivery(updated);
       setForm(toForm(updated));
-      patchDeliveryInList({
+      const serverPayload: CreatedDelivery = {
         id: updated.id,
         grossValue: updated.grossValue,
-        originName: updated.originName ?? null,
         source: updated.source,
+        originName: updated.originName ?? null,
         occurredAt: updated.occurredAt,
         distanceKm: updated.distanceKm ?? null,
+      };
+      upsertDeliveryOptimistic(serverPayload, previousPayload);
+      notifyAppSync(["deliveries", "today", "stats"], {
+        delivery: serverPayload,
+        previousDelivery: previousPayload,
+        skipReconcile: true,
       });
-      void refreshToday();
-      void refreshDeliveries();
     } catch (err) {
       setDelivery(previous);
-      patchDeliveryInList({
-        id: previous.id,
-        grossValue: previous.grossValue,
-        originName: previous.originName ?? null,
-        source: previous.source,
-        occurredAt: previous.occurredAt,
-        distanceKm: previous.distanceKm ?? null,
+      upsertDeliveryOptimistic(previousPayload, optimisticPayload);
+      notifyAppSync(["deliveries", "today", "stats"], {
+        delivery: previousPayload,
+        previousDelivery: optimisticPayload,
+        skipReconcile: true,
       });
-      void refreshToday();
       setError(
         err instanceof Error ? err.message : "Não foi possível salvar.",
       );
@@ -189,23 +207,28 @@ export default function EntregaDetailPage() {
     setShowDeleteConfirm(false);
     setError(null);
     const removed = delivery;
+    const removedPayload: CreatedDelivery = {
+      id: removed.id,
+      grossValue: removed.grossValue,
+      source: removed.source,
+      originName: removed.originName ?? null,
+      occurredAt: removed.occurredAt,
+      distanceKm: removed.distanceKm ?? null,
+    };
     removeDeliveryOptimistic(id);
+    notifyAppSync(["deliveries", "today", "stats"], {
+      removedDeliveryId: id,
+      skipReconcile: true,
+    });
     router.push("/entregas");
     try {
-      await api(`/me/deliveries/${id}`, { method: "DELETE" });
-      void refreshToday();
-      void refreshDeliveries();
+      await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
     } catch (err) {
-      applyDeliveryOptimistic({
-        id: removed.id,
-        grossValue: removed.grossValue,
-        source: removed.source,
-        originName: removed.originName ?? null,
-        occurredAt: removed.occurredAt,
-        distanceKm: removed.distanceKm ?? null,
+      applyDeliveryOptimistic(removedPayload);
+      notifyAppSync(["deliveries", "today", "stats"], {
+        delivery: removedPayload,
+        skipReconcile: true,
       });
-      void refreshToday();
-      void refreshDeliveries();
       setError(
         err instanceof Error ? err.message : "Não foi possível apagar.",
       );

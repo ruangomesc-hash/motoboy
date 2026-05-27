@@ -2,14 +2,14 @@
 
 import { useEffect } from "react";
 import {
-  APP_SYNC_EVENT,
+  subscribeAppSync,
   type AppSyncDetail,
   type AppSyncTopic,
   shouldHandleSync,
 } from "@/lib/app-sync";
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 15_000;
+const POLL_MS = 8_000;
 
 export function useAppSync(
   refresh: () => void | Promise<void>,
@@ -21,17 +21,22 @@ export function useAppSync(
   useEffect(() => {
     if (!enabled) return;
 
-    const onSync = (event: Event) => {
-      const detail = (event as CustomEvent<AppSyncDetail>).detail;
-      const incoming = detail?.topics ?? ["all"];
+    const onDetail = (detail: AppSyncDetail) => {
+      const incoming = detail.topics ?? ["all"];
+      if (detail.skipReconcile) return;
       if (shouldHandleSync(topics, incoming)) void refresh();
     };
 
-    window.addEventListener(APP_SYNC_EVENT, onSync);
+    const unsubscribe = subscribeAppSync(onDetail);
+
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
+    const onFocus = () => void refresh();
+
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    window.addEventListener("focus", onFocus);
 
     let poll: ReturnType<typeof setInterval> | undefined;
     if (!SOCKET_ENABLED) {
@@ -41,8 +46,10 @@ export function useAppSync(
     }
 
     return () => {
-      window.removeEventListener(APP_SYNC_EVENT, onSync);
+      unsubscribe();
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+      window.removeEventListener("focus", onFocus);
       if (poll) clearInterval(poll);
     };
   }, [refresh, topicsKey, enabled]);

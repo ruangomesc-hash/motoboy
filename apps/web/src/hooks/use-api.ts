@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useCallback } from "react";
 import { apiFetch } from "@/lib/api";
-import { extractCreatedDelivery } from "@/lib/app-data-cache";
+import { extractDeliveryMutation } from "@/lib/app-data-cache";
 import { notifyAppSync, syncTopicsForPath } from "@/lib/app-sync";
 import { demoFetch } from "@/lib/demo-data";
 
@@ -33,8 +33,16 @@ export function useApi() {
       if (!apiOptions?.skipSync) {
         const syncTopics = syncTopicsForPath(path, method);
         if (syncTopics.length > 0) {
-          const delivery = extractCreatedDelivery(result, path, method);
-          notifyAppSync(syncTopics, delivery ? { delivery } : undefined);
+          const { delivery, removedId } = extractDeliveryMutation(
+            result,
+            path,
+            method,
+          );
+          notifyAppSync(syncTopics, {
+            delivery,
+            removedDeliveryId: removedId,
+            skipReconcile: false,
+          });
         }
       }
       return result;

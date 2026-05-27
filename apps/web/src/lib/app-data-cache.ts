@@ -9,21 +9,7 @@ export type CreatedDelivery = {
   distanceKm?: number | string | null;
 };
 
-/** Extrai entrega criada da resposta POST /me/deliveries (sem cast em genérico). */
-export function extractCreatedDelivery(
-  result: unknown,
-  path: string,
-  method: string,
-): CreatedDelivery | undefined {
-  if (
-    method !== "POST" ||
-    !path.includes("/deliveries") ||
-    !result ||
-    typeof result !== "object"
-  ) {
-    return undefined;
-  }
-  const row = result as Record<string, unknown>;
+function rowToDelivery(row: Record<string, unknown>): CreatedDelivery | undefined {
   if (typeof row.id !== "string" || typeof row.source !== "string") {
     return undefined;
   }
@@ -54,6 +40,34 @@ export function extractCreatedDelivery(
         ? row.distanceKm
         : null,
   };
+}
+
+/** Extrai entrega da resposta POST/PATCH /me/deliveries */
+export function extractDeliveryMutation(
+  result: unknown,
+  path: string,
+  method: string,
+): { delivery?: CreatedDelivery; removedId?: string } {
+  const m = method.toUpperCase();
+  if (m === "DELETE" && path.includes("/deliveries/")) {
+    const match = path.match(/\/me\/deliveries\/([^/]+)$/);
+    return { removedId: match?.[1] };
+  }
+  if ((m === "POST" || m === "PATCH") && path.includes("/deliveries")) {
+    if (!result || typeof result !== "object") return {};
+    const delivery = rowToDelivery(result as Record<string, unknown>);
+    return delivery ? { delivery } : {};
+  }
+  return {};
+}
+
+/** @deprecated use extractDeliveryMutation */
+export function extractCreatedDelivery(
+  result: unknown,
+  path: string,
+  method: string,
+): CreatedDelivery | undefined {
+  return extractDeliveryMutation(result, path, method).delivery;
 }
 
 /** Atualiza o resumo do dia na hora (antes do refetch da API). */
@@ -117,4 +131,14 @@ export function removeDeliveryFromToday(
     profitPerKm: totalKm > 0 ? (grossTotal - totalExpenses) / totalKm : 0,
     recentDeliveries: today.recentDeliveries.filter((d) => d.id !== delivery.id),
   };
+}
+
+/** Substitui entrega no resumo (edição de valor/km/data). */
+export function replaceDeliveryInToday(
+  today: TodaySummary,
+  previous: CreatedDelivery,
+  next: CreatedDelivery,
+): TodaySummary {
+  const without = removeDeliveryFromToday(today, previous);
+  return applyDeliveryToToday(without, next);
 }

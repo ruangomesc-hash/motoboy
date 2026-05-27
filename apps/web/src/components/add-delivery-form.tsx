@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
-import { extractCreatedDelivery } from "@/lib/app-data-cache";
+import { extractDeliveryMutation } from "@/lib/app-data-cache";
+import { notifyAppSync } from "@/lib/app-sync";
 import {
   datetimeLocalFromIso,
   formatDateTimeLabel,
@@ -25,13 +26,8 @@ const SOURCES = [
 
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();
-  const {
-    applyDeliveryOptimistic,
-    removeDeliveryOptimistic,
-    setDeliveriesDate,
-    refreshToday,
-    refreshDeliveries,
-  } = useAppData();
+  const { applyDeliveryOptimistic, removeDeliveryOptimistic, setDeliveriesDate } =
+    useAppData();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -101,20 +97,24 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
     onSuccess?.();
 
     try {
-      const created = await api<Record<string, unknown>>("/me/deliveries", {
-        method: "POST",
-        body: JSON.stringify({
-          grossValue: value,
-          source: form.source,
-          originName: form.originName.trim() || null,
-          distanceKm: parsedDistanceKm,
-          occurredAt,
-        }),
-      });
+      const created = await api<Record<string, unknown>>(
+        "/me/deliveries",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            grossValue: value,
+            source: form.source,
+            originName: form.originName.trim() || null,
+            distanceKm: parsedDistanceKm,
+            occurredAt,
+          }),
+        },
+        { skipSync: true },
+      );
 
       const parsed =
-        extractCreatedDelivery(created, "/me/deliveries", "POST") ?? {
-          id: String(created.id ?? `local-${Date.now()}`),
+        extractDeliveryMutation(created, "/me/deliveries", "POST").delivery ?? {
+          id: String(created.id ?? tempId),
           grossValue: value,
           source: form.source,
           originName: form.originName.trim() || null,
@@ -123,8 +123,10 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
         };
       removeDeliveryOptimistic(tempId);
       applyDeliveryOptimistic({ ...parsed, occurredAt });
-      void refreshToday();
-      void refreshDeliveries();
+      notifyAppSync(["deliveries", "today", "stats"], {
+        delivery: { ...parsed, occurredAt },
+        skipReconcile: true,
+      });
     } catch {
       removeDeliveryOptimistic(tempId);
       setError("Não foi possível salvar. Tente de novo.");
