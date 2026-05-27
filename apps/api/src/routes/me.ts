@@ -236,6 +236,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         },
       ],
     });
+    emitToUser(userId, "delivery:deleted", { id });
     return { ok: true };
   });
 

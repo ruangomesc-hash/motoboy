@@ -1,73 +1,183 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
+import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatBRL, formatTime } from "@/lib/utils";
 import {
   datetimeLocalFromIso,
   formatDateTimeLabel,
   isoFromDatetimeLocal,
 } from "@/lib/local-date";
+import {
+  parseDecimalInput,
+  sanitizeDecimalInput,
+} from "@/lib/decimal-input";
 import { AppPage } from "@/components/app-page";
+import type { DeliveryListItem } from "@/lib/app-persist-cache";
 
-interface DeliveryDetail {
-  id: string;
-  grossValue: string | number;
-  originName: string | null;
-  source: string;
-  occurredAt: string;
-  destinationAddr: string | null;
-  proofPhotoUrl: string | null;
-  proofLat: number | null;
-  proofLng: number | null;
-  distanceKm?: string | number | null;
+interface DeliveryDetail extends DeliveryListItem {
+  destinationAddr?: string | null;
+  proofPhotoUrl?: string | null;
+  proofLat?: number | null;
+  proofLng?: number | null;
+}
+
+const SOURCES = [
+  { value: "PARTICULAR", label: "Particular" },
+  { value: "IFOOD", label: "iFood" },
+  { value: "NINETY_NINE", label: "99" },
+  { value: "RAPPI", label: "Rappi" },
+  { value: "OTHER", label: "Outro" },
+] as const;
+
+function toForm(d: DeliveryDetail) {
+  return {
+    grossValue: String(d.grossValue).replace(".", ","),
+    originName: d.originName ?? "",
+    source: d.source,
+    distanceKm:
+      d.distanceKm != null && d.distanceKm !== ""
+        ? String(d.distanceKm).replace(".", ",")
+        : "",
+    occurredAtLocal: datetimeLocalFromIso(d.occurredAt),
+  };
 }
 
 export default function EntregaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
-  const [delivery, setDelivery] = useState<DeliveryDetail | null>(null);
-  const [editDateTime, setEditDateTime] = useState(false);
-  const [occurredAtLocal, setOccurredAtLocal] = useState("");
-  const [savingDate, setSavingDate] = useState(false);
+  const {
+    deliveries,
+    removeDeliveryOptimistic,
+    patchDeliveryInList,
+    refreshToday,
+    refreshDeliveries,
+  } = useAppData();
+
+  const cached = useMemo(
+    () => deliveries.find((d) => d.id === id) ?? null,
+    [deliveries, id],
+  );
+
+  const [delivery, setDelivery] = useState<DeliveryDetail | null>(
+    cached as DeliveryDetail | null,
+  );
+  const [form, setForm] = useState(() =>
+    cached ? toForm(cached as DeliveryDetail) : null,
+  );
+  const [loadingExtra, setLoadingExtra] = useState(!cached);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<DeliveryDetail>(`/me/deliveries/${id}`)
+    if (!cached) return;
+    setDelivery(cached as DeliveryDetail);
+    setForm(toForm(cached as DeliveryDetail));
+    setLoadingExtra(false);
+  }, [cached]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<DeliveryDetail>(`/me/deliveries/${id}`)
       .then((d) => {
+        if (cancelled) return;
         setDelivery(d);
-        setOccurredAtLocal(datetimeLocalFromIso(d.occurredAt));
+        setForm(toForm(d));
       })
-      .catch(() => setDelivery(null));
-  }, [api, id]);
+      .catch(() => {
+        if (!cancelled && !cached) setDelivery(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingExtra(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, id, cached]);
 
-  async function handleDelete() {
-    if (!confirm("Apagar esta entrega?")) return;
-    await api(`/me/deliveries/${id}`, { method: "DELETE" });
-    router.push("/entregas");
-  }
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!delivery || !form) return;
 
-  async function handleSaveDate() {
-    if (!delivery) return;
-    setSavingDate(true);
+    const grossValue = parseDecimalInput(form.grossValue);
+    if (grossValue == null || grossValue <= 0) {
+      setError("Informe um valor válido.");
+      return;
+    }
+    const distanceKm = form.distanceKm.trim()
+      ? parseDecimalInput(form.distanceKm)
+      : null;
+    if (form.distanceKm.trim() && (distanceKm == null || distanceKm < 0)) {
+      setError("Km inválido.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
     try {
-      const occurredAt = isoFromDatetimeLocal(occurredAtLocal);
+      const occurredAt = isoFromDatetimeLocal(form.occurredAtLocal);
       const updated = await api<DeliveryDetail>(`/me/deliveries/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ occurredAt }),
+        body: JSON.stringify({
+          grossValue,
+          originName: form.originName.trim() || null,
+          source: form.source,
+          distanceKm,
+          occurredAt,
+        }),
       });
+
       setDelivery(updated);
-      setEditDateTime(false);
+      setForm(toForm(updated));
+      patchDeliveryInList({
+        id: updated.id,
+        grossValue: updated.grossValue,
+        originName: updated.originName ?? null,
+        source: updated.source,
+        occurredAt: updated.occurredAt,
+        distanceKm: updated.distanceKm ?? null,
+      });
+      void refreshToday();
+      void refreshDeliveries();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Não foi possível salvar.",
+      );
     } finally {
-      setSavingDate(false);
+      setSaving(false);
     }
   }
 
-  if (!delivery) {
-    return <div className="p-6 text-muted-foreground">Carregando...</div>;
+  async function handleDelete() {
+    if (!delivery || !confirm("Apagar esta entrega?")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api(`/me/deliveries/${id}`, { method: "DELETE" });
+      removeDeliveryOptimistic(id);
+      void refreshToday();
+      void refreshDeliveries();
+      router.push("/entregas");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Não foi possível apagar.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  if (!delivery || !form) {
+    return (
+      <AppPage className="p-6 text-muted-foreground">
+        {loadingExtra ? "Carregando..." : "Entrega não encontrada."}
+      </AppPage>
+    );
   }
 
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -79,61 +189,101 @@ export default function EntregaDetailPage() {
       : null;
 
   return (
-    <AppPage className="p-4 space-y-4">
-      <h1 className="text-xl font-bold">{formatBRL(Number(delivery.grossValue))}</h1>
-      <p className="text-muted-foreground">
-        {delivery.originName ?? delivery.source} · {formatTime(delivery.occurredAt)}
-      </p>
+    <AppPage className="p-4 space-y-4 pb-8">
+      <h1 className="text-xl font-bold">Editar entrega</h1>
 
-      <section className="rounded-xl border border-border bg-card p-4 space-y-2">
-        <p className="text-sm font-medium">Data e hora</p>
-        <p className="text-sm text-muted-foreground">
-          {formatDateTimeLabel(delivery.occurredAt)}
-        </p>
-        {!editDateTime ? (
-          <button
-            type="button"
-            className="text-xs text-primary underline"
-            onClick={() => setEditDateTime(true)}
+      <form onSubmit={handleSave} className="space-y-3">
+        <Field label="Valor (R$)">
+          <Input
+            inputMode="decimal"
+            value={form.grossValue}
+            onChange={(e) =>
+              setForm((f) =>
+                f
+                  ? {
+                      ...f,
+                      grossValue: sanitizeDecimalInput(e.target.value),
+                    }
+                  : f,
+              )
+            }
+            required
+          />
+        </Field>
+
+        <Field label="Nome / local">
+          <Input
+            value={form.originName}
+            onChange={(e) =>
+              setForm((f) => (f ? { ...f, originName: e.target.value } : f))
+            }
+            placeholder="Farmácia, mercado..."
+          />
+        </Field>
+
+        <Field label="Km (opcional)">
+          <Input
+            inputMode="decimal"
+            placeholder="3,5"
+            value={form.distanceKm}
+            onChange={(e) =>
+              setForm((f) =>
+                f
+                  ? {
+                      ...f,
+                      distanceKm: sanitizeDecimalInput(e.target.value),
+                    }
+                  : f,
+              )
+            }
+          />
+        </Field>
+
+        <Field label="Origem (app)">
+          <select
+            value={form.source}
+            onChange={(e) =>
+              setForm((f) => (f ? { ...f, source: e.target.value } : f))
+            }
+            className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
           >
-            Alterar data
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <Input
-              type="datetime-local"
-              value={occurredAtLocal}
-              onChange={(e) => setOccurredAtLocal(e.target.value)}
-              className="h-10 text-sm"
-            />
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                className="flex-1"
-                disabled={savingDate}
-                onClick={handleSaveDate}
-              >
-                {savingDate ? "Salvando..." : "Salvar data"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setEditDateTime(false);
-                  setOccurredAtLocal(datetimeLocalFromIso(delivery.occurredAt));
-                }}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-      </section>
+            {SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Data e hora">
+          <p className="text-xs text-muted-foreground mb-1">
+            {formatDateTimeLabel(
+              isoFromDatetimeLocal(form.occurredAtLocal),
+            )}
+          </p>
+          <Input
+            type="datetime-local"
+            value={form.occurredAtLocal}
+            onChange={(e) =>
+              setForm((f) =>
+                f ? { ...f, occurredAtLocal: e.target.value } : f,
+              )
+            }
+            className="h-10 text-sm"
+          />
+        </Field>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <Button type="submit" className="w-full" disabled={saving || deleting}>
+          {saving ? "Salvando..." : "Salvar alterações"}
+        </Button>
+      </form>
 
       {delivery.destinationAddr && (
-        <p className="text-sm break-words">{delivery.destinationAddr}</p>
+        <p className="text-sm text-muted-foreground break-words">
+          {delivery.destinationAddr}
+        </p>
       )}
       {delivery.proofPhotoUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -147,9 +297,30 @@ export default function EntregaDetailPage() {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={staticMap} alt="Mapa" className="rounded-lg w-full" />
       )}
-      <Button variant="outline" className="w-full text-destructive" onClick={handleDelete}>
-        Apagar entrega
+
+      <Button
+        variant="outline"
+        className="w-full text-destructive"
+        disabled={saving || deleting}
+        onClick={handleDelete}
+      >
+        {deleting ? "Apagando..." : "Apagar entrega"}
       </Button>
     </AppPage>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="text-sm text-muted-foreground">{label}</label>
+      <div className="mt-1">{children}</div>
+    </div>
   );
 }

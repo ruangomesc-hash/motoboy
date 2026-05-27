@@ -90,3 +90,31 @@ export function applyDeliveryToToday(
     recentDeliveries: [newRecent, ...today.recentDeliveries].slice(0, 3),
   };
 }
+
+/** Reverte entrega no resumo do dia (exclusão). */
+export function removeDeliveryFromToday(
+  today: TodaySummary,
+  delivery: CreatedDelivery,
+): TodaySummary {
+  const gross = Number(delivery.grossValue);
+  const km = delivery.distanceKm != null ? Number(delivery.distanceKm) : 0;
+  const grossTotal = Math.max(0, today.grossTotal - gross);
+  const totalKm = Math.max(0, today.totalKm - (Number.isFinite(km) ? km : 0));
+  const deliveryCount = Math.max(0, today.deliveryCount - 1);
+  const totalExpenses = today.costsConfigured
+    ? today.totalExpenses
+    : today.fuel.isActual
+      ? today.fuelCost
+      : 0;
+
+  return {
+    ...today,
+    grossTotal,
+    totalKm,
+    deliveryCount,
+    totalExpenses,
+    netProfit: grossTotal - totalExpenses,
+    profitPerKm: totalKm > 0 ? (grossTotal - totalExpenses) / totalKm : 0,
+    recentDeliveries: today.recentDeliveries.filter((d) => d.id !== delivery.id),
+  };
+}

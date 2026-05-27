@@ -22,6 +22,7 @@ import {
 } from "@/lib/app-sync";
 import {
   applyDeliveryToToday,
+  removeDeliveryFromToday,
   type CreatedDelivery,
 } from "@/lib/app-data-cache";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
@@ -77,6 +78,8 @@ type AppDataContextValue = {
   refreshStats: (period: "week" | "month") => Promise<void>;
   refreshConfigStatus: () => Promise<boolean>;
   applyDeliveryOptimistic: (delivery: CreatedDelivery) => void;
+  removeDeliveryOptimistic: (id: string) => void;
+  patchDeliveryInList: (item: DeliveryListItem) => void;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -230,6 +233,50 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return filter;
       });
 
+      if (userId) persistNow(userId);
+    },
+    [userId, persistNow],
+  );
+
+  const removeDeliveryOptimistic = useCallback(
+    (deliveryId: string) => {
+      let removed: DeliveryListItem | undefined;
+      setDeliveries((prev) => {
+        removed = prev.find((d) => d.id === deliveryId);
+        return prev.filter((d) => d.id !== deliveryId);
+      });
+
+      if (removed) {
+        const payload: CreatedDelivery = {
+          id: removed.id,
+          grossValue: removed.grossValue,
+          source: removed.source,
+          originName: removed.originName,
+          occurredAt: removed.occurredAt,
+          distanceKm: removed.distanceKm ?? null,
+        };
+        if (isIsoOnDateInput(removed.occurredAt, todayDateInputValue())) {
+          setToday((prev) => {
+            if (!prev) return prev;
+            return removeDeliveryFromToday(prev, payload);
+          });
+        }
+      }
+
+      if (userId) persistNow(userId);
+    },
+    [userId, persistNow],
+  );
+
+  const patchDeliveryInList = useCallback(
+    (item: DeliveryListItem) => {
+      setDeliveries((prev) => {
+        const idx = prev.findIndex((d) => d.id === item.id);
+        if (idx < 0) return [item, ...prev];
+        const next = [...prev];
+        next[idx] = item;
+        return next;
+      });
       if (userId) persistNow(userId);
     },
     [userId, persistNow],
@@ -556,6 +603,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshStats,
       refreshConfigStatus,
       applyDeliveryOptimistic,
+      removeDeliveryOptimistic,
+      patchDeliveryInList,
     }),
     [
       today,
@@ -575,6 +624,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshStats,
       refreshConfigStatus,
       applyDeliveryOptimistic,
+      removeDeliveryOptimistic,
+      patchDeliveryInList,
     ],
   );
 

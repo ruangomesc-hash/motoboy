@@ -12,6 +12,7 @@ import {
   isoFromDatetimeLocal,
   todayDateInputValue,
 } from "@/lib/local-date";
+import { sanitizeDecimalInput } from "@/lib/decimal-input";
 import { Plus, X } from "lucide-react";
 
 const SOURCES = [
@@ -21,22 +22,6 @@ const SOURCES = [
   { value: "RAPPI", label: "Rappi" },
   { value: "OTHER", label: "Outro" },
 ] as const;
-
-function sanitizeDecimalInput(raw: string): string {
-  const cleaned = raw.replace(/[^\d.,]/g, "");
-  let separatorUsed = false;
-  let result = "";
-  for (const ch of cleaned) {
-    if (ch === "." || ch === ",") {
-      if (separatorUsed) continue;
-      separatorUsed = true;
-      result += ch;
-      continue;
-    }
-    result += ch;
-  }
-  return result;
-}
 
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();

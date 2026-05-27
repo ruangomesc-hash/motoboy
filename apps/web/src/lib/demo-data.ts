@@ -6,7 +6,10 @@ import type {
   UserProfile,
   WeeklyGoalProgress,
 } from "@motoboy/types";
-import { applyDeliveryToToday } from "@/lib/app-data-cache";
+import {
+  applyDeliveryToToday,
+  removeDeliveryFromToday,
+} from "@/lib/app-data-cache";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 
 export const DEMO_USER_ID = "demo-user";
@@ -357,9 +360,72 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
   const deliveryMatch = path.match(/^\/me\/deliveries\/([^/]+)$/);
   if (deliveryMatch) {
     const id = deliveryMatch[1];
-    const item = demoDeliveries.items.find((d) => d.id === id);
-    if (!item) return Promise.reject(new Error("Não encontrado"));
-    return Promise.resolve(item as T);
+    const idx = demoDeliveries.items.findIndex((d) => d.id === id);
+    if (idx < 0) return Promise.reject(new Error("Não encontrado"));
+
+    if (method === "DELETE") {
+      const removed = demoDeliveries.items.splice(idx, 1)[0];
+      if (!removed) return Promise.reject(new Error("Não encontrado"));
+      demoDeliveries.total = Math.max(0, demoDeliveries.total - 1);
+      Object.assign(
+        demoToday,
+        removeDeliveryFromToday(demoToday, {
+          id: removed.id,
+          grossValue: removed.grossValue,
+          source: removed.source,
+          originName: removed.originName,
+          occurredAt: removed.occurredAt,
+          distanceKm: removed.distanceKm,
+        }),
+      );
+      return Promise.resolve({ ok: true } as T);
+    }
+
+    if (method === "PATCH") {
+      const body = JSON.parse((options.body as string) ?? "{}") as {
+        grossValue?: number;
+        originName?: string | null;
+        distanceKm?: number | null;
+        source?: string;
+        occurredAt?: string;
+      };
+      const item = demoDeliveries.items[idx];
+      if (!item) return Promise.reject(new Error("Não encontrado"));
+      const prev = { ...item };
+      if (body.grossValue != null) item.grossValue = body.grossValue;
+      if (body.originName !== undefined) item.originName = body.originName;
+      if (body.distanceKm !== undefined) {
+        (item as { distanceKm: number | null }).distanceKm = body.distanceKm;
+      }
+      if (body.source) item.source = body.source;
+      if (body.occurredAt) item.occurredAt = body.occurredAt;
+
+      Object.assign(
+        demoToday,
+        removeDeliveryFromToday(demoToday, {
+          id: prev.id,
+          grossValue: prev.grossValue,
+          source: prev.source,
+          originName: prev.originName,
+          occurredAt: prev.occurredAt,
+          distanceKm: prev.distanceKm,
+        }),
+      );
+      Object.assign(
+        demoToday,
+        applyDeliveryToToday(demoToday, {
+          id: item.id,
+          grossValue: Number(item.grossValue),
+          source: item.source,
+          originName: item.originName,
+          occurredAt: item.occurredAt,
+          distanceKm: item.distanceKm,
+        }),
+      );
+      return Promise.resolve({ ...item } as T);
+    }
+
+    return Promise.resolve({ ...demoDeliveries.items[idx] } as T);
   }
   if (path.startsWith("/me/stats")) {
     const hoursWorked = 28.5;
