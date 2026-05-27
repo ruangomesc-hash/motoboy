@@ -51,7 +51,9 @@ Copie de `vercel.env.example`. **Todas as URLs com `https://`** (sem isso o logi
 
 `ADMIN_PASSWORD` no env é opcional: na primeira vez use **Continuar sem senha** em `/admin/login` e defina a senha no painel (fica no banco).
 
-Marque **Build** em `DATABASE_URL` e `DIRECT_URL` se o build precisar delas.
+**Obrigatório:** marque **Build** em `DATABASE_URL` e `DIRECT_URL` (o deploy cria as tabelas, inclusive `AdminAccount`).
+
+Para entrar no admin **antes** das migrations: defina também `ADMIN_EMAIL` e `ADMIN_PASSWORD` na Vercel e use **Entrar** com essa senha.
 
 ## 4. Deploy
 

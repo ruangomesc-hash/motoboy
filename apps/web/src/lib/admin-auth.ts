@@ -22,6 +22,12 @@ export async function loginAdminViaApi(
     code?: string;
   };
   if (!res.ok) {
+    if (data.code === "MIGRATIONS_REQUIRED") {
+      throw new Error(
+        data.error ??
+          "Banco sem tabelas. Rode migrations ou redeploy na Vercel com DATABASE_URL em Build.",
+      );
+    }
     if (data.code === "NEEDS_SETUP") {
       throw new Error(
         data.error ??

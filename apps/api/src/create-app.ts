@@ -11,6 +11,10 @@ import { authRoutes } from "./routes/auth.js";
 import { meRoutes } from "./routes/me.js";
 import { adminRoutes } from "./routes/admin.js";
 import type { EvolutionService as EvoType } from "./services/evolution.js";
+import {
+  isPrismaTableMissingError,
+  MIGRATIONS_REQUIRED_MESSAGE,
+} from "./lib/prisma-errors.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -33,6 +37,13 @@ export async function createApp(
 
   app.setErrorHandler((error: unknown, _request, reply) => {
     const err = error as { code?: string; name?: string; message?: string };
+    if (isPrismaTableMissingError(err)) {
+      app.log.error(error);
+      return reply.status(503).send({
+        error: MIGRATIONS_REQUIRED_MESSAGE,
+        code: "MIGRATIONS_REQUIRED",
+      });
+    }
     if (err.code?.startsWith("P20")) {
       app.log.error(error);
       return reply.status(503).send({
@@ -91,13 +102,28 @@ export async function createApp(
   await app.register(meRoutes);
   await app.register(adminRoutes);
 
-  app.get("/health", async () => {
+  app.get("/health", async (_request, reply) => {
     const { prisma } = await import("@motoboy/db");
     const { isAsaasConfigured } = await import("./lib/asaas-client.js");
-    await prisma.$queryRaw`SELECT 1`;
+    const { isAdminTableReady } = await import("./services/admin-auth-store.js");
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (err) {
+      app.log.error(err);
+      return reply.status(503).send({
+        ok: false,
+        database: "error",
+        error: "Não conectou ao Supabase. Confira DATABASE_URL.",
+      });
+    }
+    const adminTable = await isAdminTableReady();
     return {
       ok: true,
       database: "connected",
+      adminTable,
+      migrationsHint: adminTable
+        ? null
+        : "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build",
       redis: isRedisEnabled(env),
       asaas: {
         configured: isAsaasConfigured(env),

@@ -6,10 +6,13 @@ import {
 } from "@motoboy/types";
 import { requireAdmin, signAdminToken } from "../lib/auth.js";
 import {
+  envAdminCredentialsConfigured,
   isAdminConfigured,
+  isAdminTableReady,
   setupAdminAccount,
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
+import { MIGRATIONS_REQUIRED_MESSAGE } from "../lib/prisma-errors.js";
 import {
   activateAdminUser,
   createAdminPaymentLink,
@@ -31,8 +34,12 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
   app.get("/admin/auth/status", async (_request, reply) => {
+    const migrationsReady = await isAdminTableReady();
+    const configured = migrationsReady ? await isAdminConfigured() : false;
     return reply.send({
-      configured: await isAdminConfigured(),
+      configured,
+      migrationsReady,
+      envLoginAvailable: envAdminCredentialsConfigured(),
       bootstrapEmail: process.env.ADMIN_EMAIL?.trim() ?? null,
     });
   });
@@ -53,24 +60,36 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       });
       return reply.send({ ok: true, token, email });
     } catch (err) {
-      const e = err as Error & { statusCode?: number };
-      return reply
-        .status(e.statusCode ?? 400)
-        .send({ error: e.message });
+      const e = err as Error & { statusCode?: number; code?: string };
+      return reply.status(e.statusCode ?? 400).send({
+        error: e.message,
+        code: e.code,
+      });
     }
   });
 
   app.post("/admin/auth/login", async (request, reply) => {
     const body = adminLoginSchema.parse(request.body);
-    if (!(await isAdminConfigured())) {
+    const email = body.email.trim().toLowerCase();
+    const password = body.password.trim();
+    const migrationsReady = await isAdminTableReady();
+    const configured = migrationsReady ? await isAdminConfigured() : false;
+
+    if (!migrationsReady && !envAdminCredentialsConfigured()) {
+      return reply.status(503).send({
+        error: MIGRATIONS_REQUIRED_MESSAGE,
+        code: "MIGRATIONS_REQUIRED",
+      });
+    }
+
+    if (!configured && migrationsReady) {
       return reply.status(400).send({
         error:
           "Primeiro acesso: use Continuar sem senha e defina sua senha de administrador.",
         code: "NEEDS_SETUP",
       });
     }
-    const email = body.email.trim().toLowerCase();
-    const password = body.password.trim();
+
     if (!(await verifyAdminLoginWithEnvFallback(email, password))) {
       return reply.status(401).send({ error: "E-mail ou senha incorretos" });
     }

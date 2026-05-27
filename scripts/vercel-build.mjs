@@ -11,7 +11,16 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = resolve(root, "apps/web");
 
-console.log("\n[vercel-build] v5 — Prisma binary + tracing Vercel\n");
+console.log("\n[vercel-build] v6 — Prisma + migrations + Next\n");
+
+function hasRealDatabase() {
+  const url = process.env.DATABASE_URL ?? "";
+  return (
+    url.length > 24 &&
+    !url.includes("build:build@127.0.0.1") &&
+    !url.includes("placeholder")
+  );
+}
 
 function ensureEnv(name, fallback) {
   if (!process.env[name]?.trim()) {
@@ -61,6 +70,17 @@ function run(cmd, opts = {}) {
 run(
   "pnpm --filter @motoboy/db exec prisma generate --schema=./prisma/schema.prisma",
 );
+
+if (hasRealDatabase()) {
+  console.log("\n[vercel-build] Supabase detectado — aplicando migrations…\n");
+  run("pnpm db:deploy");
+} else {
+  console.warn(
+    "\n[vercel-build] AVISO: migrations NÃO rodaram (DATABASE_URL de placeholder).\n" +
+      "         Na Vercel: marque DATABASE_URL e DIRECT_URL em Production + Build.\n",
+  );
+}
+
 run("pnpm exec next build", { cwd: webDir });
 
 const engineHints = [

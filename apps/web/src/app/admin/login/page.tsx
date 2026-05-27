@@ -13,6 +13,8 @@ const adminDevAllowed =
 
 type AdminAuthStatus = {
   configured: boolean;
+  migrationsReady: boolean;
+  envLoginAvailable: boolean;
   bootstrapEmail: string | null;
 };
 
@@ -33,10 +35,16 @@ export default function AdminLoginPage() {
       .then((data: AdminAuthStatus) => {
         setStatus(data);
         if (data.bootstrapEmail) setEmail(data.bootstrapEmail);
+        if (!data.migrationsReady && data.envLoginAvailable) {
+          setPhase("login");
+          return;
+        }
         setPhase(data.configured ? "login" : "first");
       })
       .catch(() =>
-        setError("Não foi possível verificar o admin. Rode as migrations."),
+        setError(
+          "Não foi possível conectar à API. Confira o deploy e DATABASE_URL na Vercel.",
+        ),
       );
   }, []);
 
@@ -76,7 +84,10 @@ export default function AdminLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+      };
       if (!res.ok) {
         setError(data.error ?? "Não foi possível salvar a senha.");
         setLoading(false);
@@ -100,13 +111,36 @@ export default function AdminLoginPage() {
     }
   }
 
+  const migrationsReady = status?.migrationsReady ?? true;
   const configured = status?.configured ?? false;
-  const showSetup = !configured && phase === "setup";
-  const showFirst = !configured && phase === "first";
+  const envLogin = status?.envLoginAvailable ?? false;
+  const showSetup = migrationsReady && !configured && phase === "setup";
+  const showFirst = migrationsReady && !configured && phase === "first";
+  const showLogin =
+    configured || (!migrationsReady && envLogin) || phase === "login";
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-md space-y-4">
+        {!migrationsReady && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100/90 space-y-2">
+            <p className="font-medium">Banco sem tabela do admin</p>
+            <p className="text-amber-100/70 text-xs leading-relaxed">
+              Na Vercel: marque <strong>DATABASE_URL</strong> e{" "}
+              <strong>DIRECT_URL</strong> em Production e em{" "}
+              <strong>Build</strong>, depois Redeploy sem cache. Ou no Mac, com
+              o .env do Supabase:{" "}
+              <code className="text-[11px]">bash scripts/setup-supabase.sh</code>
+            </p>
+            {envLogin && (
+              <p className="text-xs text-emerald-200/90">
+                Enquanto isso, use o e-mail e a senha definidos em ADMIN_EMAIL /
+                ADMIN_PASSWORD na Vercel.
+              </p>
+            )}
+          </div>
+        )}
+
         <form
           onSubmit={
             showSetup
@@ -134,7 +168,9 @@ export default function AdminLoginPage() {
               ? "Primeiro acesso: entre sem senha e defina a senha principal."
               : showSetup
                 ? "Crie a senha que será usada daqui em diante."
-                : "Acesso restrito ao Motocopiloto"}
+                : !migrationsReady && envLogin
+                  ? "Entre com ADMIN_EMAIL e ADMIN_PASSWORD (Vercel)."
+                  : "Acesso restrito ao Motocopiloto"}
           </p>
           <div>
             <label className="text-sm text-muted-foreground">E-mail</label>
@@ -176,7 +212,7 @@ export default function AdminLoginPage() {
               </div>
             </>
           )}
-          {configured && (
+          {showLogin && (
             <div>
               <label className="text-sm text-muted-foreground">Senha</label>
               <Input
@@ -201,7 +237,7 @@ export default function AdminLoginPage() {
               {loading ? "Salvando..." : "Salvar senha e entrar"}
             </Button>
           )}
-          {configured && (
+          {showLogin && !showFirst && !showSetup && (
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Entrando..." : "Entrar"}
             </Button>
