@@ -199,6 +199,18 @@ export default function EntregaDetailPage() {
 
     const snapshot = toPayload(delivery);
 
+    if (id.startsWith("local-")) {
+      removeDeliveryOptimistic(id, snapshot);
+      notifyAppSync(["deliveries", "today", "stats"], {
+        removedDeliveryId: id,
+        skipReconcile: true,
+      });
+      setShowDeleteConfirm(false);
+      router.replace("/entregas");
+      setDeleting(false);
+      return;
+    }
+
     try {
       await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
       removeDeliveryOptimistic(id, snapshot);

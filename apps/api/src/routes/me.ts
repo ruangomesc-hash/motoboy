@@ -20,6 +20,7 @@ import {
   formatMoney,
   getActivityHistory,
   recordActivity,
+  recordActivitySafe,
 } from "../services/activity-log.js";
 import { createDeliveryManual } from "../services/delivery.js";
 import { getPeriodStats } from "../services/stats.js";
@@ -212,32 +213,48 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/me/deliveries/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const userId = request.sessionUser!.id;
+
+    if (!id?.trim() || id.startsWith("local-")) {
+      return reply.status(400).send({
+        error: "Entrega ainda não foi salva no servidor. Aguarde ou atualize a lista.",
+      });
+    }
+
     const existing = await prisma.delivery.findFirst({
       where: { id, userId },
     });
-    if (!existing) return reply.status(404).send({ error: "Não encontrado" });
+    if (!existing) {
+      return reply.status(404).send({ error: "Entrega não encontrada" });
+    }
+
     const deleted = await prisma.delivery.deleteMany({
       where: { id, userId },
     });
     if (deleted.count === 0) {
-      return reply.status(404).send({ error: "Não encontrado" });
+      return reply.status(404).send({ error: "Entrega não encontrada" });
     }
-    await recordActivity(userId, {
-      category: "DELIVERY",
-      action: "DELETED",
-      title: "Entrega removida",
-      entityId: id,
-      changes: [
-        {
-          field: "grossValue",
-          label: "Valor",
-          from: formatMoney(existing.grossValue),
-          to: null,
-        },
-      ],
-    });
+
+    await recordActivitySafe(
+      userId,
+      {
+        category: "DELIVERY",
+        action: "DELETED",
+        title: "Entrega removida",
+        entityId: id,
+        changes: [
+          {
+            field: "grossValue",
+            label: "Valor",
+            from: formatMoney(existing.grossValue),
+            to: null,
+          },
+        ],
+      },
+      request.log,
+    );
+
     emitToUser(userId, "delivery:deleted", { id });
-    return { ok: true };
+    return reply.status(200).send({ ok: true });
   });
 
   app.patch("/me/deliveries/:id", async (request, reply) => {

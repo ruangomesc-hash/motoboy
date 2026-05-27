@@ -37,6 +37,19 @@ export async function recordActivity(
   });
 }
 
+/** Não falha a operação principal (ex.: apagar entrega) se o histórico não gravar. */
+export async function recordActivitySafe(
+  userId: string,
+  input: RecordInput,
+  log?: { warn: (obj: unknown, msg?: string) => void },
+): Promise<void> {
+  try {
+    await recordActivity(userId, input);
+  } catch (err) {
+    log?.warn({ err, userId, input }, "Falha ao gravar ActivityLog");
+  }
+}
+
 export function diffValues(
   fields: {
     field: string;

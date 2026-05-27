@@ -43,23 +43,20 @@ export async function requireAuth(
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;
 
   if (!token) {
-    await reply.status(401).send({ error: "Não autenticado" });
-    return;
+    return reply.status(401).send({ error: "Não autenticado" });
   }
 
   try {
     const payload = verifyToken(token, env.JWT_SECRET);
     if (payload.role === "admin") {
-      await reply.status(401).send({ error: "Use login de motoboy" });
-      return;
+      return reply.status(401).send({ error: "Use login de motoboy" });
     }
     if (!payload.userId) {
-      await reply.status(401).send({ error: "Sessão inválida" });
-      return;
+      return reply.status(401).send({ error: "Sessão inválida" });
     }
     request.user = payload;
   } catch {
-    await reply.status(401).send({ error: "Token inválido" });
+    return reply.status(401).send({ error: "Token inválido" });
   }
 }
 
@@ -70,25 +67,22 @@ export async function requireSessionUser(
 ): Promise<void> {
   const userId = request.user?.userId;
   if (!userId) {
-    await reply.status(401).send({ error: "Não autenticado" });
-    return;
+    return reply.status(401).send({ error: "Não autenticado" });
   }
 
   const sessionUser = await loadSessionUser(userId);
   if (!sessionUser) {
-    await reply.status(401).send({
+    return reply.status(401).send({
       error: "Conta não encontrada. Faça login novamente.",
       code: "USER_NOT_FOUND",
     });
-    return;
   }
 
   if (sessionUser.status === "CANCELED") {
-    await reply.status(403).send({
+    return reply.status(403).send({
       error: "Conta cancelada. Entre em contato com o suporte.",
       code: "ACCOUNT_CANCELED",
     });
-    return;
   }
 
   request.sessionUser = sessionUser;
@@ -101,8 +95,7 @@ export async function requireAppAccess(
 ): Promise<void> {
   const sessionUser = request.sessionUser;
   if (!sessionUser) {
-    await reply.status(401).send({ error: "Não autenticado" });
-    return;
+    return reply.status(401).send({ error: "Não autenticado" });
   }
 
   const path = request.url.split("?")[0] ?? request.url;
@@ -111,7 +104,7 @@ export async function requireAppAccess(
   }
 
   if (!hasAppAccess(sessionUser)) {
-    await reply.status(402).send({
+    return reply.status(402).send({
       error: "Trial encerrado. Assine o Motocopiloto para continuar.",
       code: "SUBSCRIPTION_REQUIRED",
       trialEndsAt: sessionUser.trialEndsAt?.toISOString() ?? null,
@@ -132,19 +125,17 @@ export async function requireAdmin(
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;
 
   if (!token) {
-    await reply.status(401).send({ error: "Não autenticado" });
-    return;
+    return reply.status(401).send({ error: "Não autenticado" });
   }
 
   try {
     const payload = verifyToken(token, env.JWT_SECRET);
     if (payload.role !== "admin") {
-      await reply.status(403).send({ error: "Acesso negado" });
-      return;
+      return reply.status(403).send({ error: "Acesso negado" });
     }
     request.user = payload;
   } catch {
-    await reply.status(401).send({ error: "Token inválido" });
+    return reply.status(401).send({ error: "Token inválido" });
   }
 }
 
