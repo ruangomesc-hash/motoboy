@@ -198,36 +198,39 @@ export default function EntregaDetailPage() {
     setDeleteError(null);
 
     const snapshot = toPayload(delivery);
-
-    if (id.startsWith("local-")) {
+    const syncRemoval = () => {
       removeDeliveryOptimistic(id, snapshot);
       notifyAppSync(["deliveries", "today", "stats"], {
         removedDeliveryId: id,
         skipReconcile: true,
       });
-      setShowDeleteConfirm(false);
-      router.replace("/entregas");
-      setDeleting(false);
-      return;
-    }
+    };
+
+    syncRemoval();
+    setShowDeleteConfirm(false);
+    router.replace("/entregas");
+    setDeleting(false);
+
+    if (id.startsWith("local-")) return;
 
     try {
       await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
-      removeDeliveryOptimistic(id, snapshot);
       notifyAppSync(["deliveries", "today", "stats"], {
         removedDeliveryId: id,
+      });
+    } catch (err) {
+      upsertDeliveryOptimistic(snapshot);
+      notifyAppSync(["deliveries", "today", "stats"], {
+        delivery: snapshot,
         skipReconcile: true,
       });
-      setShowDeleteConfirm(false);
-      router.replace("/entregas");
-    } catch (err) {
-      setDeleteError(
+      const message =
         err instanceof Error
           ? err.message
-          : "Não foi possível apagar. Tente de novo.",
-      );
-    } finally {
-      setDeleting(false);
+          : "Não foi possível apagar no servidor.";
+      if (typeof window !== "undefined") {
+        window.alert(`${message}\n\nA entrega foi recolocada na lista.`);
+      }
     }
   }
 

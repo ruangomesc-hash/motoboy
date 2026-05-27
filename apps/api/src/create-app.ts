@@ -35,6 +35,25 @@ export async function createApp(
   const env = options.env ?? loadEnv();
   const app = Fastify({ logger: options.logger ?? true });
 
+  // DELETE/GET com Content-Type: application/json e corpo vazio (ex.: fetch do app).
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      if (body === "" || body === undefined || body === null) {
+        done(null, undefined);
+        return;
+      }
+      try {
+        const json = JSON.parse(body as string) as unknown;
+        done(null, json);
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   app.setErrorHandler((error: unknown, _request, reply) => {
     const err = error as { code?: string; name?: string; message?: string };
     if (isPrismaTableMissingError(err)) {
@@ -65,6 +84,11 @@ export async function createApp(
     }
     if (err.name === "ZodError") {
       return reply.status(400).send({ error: "Dados inválidos" });
+    }
+    if (
+      err.message?.includes("Body cannot be empty when content-type is set to")
+    ) {
+      return reply.status(400).send({ error: "Corpo da requisição inválido" });
     }
     app.log.error(error);
     return reply.status(500).send({

@@ -6,13 +6,19 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  const hasBody =
+    options.body !== undefined &&
+    options.body !== null &&
+    options.body !== "";
+  const headers = new Headers(options.headers);
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
   if (!res.ok) {
     const text = await res.text();
