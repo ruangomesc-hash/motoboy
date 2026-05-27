@@ -15,6 +15,7 @@ import {
   readPersistedAffiliateCode,
   clearPersistedAffiliateCode,
 } from "@/lib/affiliate-ref";
+import { savePendingRegistration } from "@/lib/registration-pending";
 
 function CadastroForm() {
   const router = useRouter();
@@ -112,6 +113,11 @@ function CadastroForm() {
         return;
       }
       clearPersistedAffiliateCode();
+      savePendingRegistration({
+        name: name.trim(),
+        email: email.trim(),
+        phone: digits,
+      });
       router.push("/config?setup=1");
     } catch {
       setError("Não foi possível concluir o cadastro. Tente de novo.");

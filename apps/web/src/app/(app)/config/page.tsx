@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
 import { notifyAppSync } from "@/lib/app-sync";
@@ -24,6 +25,10 @@ import {
   type ProfileFormState,
 } from "@/components/profile-form";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
+import {
+  clearPendingRegistration,
+  readPendingRegistration,
+} from "@/lib/registration-pending";
 import { AppPage } from "@/components/app-page";
 
 interface Costs {
@@ -52,6 +57,7 @@ const emptyProfile: ProfileFormState = {
 function ConfigPageInner() {
   const api = useApi();
   const { refreshConfigStatus } = useAppData();
+  const { status: sessionStatus } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isSetup = searchParams.get("setup") === "1";
@@ -111,13 +117,19 @@ function ConfigPageInner() {
   const [configReady, setConfigReady] = useState(false);
 
   useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+
     setLoadError(null);
+    const pending = readPendingRegistration();
+
     api<MeResponse>("/me")
       .then((user) => {
         if (user.profile) {
+          const serverName = user.profile.name?.trim() ?? "";
+          const serverEmail = user.profile.email?.trim() ?? "";
           setProfile({
-            name: user.profile.name ?? "",
-            email: user.profile.email ?? "",
+            name: serverName || pending?.name || "",
+            email: serverEmail || pending?.email || "",
             city: user.profile.city ?? "",
             workApps: user.profile.workApps,
             subscriptionPaymentMethod:
@@ -127,6 +139,13 @@ function ConfigPageInner() {
                 ? user.profile.workDays
                 : [...DEFAULT_WORK_DAYS],
           });
+          if (serverName && serverEmail) clearPendingRegistration();
+        } else if (pending) {
+          setProfile((prev) => ({
+            ...prev,
+            name: pending.name,
+            email: pending.email,
+          }));
         }
         if (user.goalsPlan) {
           setMonthlyGoal(String(Math.round(user.goalsPlan.monthlyTarget)));
@@ -143,12 +162,21 @@ function ConfigPageInner() {
           });
         }
       })
-      .catch((e: Error) => setLoadError(e.message));
+      .catch((e: Error) => {
+        if (pending) {
+          setProfile((prev) => ({
+            ...prev,
+            name: pending.name,
+            email: pending.email,
+          }));
+        }
+        setLoadError(e.message);
+      });
 
     api<MeConfigSnapshot>("/me")
       .then((me) => setConfigReady(isServerConfigComplete(me)))
       .catch(() => setConfigReady(false));
-  }, [api]);
+  }, [api, sessionStatus]);
 
   async function save() {
     const blocker = getConfigSaveBlockers({
@@ -210,6 +238,7 @@ function ConfigPageInner() {
       const ready = await refreshConfigStatus();
       notifyAppSync(["profile", "today", "stats"]);
       setConfigReady(ready);
+      clearPendingRegistration();
       clearSetupGuideHidden();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

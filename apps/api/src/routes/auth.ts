@@ -14,6 +14,7 @@ import {
   isSkipAuthCodeEnabled,
 } from "../lib/auth-config.js";
 import {
+  applyRegistrationInVerify,
   createUserWithProfile,
   findUserByPhone,
 } from "../services/user.js";
@@ -149,6 +150,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           affiliateCode: body.affiliateCode,
         });
         isNewUser = true;
+      } catch (err) {
+        const e = err as Error & { statusCode?: number };
+        if (e.statusCode === 409) {
+          return reply.status(409).send({ error: e.message });
+        }
+        throw err;
+      }
+    } else if (body.name?.trim() && body.email?.trim()) {
+      try {
+        user = await applyRegistrationInVerify(user, {
+          name: body.name,
+          email: body.email,
+          affiliateCode: body.affiliateCode,
+        });
       } catch (err) {
         const e = err as Error & { statusCode?: number };
         if (e.statusCode === 409) {
