@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { SubscriptionStatus } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
+import { AppLoadingSplash } from "@/components/app-loading-splash";
 
 const ALLOWED_PATHS = ["/assinar", "/config"];
 
@@ -53,11 +54,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   }, [api, pathname, router, sessionStatus]);
 
   if (!checked && sessionStatus === "authenticated") {
-    return (
-      <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-        Carregando sua conta...
-      </div>
-    );
+    return <AppLoadingSplash variant="account" className="flex-1" />;
   }
 
   return <>{children}</>;

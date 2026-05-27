@@ -13,6 +13,7 @@ import { useAppSync } from "@/hooks/use-app-sync";
 import { formatBRL, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
+import { AppLoadingSplash } from "@/components/app-loading-splash";
 import { WeeklyGoalThermometer } from "@/components/weekly-goal-thermometer";
 import {
   TrendingUp,
@@ -104,11 +105,7 @@ export default function HomePage() {
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
 
   if (loading) {
-    return (
-      <div className="p-4 text-sm text-muted-foreground animate-pulse">
-        Carregando...
-      </div>
-    );
+    return <AppLoadingSplash variant="home" />;
   }
 
   const s = summary ?? emptySummary;
