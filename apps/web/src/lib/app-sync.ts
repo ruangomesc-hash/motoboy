@@ -19,6 +19,8 @@ export type AppSyncDetail = {
   /** Entrega anterior (edição) para recalcular Home na hora */
   previousDelivery?: CreatedDelivery;
   removedDeliveryId?: string;
+  /** Snapshot da entrega apagada (Home / Stats em abas que não carregaram a lista). */
+  removedDelivery?: CreatedDelivery;
   /** Tombstones replicados entre abas */
   deletedDeliveryIds?: string[];
   /** true = só aplica cache local; API reconcilia em background */
@@ -46,6 +48,7 @@ export function registerAppSyncPersist(fn: (() => void) | null): void {
 function buildSyncKey(detail: AppSyncDetail): string {
   return [
     detail.removedDeliveryId ?? "",
+    detail.removedDelivery?.id ?? "",
     detail.delivery?.id ?? "",
     detail.previousDelivery?.id ?? "",
     (detail.deletedDeliveryIds ?? []).join(","),

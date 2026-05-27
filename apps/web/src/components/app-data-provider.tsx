@@ -61,6 +61,7 @@ import {
   patchPeriodStatsDelivery,
 } from "@/lib/stats-preview";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
+import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 
 export type { DeliveryListItem };
 
@@ -141,6 +142,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
+  /** Evita aplicar delta de stats duas vezes (ação local + evento sync na mesma aba). */
+  const statsRemoveAdjusted = useRef(new Set<string>());
 
   const stateRef = useRef({
     today,
@@ -270,6 +273,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const upsertDeliveryOptimistic = useCallback(
     (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
       deletedDeliveries.current.unmark(delivery.id);
+      statsRemoveAdjusted.current.delete(delivery.id);
       const occurredAt = delivery.occurredAt ?? new Date().toISOString();
       const todayKey = todayDateInputValue();
       const item: DeliveryListItem = {
@@ -382,18 +386,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       deletedDeliveries.current.mark(deliveryId);
       const s = stateRef.current;
       const todayKey = todayDateInputValue();
-      const removed = s.deliveries.find((d) => d.id === deliveryId);
 
-      const payload: CreatedDelivery | undefined = removed
-        ? {
-            id: removed.id,
-            grossValue: removed.grossValue,
-            source: removed.source,
-            originName: removed.originName,
-            occurredAt: removed.occurredAt,
-            distanceKm: removed.distanceKm ?? null,
-          }
-        : fallback;
+      const payload = resolveDeliveryPayload(deliveryId, {
+        deliveries: s.deliveries,
+        today: s.today,
+        fallback,
+      });
 
       const nextDeliveries = s.deliveries.filter((d) => d.id !== deliveryId);
       let nextToday = s.today;
@@ -405,16 +403,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         nextToday = removeDeliveryFromToday(nextToday, payload);
       }
 
+      const listChanged = nextDeliveries.length !== s.deliveries.length;
+      const todayChanged = nextToday !== s.today;
+
       stateRef.current = {
         ...s,
         deliveries: nextDeliveries,
         today: nextToday,
       };
 
-      setDeliveries(nextDeliveries);
-      if (nextToday !== s.today) setToday(nextToday);
+      if (listChanged) setDeliveries(nextDeliveries);
+      if (todayChanged) setToday(nextToday);
 
-      if (payload) {
+      if (
+        payload &&
+        !statsRemoveAdjusted.current.has(deliveryId)
+      ) {
+        statsRemoveAdjusted.current.add(deliveryId);
         const gross = Number(payload.grossValue);
         const km =
           payload.distanceKm != null ? Number(payload.distanceKm) : 0;
@@ -583,7 +588,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (detail.removedDeliveryId) {
-        removeDeliveryOptimistic(detail.removedDeliveryId);
+        removeDeliveryOptimistic(
+          detail.removedDeliveryId,
+          detail.removedDelivery,
+        );
       } else if (detail.delivery) {
         upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
       }

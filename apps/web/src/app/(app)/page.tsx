@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
@@ -21,7 +22,11 @@ import {
   Route,
   Gauge,
   MessageCircle,
+  Trash2,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
+import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
 
@@ -70,6 +75,12 @@ function sourceLabel(source: string): string {
 
 export default function HomePage() {
   const { today, profileName } = useAppData();
+  const { deleteDelivery } = useDeleteDelivery();
+  const [deleteTarget, setDeleteTarget] = useState<
+    TodaySummary["recentDeliveries"][number] | null
+  >(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const hour = new Date().getHours();
   const greeting =
@@ -291,10 +302,10 @@ export default function HomePage() {
             </li>
           )}
           {s.recentDeliveries.slice(0, 3).map((d) => (
-            <li key={d.id}>
+            <li key={d.id} className="flex items-center gap-0.5 border-b border-border/40">
               <Link
                 href={`/entregas/${d.id}`}
-                className="flex justify-between items-center gap-2 py-1.5 border-b border-border/40 text-[10px] min-w-0"
+                className="flex flex-1 justify-between items-center gap-2 py-1.5 text-[10px] min-w-0"
               >
                 <span className="min-w-0 truncate">
                   <span className="font-medium">{formatBRL(d.grossValue)}</span>
@@ -305,10 +316,47 @@ export default function HomePage() {
                   {formatTime(d.occurredAt)}
                 </span>
               </Link>
+              <button
+                type="button"
+                aria-label="Apagar entrega"
+                className="shrink-0 p-1.5 text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteTarget(d);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
             </li>
           ))}
         </ul>
       </section>
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="Apagar entrega?"
+        description="A entrega será removida da Home, Entregas e Estatísticas."
+        confirmLabel="Apagar"
+        error={deleteError}
+        loading={deleting}
+        onCancel={() => {
+          setDeleteTarget(null);
+          setDeleteError(null);
+        }}
+        onConfirm={async () => {
+          if (!deleteTarget || deleting) return;
+          setDeleting(true);
+          setDeleteError(null);
+          const snapshot = recentDeliveryToPayload(deleteTarget);
+          const result = await deleteDelivery(deleteTarget.id, snapshot);
+          setDeleting(false);
+          if (result.ok) {
+            setDeleteTarget(null);
+          } else {
+            setDeleteError(result.error);
+          }
+        }}
+      />
     </AppPage>
   );
 }

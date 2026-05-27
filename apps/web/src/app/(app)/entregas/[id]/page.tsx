@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
+import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,12 +64,8 @@ export default function EntregaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
-  const {
-    deliveries,
-    removeDeliveryOptimistic,
-    upsertDeliveryOptimistic,
-    publishAppSync,
-  } = useAppData();
+  const { deliveries, upsertDeliveryOptimistic, publishAppSync } = useAppData();
+  const { deleteDelivery } = useDeleteDelivery();
 
   const cached = useMemo(
     () => deliveries.find((d) => d.id === id) ?? null,
@@ -198,36 +195,16 @@ export default function EntregaDetailPage() {
     setDeleteError(null);
 
     const snapshot = toPayload(delivery);
-
-    removeDeliveryOptimistic(id, snapshot);
-    publishAppSync(["deliveries", "today", "stats"], {
-      removedDeliveryId: id,
-      skipReconcile: true,
-    });
-
     setShowDeleteConfirm(false);
     router.replace("/entregas");
+
+    const result = await deleteDelivery(id, snapshot);
     setDeleting(false);
 
-    if (id.startsWith("local-")) return;
-
-    try {
-      await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
-      publishAppSync(["deliveries", "today", "stats"], {
-        removedDeliveryId: id,
-      });
-    } catch (err) {
-      upsertDeliveryOptimistic(snapshot);
-      publishAppSync(["deliveries", "today", "stats"], {
-        delivery: snapshot,
-        skipReconcile: true,
-      });
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Não foi possível apagar no servidor.";
+    if (!result.ok) {
+      setDeleteError(result.error);
       if (typeof window !== "undefined") {
-        window.alert(`${message}\n\nA entrega foi recolocada na lista.`);
+        window.alert(`${result.error}\n\nA entrega foi recolocada na lista.`);
       }
     }
   }
