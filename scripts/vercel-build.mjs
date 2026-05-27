@@ -83,17 +83,20 @@ function runDbDeployWithRecovery() {
   const deployCmd = "pnpm db:deploy";
   console.log(`\n> ${deployCmd}`);
   try {
-    execSync(deployCmd, {
-      stdio: "inherit",
+    const output = execSync(deployCmd, {
+      encoding: "utf8",
+      stdio: "pipe",
       cwd: root,
       env: {
         ...process.env,
         NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=6144",
       },
     });
+    if (output?.trim()) process.stdout.write(output);
     return;
   } catch (error) {
     const output = extractCommandErrorOutput(error);
+    if (output.trim()) process.stderr.write(output);
     const failedMigration = "20260527190000_costs_configured_at";
     const shouldRecover =
       output.includes("Error: P3009") && output.includes(failedMigration);
