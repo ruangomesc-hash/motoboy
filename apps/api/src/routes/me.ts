@@ -59,9 +59,20 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         ? buildGoalsPlan(monthlyTarget, wd)
         : null;
     return {
-      ...rest,
       profile,
       goalsPlan,
+      costs: user.costs
+        ? {
+            fuelPricePerLiter: Number(user.costs.fuelPricePerLiter),
+            kmPerLiter: Number(user.costs.kmPerLiter),
+            maintenancePerKm: Number(user.costs.maintenancePerKm),
+            dailyFoodCost: Number(user.costs.dailyFoodCost),
+            otherDailyCost: Number(user.costs.otherDailyCost),
+          }
+        : null,
+      status: user.status,
+      trialEndsAt: user.trialEndsAt,
+      subscribedAt: user.subscribedAt,
     };
   });
 

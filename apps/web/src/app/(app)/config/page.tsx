@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
+import { isAppTourDone, markConfigOnboardingDone } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
@@ -38,8 +40,11 @@ const emptyProfile: ProfileFormState = {
   workDays: [...DEFAULT_WORK_DAYS],
 };
 
-export default function ConfigPage() {
+function ConfigPageInner() {
   const api = useApi();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isSetup = searchParams.get("setup") === "1";
   const [profile, setProfile] = useState<ProfileFormState>(emptyProfile);
   const [monthlyGoal, setMonthlyGoal] = useState("5000");
   const [costs, setCosts] = useState({
@@ -158,7 +163,13 @@ export default function ConfigPage() {
       }),
     });
     setSaved(true);
+    markConfigOnboardingDone();
     setTimeout(() => setSaved(false), 2000);
+    if (!isAppTourDone()) {
+      router.push("/?tour=1");
+    } else {
+      router.push("/");
+    }
   }
 
   return (
@@ -180,9 +191,25 @@ export default function ConfigPage() {
         </p>
       )}
 
-      <ProfileForm value={profile} onChange={setProfile} />
+      {isSetup && (
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm space-y-1">
+          <p className="font-medium text-emerald-300">Configure antes de usar o app</p>
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            Siga os passos explicativos abaixo e toque em{" "}
+            <strong className="text-foreground">Salvar configurações</strong> no final.
+            Depois mostramos como funciona cada aba.
+          </p>
+        </div>
+      )}
 
-      <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+      <div id="onboarding-profile" className="scroll-mt-4 rounded-xl transition-shadow">
+        <ProfileForm value={profile} onChange={setProfile} />
+      </div>
+
+      <section
+        id="onboarding-goals"
+        className="scroll-mt-4 space-y-3 rounded-xl border border-border bg-card p-4 transition-shadow"
+      >
         <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
           <Target className="h-4 w-4" strokeWidth={1.75} />
           Metas (calendário real)
@@ -251,7 +278,10 @@ export default function ConfigPage() {
         )}
       </section>
 
-      <section className="space-y-3">
+      <section
+        id="onboarding-costs"
+        className="scroll-mt-4 space-y-3 rounded-xl transition-shadow"
+      >
         <h2 className="text-sm font-medium text-muted-foreground">
           Custos (fallback se não abastecer no Zap)
         </h2>
@@ -280,16 +310,24 @@ export default function ConfigPage() {
         </p>
       </section>
 
-      <Button onClick={save} className="w-full" size="lg">
+      <Button id="onboarding-save" onClick={save} className="w-full scroll-mt-4" size="lg">
         {saved ? (
           <span className="inline-flex items-center gap-2">
             <Check className="h-4 w-4" strokeWidth={2} />
             Salvo
           </span>
         ) : (
-          "Salvar"
+          "Salvar configurações"
         )}
       </Button>
+
+      <button
+        type="button"
+        className="w-full text-center text-xs text-muted-foreground hover:text-primary"
+        onClick={() => router.push("/config?guide=1")}
+      >
+        Ver explicação das configurações novamente
+      </button>
     </AppPage>
   );
 }
@@ -313,5 +351,19 @@ function Field({
         className="mt-1"
       />
     </div>
+  );
+}
+
+export default function ConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppPage className="p-4 text-sm text-muted-foreground animate-pulse">
+          Carregando configurações...
+        </AppPage>
+      }
+    >
+      <ConfigPageInner />
+    </Suspense>
   );
 }
