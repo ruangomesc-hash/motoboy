@@ -49,11 +49,14 @@ export const authOptions: NextAuthOptions = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!verify.ok) return null;
-        const data = (await verify.json()) as {
+        const data = (await verify.json().catch(() => ({}))) as {
+          error?: string;
           token: string;
           userId: string;
         };
+        if (!verify.ok) {
+          throw new Error(data.error ?? "Falha ao validar WhatsApp");
+        }
         if (!data.userId || !data.token) return null;
         return {
           id: data.userId,

@@ -108,9 +108,7 @@ function CadastroForm() {
         redirect: false,
       });
       if (result?.error) {
-        setError(
-          "Não foi possível criar a conta. Verifique WhatsApp ou e-mail já em uso.",
-        );
+        setError(result.error);
         return;
       }
       clearPersistedAffiliateCode();
