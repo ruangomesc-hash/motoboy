@@ -58,6 +58,7 @@ import {
   isInStatsPeriod,
   patchPeriodStatsDelivery,
 } from "@/lib/stats-preview";
+import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
 
 export type { DeliveryListItem };
 
@@ -132,6 +133,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const meLoadSeq = useRef(0);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
 
   const stateRef = useRef({
     today,
@@ -183,7 +185,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const applyCacheSnapshot = useCallback((cached: PersistedAppCache) => {
-    if (cached.today) setToday(cached.today);
+    if (cached.today) {
+      setToday(deletedDeliveries.current.applyToTodaySummary(cached.today));
+    }
     if (cached.meSettings) {
       setMeSettings(cached.meSettings);
       meSettingsRef.current = cached.meSettings;
@@ -191,7 +195,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         cached.configComplete ?? isServerConfigComplete(cached.meSettings),
       );
     }
-    if (cached.deliveries.length > 0) setDeliveries(cached.deliveries);
+    if (cached.deliveries.length > 0) {
+      setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
+    }
     setDeliveriesDate(cached.deliveriesDate || todayDateInputValue());
     if (cached.statsWeek) setStatsWeek(cached.statsWeek);
     if (cached.statsMonth) setStatsMonth(cached.statsMonth);
@@ -211,7 +217,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const refreshToday = useCallback(async () => {
     try {
       const data = await api<TodaySummary>("/me/today");
-      setToday(data);
+      const tomb = deletedDeliveries.current;
+      const merged = tomb.applyToTodaySummary(data);
+      setToday(merged);
+      tomb.pruneConfirmedAbsent(merged.recentDeliveries.map((d) => d.id));
       if (userId) schedulePersist(userId);
     } catch {
       /* mantém cache */
@@ -252,6 +261,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const upsertDeliveryOptimistic = useCallback(
     (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
+      deletedDeliveries.current.unmark(delivery.id);
       const occurredAt = delivery.occurredAt ?? new Date().toISOString();
       const todayKey = todayDateInputValue();
       const item: DeliveryListItem = {
@@ -356,6 +366,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const removeDeliveryOptimistic = useCallback(
     (deliveryId: string, fallback?: CreatedDelivery) => {
+      deletedDeliveries.current.mark(deliveryId);
       let removed: DeliveryListItem | undefined;
       setDeliveries((prev) => {
         removed = prev.find((d) => d.id === deliveryId);
@@ -418,7 +429,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const q = `?date=${date}`;
     try {
       const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
-      setDeliveries(r.items);
+      const tomb = deletedDeliveries.current;
+      const items = tomb.filter(r.items);
+      setDeliveries(items);
+      tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
       if (userId) schedulePersist(userId);
     } catch {
       /* mantém cache */
@@ -537,7 +551,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (detail.skipReconcile) {
-        scheduleBackgroundReconcile();
+        if (!detail.removedDeliveryId) {
+          scheduleBackgroundReconcile();
+        }
         return;
       }
 
@@ -668,6 +684,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       wasAuthenticated.current = false;
       bootstrapStarted.current = false;
       hydratedUser.current = null;
+      deletedDeliveries.current.clear();
       setIsBootstrapped(false);
       setConfigComplete(null);
       setMeSettings(null);

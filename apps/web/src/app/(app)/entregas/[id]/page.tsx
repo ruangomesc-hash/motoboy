@@ -198,15 +198,13 @@ export default function EntregaDetailPage() {
     setDeleteError(null);
 
     const snapshot = toPayload(delivery);
-    const syncRemoval = () => {
-      removeDeliveryOptimistic(id, snapshot);
-      notifyAppSync(["deliveries", "today", "stats"], {
-        removedDeliveryId: id,
-        skipReconcile: true,
-      });
-    };
 
-    syncRemoval();
+    removeDeliveryOptimistic(id, snapshot);
+    notifyAppSync(["deliveries", "today", "stats"], {
+      removedDeliveryId: id,
+      skipReconcile: true,
+    });
+
     setShowDeleteConfirm(false);
     router.replace("/entregas");
     setDeleting(false);
