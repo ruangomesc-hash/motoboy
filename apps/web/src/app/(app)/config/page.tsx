@@ -107,7 +107,7 @@ function ConfigPageInner() {
     if (sessionStatus !== "authenticated") return;
     if (!pathname.startsWith("/config")) return;
     setLoadError(null);
-    void loadMeSettings({ force: true }).catch((e: Error) => {
+    void loadMeSettings({ silent: true }).catch((e: Error) => {
       setLoadError(e.message);
     });
   }, [pathname, sessionStatus, loadMeSettings]);

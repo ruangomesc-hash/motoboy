@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,8 +14,8 @@ import { useSession } from "next-auth/react";
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
-  APP_SYNC_EVENT,
   APP_SYNC_BRIDGE_KEY,
+  APP_SYNC_EVENT,
   type AppSyncDetail,
   type AppSyncTopic,
   shouldHandleSync,
@@ -31,15 +32,18 @@ import {
   toProfilePutBody,
 } from "@/lib/me-settings";
 import { notifyAppSync } from "@/lib/app-sync";
+import {
+  appCacheStorageKey,
+  clearAppCache,
+  isCacheStale,
+  readAppCache,
+  writeAppCache,
+  type DeliveryListItem,
+  type PersistedAppCache,
+} from "@/lib/app-persist-cache";
+import { DEMO_USER_ID } from "@/lib/demo-data";
 
-export type DeliveryListItem = {
-  id: string;
-  grossValue: string | number;
-  originName: string | null;
-  source: string;
-  occurredAt: string;
-  distanceKm?: string | number | null;
-};
+export type { DeliveryListItem };
 
 type AppDataContextValue = {
   today: TodaySummary | null;
@@ -53,7 +57,10 @@ type AppDataContextValue = {
   configComplete: boolean | null;
   meSettings: MeSettingsSnapshot | null;
   meSettingsLoading: boolean;
-  loadMeSettings: (opts?: { force?: boolean }) => Promise<MeSettingsSnapshot | null>;
+  loadMeSettings: (opts?: {
+    force?: boolean;
+    silent?: boolean;
+  }) => Promise<MeSettingsSnapshot | null>;
   saveMeSettings: (
     payload: ConfigSavePayload,
   ) => Promise<{ complete: boolean; me: MeSettingsSnapshot | null }>;
@@ -66,7 +73,8 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 20_000;
+const POLL_MS = 60_000;
+const RECONCILE_MS = 800;
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
   return shouldHandleSync(subscribed, incoming);
@@ -76,6 +84,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
   const { status, data: session } = useSession();
   const token = session?.accessToken;
+  const userId =
+    session?.userId ?? (session?.demo ? DEMO_USER_ID : undefined);
+
   const [today, setToday] = useState<TodaySummary | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryListItem[]>([]);
@@ -86,43 +97,76 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [configComplete, setConfigComplete] = useState<boolean | null>(null);
   const [meSettings, setMeSettings] = useState<MeSettingsSnapshot | null>(null);
   const [meSettingsLoading, setMeSettingsLoading] = useState(false);
+
   const meSettingsRef = useRef<MeSettingsSnapshot | null>(null);
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meLoadSeq = useRef(0);
+  const hydratedUser = useRef<string | null>(null);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const refreshToday = useCallback(async () => {
-    try {
-      const data = await api<TodaySummary>("/me/today");
-      setToday(data);
-    } catch {
-      /* mantém cache anterior */
-    }
-  }, [api]);
+  const stateRef = useRef({
+    today,
+    profileName,
+    deliveries,
+    deliveriesDate,
+    statsWeek,
+    configComplete,
+    meSettings,
+  });
+  stateRef.current = {
+    today,
+    profileName,
+    deliveries,
+    deliveriesDate,
+    statsWeek,
+    configComplete,
+    meSettings,
+  };
 
-  const refreshDeliveries = useCallback(async () => {
-    const q = deliveriesDate ? `?date=${deliveriesDate}` : "";
-    try {
-      const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
-      setDeliveries(r.items);
-    } catch {
-      setDeliveries([]);
-    }
-  }, [api, deliveriesDate]);
-
-  const refreshStats = useCallback(
-    async (period: "week" | "month") => {
-      try {
-        const data = await api<PeriodStats>(`/me/stats?period=${period}`);
-        if (period === "week") setStatsWeek(data);
-        else setStatsMonth(data);
-      } catch {
-        if (period === "week") setStatsWeek(null);
-        else setStatsMonth(null);
-      }
+  const persistNow = useCallback(
+    (uid: string) => {
+      const s = stateRef.current;
+      writeAppCache(uid, {
+        today: s.today,
+        meSettings: s.meSettings,
+        deliveries: s.deliveries,
+        deliveriesDate: s.deliveriesDate,
+        statsWeek: s.statsWeek,
+        profileName: s.profileName,
+        configComplete: s.configComplete,
+      });
     },
-    [api],
+    [],
   );
+
+  const schedulePersist = useCallback(
+    (uid: string) => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        persistTimer.current = null;
+        persistNow(uid);
+      }, 120);
+    },
+    [persistNow],
+  );
+
+  const applyCacheSnapshot = useCallback((cached: PersistedAppCache) => {
+    if (cached.today) setToday(cached.today);
+    if (cached.meSettings) {
+      setMeSettings(cached.meSettings);
+      meSettingsRef.current = cached.meSettings;
+      setConfigComplete(
+        cached.configComplete ?? isServerConfigComplete(cached.meSettings),
+      );
+    }
+    if (cached.deliveries.length > 0) setDeliveries(cached.deliveries);
+    if (cached.deliveriesDate) setDeliveriesDate(cached.deliveriesDate);
+    if (cached.statsWeek) setStatsWeek(cached.statsWeek);
+    if (cached.profileName) setProfileName(cached.profileName);
+    setIsBootstrapped(true);
+  }, []);
 
   const applyMeSnapshot = useCallback((snap: MeSettingsSnapshot) => {
     setMeSettings(snap);
@@ -133,29 +177,90 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return complete;
   }, []);
 
+  const refreshToday = useCallback(async () => {
+    try {
+      const data = await api<TodaySummary>("/me/today");
+      setToday(data);
+      if (userId) schedulePersist(userId);
+    } catch {
+      /* mantém cache */
+    }
+  }, [api, schedulePersist, userId]);
+
+  const refreshDeliveries = useCallback(async () => {
+    const q = deliveriesDate ? `?date=${deliveriesDate}` : "";
+    try {
+      const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
+      setDeliveries(r.items);
+      if (userId) schedulePersist(userId);
+    } catch {
+      /* mantém cache */
+    }
+  }, [api, deliveriesDate, schedulePersist, userId]);
+
+  const refreshStats = useCallback(
+    async (period: "week" | "month") => {
+      try {
+        const data = await api<PeriodStats>(`/me/stats?period=${period}`);
+        if (period === "week") {
+          setStatsWeek(data);
+          if (userId) schedulePersist(userId);
+        } else {
+          setStatsMonth(data);
+        }
+      } catch {
+        if (period === "week") setStatsWeek(null);
+        else setStatsMonth(null);
+      }
+    },
+    [api, schedulePersist, userId],
+  );
+
   const loadMeSettings = useCallback(
-    async (opts?: { force?: boolean }) => {
+    async (opts?: { force?: boolean; silent?: boolean }) => {
       if (status !== "authenticated") return null;
       if (!token && !session?.demo) return meSettingsRef.current;
 
-      if (!opts?.force && meSettingsRef.current) return meSettingsRef.current;
+      const cached = meSettingsRef.current;
+      if (!opts?.force && cached) {
+        if (!opts?.silent) {
+          const seq = ++meLoadSeq.current;
+          void api<MeApiResponse>("/me")
+            .then((data) => {
+              if (seq !== meLoadSeq.current) return;
+              applyMeSnapshot(parseMeSettings(data));
+              if (userId) schedulePersist(userId);
+            })
+            .catch(() => {});
+        }
+        return cached;
+      }
 
       const seq = ++meLoadSeq.current;
-      setMeSettingsLoading(true);
+      if (!opts?.silent && !cached) setMeSettingsLoading(true);
       try {
         const data = await api<MeApiResponse>("/me");
         if (seq !== meLoadSeq.current) return null;
         const snap = parseMeSettings(data);
         applyMeSnapshot(snap);
+        if (userId) schedulePersist(userId);
         return snap;
       } catch {
-        if (seq === meLoadSeq.current) setConfigComplete(false);
-        return null;
+        if (seq === meLoadSeq.current && !cached) setConfigComplete(false);
+        return cached;
       } finally {
         if (seq === meLoadSeq.current) setMeSettingsLoading(false);
       }
     },
-    [api, applyMeSnapshot, session?.demo, status, token],
+    [
+      api,
+      applyMeSnapshot,
+      schedulePersist,
+      session?.demo,
+      status,
+      token,
+      userId,
+    ],
   );
 
   const refreshConfigStatus = useCallback(async () => {
@@ -166,21 +271,33 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const saveMeSettings = useCallback(
     async (payload: ConfigSavePayload) => {
       await Promise.all([
-        api("/me/profile", {
-          method: "PUT",
-          body: JSON.stringify(toProfilePutBody(payload.profile)),
-        }, { skipSync: true }),
-        api("/me/goals/plan", {
-          method: "PUT",
-          body: JSON.stringify(toGoalsPutBody(payload)),
-        }, { skipSync: true }),
-        api("/me/costs", {
-          method: "PUT",
-          body: JSON.stringify(toCostsPutBody(payload)),
-        }, { skipSync: true }),
+        api(
+          "/me/profile",
+          {
+            method: "PUT",
+            body: JSON.stringify(toProfilePutBody(payload.profile)),
+          },
+          { skipSync: true },
+        ),
+        api(
+          "/me/goals/plan",
+          {
+            method: "PUT",
+            body: JSON.stringify(toGoalsPutBody(payload)),
+          },
+          { skipSync: true },
+        ),
+        api(
+          "/me/costs",
+          {
+            method: "PUT",
+            body: JSON.stringify(toCostsPutBody(payload)),
+          },
+          { skipSync: true },
+        ),
       ]);
 
-      const snap = await loadMeSettings({ force: true });
+      const snap = await loadMeSettings({ force: true, silent: true });
       notifyAppSync(["profile"]);
       void refreshToday();
 
@@ -196,23 +313,56 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
     configRefreshTimer.current = setTimeout(() => {
       configRefreshTimer.current = null;
-      void loadMeSettings({ force: true });
+      void loadMeSettings({ force: true, silent: true });
     }, 400);
   }, [loadMeSettings]);
 
+  const queueReconcile = useCallback(() => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => {
+      reconcileTimer.current = null;
+      void Promise.all([
+        refreshToday(),
+        refreshDeliveries(),
+        refreshStats("week"),
+      ]);
+    }, RECONCILE_MS);
+  }, [refreshToday, refreshDeliveries, refreshStats]);
+
   const bootstrap = useCallback(async () => {
-    await refreshToday();
     setIsBootstrapped(true);
-    void Promise.all([
-      loadMeSettings({ force: true }),
+    const cached = userId ? readAppCache(userId) : null;
+    const stale = !cached || isCacheStale(cached.savedAt, 45_000);
+
+    await Promise.all([
+      refreshToday(),
+      loadMeSettings({ force: stale, silent: Boolean(cached) }),
       refreshDeliveries(),
       refreshStats("week"),
     ]);
-  }, [refreshToday, loadMeSettings, refreshDeliveries, refreshStats]);
+  }, [loadMeSettings, refreshDeliveries, refreshStats, refreshToday, userId]);
+
+  useLayoutEffect(() => {
+    if (!userId) return;
+    if (hydratedUser.current === userId) return;
+    hydratedUser.current = userId;
+    const cached = readAppCache(userId);
+    if (cached) applyCacheSnapshot(cached);
+    else setIsBootstrapped(true);
+  }, [userId, applyCacheSnapshot]);
+
+  const wasAuthenticated = useRef(false);
 
   useEffect(() => {
+    if (status === "loading") return;
+
     if (status !== "authenticated") {
+      if (wasAuthenticated.current && userId) {
+        clearAppCache(userId);
+      }
+      wasAuthenticated.current = false;
       bootstrapStarted.current = false;
+      hydratedUser.current = null;
       setIsBootstrapped(false);
       setConfigComplete(null);
       setMeSettings(null);
@@ -220,11 +370,29 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       meLoadSeq.current += 1;
       return;
     }
+
+    wasAuthenticated.current = true;
     if (!token && !session?.demo) return;
     if (bootstrapStarted.current) return;
     bootstrapStarted.current = true;
     void bootstrap();
-  }, [status, token, session?.demo, bootstrap]);
+  }, [status, token, session?.demo, bootstrap, userId]);
+
+  useEffect(() => {
+    if (!isBootstrapped || !userId) return;
+    schedulePersist(userId);
+  }, [
+    today,
+    meSettings,
+    deliveries,
+    deliveriesDate,
+    statsWeek,
+    profileName,
+    configComplete,
+    isBootstrapped,
+    userId,
+    schedulePersist,
+  ]);
 
   useEffect(() => {
     if (!isBootstrapped) return;
@@ -232,7 +400,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [deliveriesDate, isBootstrapped, refreshDeliveries]);
 
   useEffect(() => {
-    if (!isBootstrapped) return;
+    if (!isBootstrapped || !userId) return;
 
     const handleSyncDetail = (detail: AppSyncDetail | undefined) => {
       const incoming = detail?.topics ?? ["all"];
@@ -254,40 +422,53 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           if (prev.some((x) => x.id === item.id)) return prev;
           return [item, ...prev];
         });
+        persistNow(userId);
+        queueReconcile();
+        return;
       }
 
       if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        void refreshToday();
-      }
-      if (topicsMatch(["deliveries", "today", "all"], incoming)) {
-        void refreshDeliveries();
-      }
-      if (topicsMatch(["stats", "today", "all"], incoming)) {
-        void Promise.all([refreshStats("week"), refreshStats("month")]);
+        queueReconcile();
       }
       if (topicsMatch(["profile", "all"], incoming)) {
         queueConfigRefresh();
       }
     };
+
     const onSync = (event: Event) => {
       handleSyncDetail((event as CustomEvent<AppSyncDetail>).detail);
     };
+
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== APP_SYNC_BRIDGE_KEY || !event.newValue) return;
-      try {
-        const parsed = JSON.parse(event.newValue) as { detail?: AppSyncDetail };
-        handleSyncDetail(parsed.detail);
-      } catch {
-        /* ignore malformed payload */
+      if (!userId) return;
+      if (
+        event.key !== appCacheStorageKey(userId) &&
+        event.key !== APP_SYNC_BRIDGE_KEY
+      ) {
+        return;
+      }
+      const cached = readAppCache(userId);
+      if (cached) applyCacheSnapshot(cached);
+      if (event.key === APP_SYNC_BRIDGE_KEY && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue) as { detail?: AppSyncDetail };
+          handleSyncDetail(parsed.detail);
+        } catch {
+          /* ignore */
+        }
       }
     };
 
     window.addEventListener(APP_SYNC_EVENT, onSync);
     window.addEventListener("storage", onStorage);
+
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      void refreshToday();
-      void refreshDeliveries();
+      const cached = readAppCache(userId);
+      if (cached) applyCacheSnapshot(cached);
+      if (!cached || isCacheStale(cached.savedAt, 20_000)) {
+        queueReconcile();
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
 
@@ -295,8 +476,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!SOCKET_ENABLED) {
       poll = setInterval(() => {
         if (document.visibilityState !== "visible") return;
-        void refreshToday();
-        void refreshDeliveries();
+        queueReconcile();
       }, POLL_MS);
     }
 
@@ -307,11 +487,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (poll) clearInterval(poll);
     };
   }, [
+    applyCacheSnapshot,
     isBootstrapped,
-    refreshToday,
-    refreshDeliveries,
-    refreshStats,
+    persistNow,
     queueConfigRefresh,
+    queueReconcile,
+    userId,
   ]);
 
   const value = useMemo(
