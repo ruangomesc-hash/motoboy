@@ -40,6 +40,18 @@ export async function createApp(
           "Banco indisponível. Verifique DATABASE_URL (Supabase) e rode as migrations.",
       });
     }
+    if (
+      err.message?.includes(
+        "Prisma Client could not locate the Query Engine for runtime",
+      )
+    ) {
+      app.log.error(error);
+      return reply.status(503).send({
+        error:
+          "Falha de runtime Prisma no deploy. Rode redeploy no commit mais recente (fix de tracing) e tente novamente.",
+        code: "PRISMA_ENGINE_MISSING",
+      });
+    }
     if (err.name === "ZodError") {
       return reply.status(400).send({ error: "Dados inválidos" });
     }
