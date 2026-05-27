@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdminDemoBanner } from "@/components/admin/admin-demo-banner";
+import { AdminTrialPolicyBar } from "@/components/admin/admin-trial-policy-bar";
 
 const NAV = [
   { href: "/admin", label: "Visão geral", icon: LayoutDashboard, short: "Início" },
@@ -89,6 +90,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       </aside>
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         <AdminDemoBanner />
+        <AdminTrialPolicyBar />
         {children}
       </main>
       <nav className="md:hidden fixed bottom-0 inset-x-0 flex border-t border-white/10 bg-[#061210] safe-area-pb">

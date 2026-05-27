@@ -397,6 +397,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   return {
     generatedAt: now.toISOString(),
     subscriptionPrice: SUBSCRIPTION_PRICE,
+    trialDays: TRIAL_DAYS,
     users: {
       total,
       active,
@@ -526,6 +527,7 @@ const CLIENT_CSV_HEADERS = [
   "Cidade",
   "Status",
   "Cadastro",
+  "Trial (resumo)",
   "Trial até",
   "Assinante desde",
   "Cupom indicação",

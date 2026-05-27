@@ -3,6 +3,8 @@
 import type { AdminUserRow } from "@motoboy/types";
 import { cn } from "@/lib/utils";
 import { DELINQUENCY_LABEL, formatAppUsage } from "@/lib/admin-labels";
+import { formatAdminTrialCell } from "@/lib/admin-trial";
+import { TRIAL_DAYS } from "@motoboy/types";
 import { ClientPaymentActions } from "@/components/admin/client-payment-actions";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -18,6 +20,13 @@ const STATUS_CLASS: Record<string, string> = {
   PAUSED: "text-muted-foreground bg-white/5",
   CANCELED: "text-red-400 bg-red-500/10",
 };
+
+const TRIAL_TONE_CLASS = {
+  ok: "text-emerald-400",
+  warning: "text-amber-400",
+  expired: "text-red-400",
+  na: "text-muted-foreground",
+} as const;
 
 export function ClientsTable({
   items,
@@ -39,10 +48,11 @@ export function ClientsTable({
   }
 
   return (
-    <table className="w-full text-sm min-w-[980px]">
+    <table className="w-full text-sm min-w-[1100px]">
       <thead>
         <tr className="border-b border-white/10 text-left text-muted-foreground">
           <th className="p-3 font-medium">Cliente</th>
+          <th className="p-3 font-medium">Trial / prazo</th>
           <th className="p-3 font-medium">Tempo no app</th>
           <th className="p-3 font-medium">WhatsApp</th>
           <th className="p-3 font-medium">Cidade</th>
@@ -56,7 +66,9 @@ export function ClientsTable({
         </tr>
       </thead>
       <tbody>
-        {items.map((row) => (
+        {items.map((row) => {
+          const trial = formatAdminTrialCell(row, TRIAL_DAYS);
+          return (
           <tr
             key={row.id}
             className="border-b border-white/5 last:border-0"
@@ -70,6 +82,21 @@ export function ClientsTable({
                 <p className="text-[10px] text-muted-foreground">
                   Assinante desde{" "}
                   {new Date(row.subscribedAt).toLocaleDateString("pt-BR")}
+                </p>
+              )}
+            </td>
+            <td className="p-3 min-w-[140px]">
+              <p
+                className={cn(
+                  "text-sm font-medium",
+                  TRIAL_TONE_CLASS[trial.tone],
+                )}
+              >
+                {trial.headline}
+              </p>
+              {trial.detail && (
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                  {trial.detail}
                 </p>
               )}
             </td>
@@ -140,7 +167,8 @@ export function ClientsTable({
               </td>
             )}
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );

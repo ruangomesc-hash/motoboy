@@ -471,6 +471,8 @@ export const adminRegionRowSchema = z.object({
 export const adminOverviewSchema = z.object({
   generatedAt: z.string(),
   subscriptionPrice: z.number(),
+  /** Dias de trial concedidos em novos cadastros (configuração atual). */
+  trialDays: z.number(),
   users: z.object({
     total: z.number(),
     active: z.number(),
