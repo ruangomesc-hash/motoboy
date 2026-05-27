@@ -7,7 +7,13 @@
   "functions": {
     "src/app/api/backend/[...path]/route.ts": {
       "maxDuration": 60,
-      "memory": 1024
+      "memory": 1024,
+      "includeFiles": [
+        "../../node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client/**",
+        "../../node_modules/.pnpm/@prisma+client@*/node_modules/@prisma/client/runtime/**",
+        "../../node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/**",
+        "../../node_modules/.pnpm/prisma@*/node_modules/prisma/**"
+      ]
     },
     "src/app/api/auth/[...nextauth]/route.ts": {
       "maxDuration": 30
