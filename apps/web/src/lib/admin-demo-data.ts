@@ -353,7 +353,9 @@ export function adminDemoFetch<T>(
   }
 
   if (path === "/admin/users" && options.method === "POST") {
-    const body = JSON.parse(String(options.body ?? "{}")) as AdminCreateUserInput;
+    const body = JSON.parse(String(options.body ?? "{}")) as AdminCreateUserInput & {
+      email?: string;
+    };
     const whatsapp = normalizeDemoPhone(body.whatsappNumber);
     if (demoClients.some((c) => c.whatsappNumber === whatsapp)) {
       return Promise.reject(new Error("WhatsApp já cadastrado"));
