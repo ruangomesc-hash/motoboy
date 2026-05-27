@@ -41,7 +41,12 @@ export function extractCreatedDelivery(
       typeof row.originName === "string" || row.originName === null
         ? row.originName
         : null,
-    occurredAt: typeof row.occurredAt === "string" ? row.occurredAt : undefined,
+    occurredAt:
+      typeof row.occurredAt === "string"
+        ? row.occurredAt
+        : row.occurredAt instanceof Date
+          ? row.occurredAt.toISOString()
+          : undefined,
     distanceKm:
       typeof row.distanceKm === "number" ||
       typeof row.distanceKm === "string" ||

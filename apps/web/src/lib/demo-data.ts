@@ -304,13 +304,15 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       source: string;
       originName?: string | null;
       distanceKm?: number | null;
+      occurredAt?: string;
     };
+    const occurredAt = body.occurredAt ?? new Date().toISOString();
     const item = {
       id: `demo-${Date.now()}`,
       grossValue: body.grossValue,
       originName: body.originName ?? null,
       source: body.source,
-      occurredAt: new Date().toISOString(),
+      occurredAt,
       distanceKm: body.distanceKm ?? null,
       destinationAddr: null,
       proofPhotoUrl: null,

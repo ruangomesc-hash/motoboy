@@ -20,7 +20,15 @@ import {
   type AppSyncTopic,
   shouldHandleSync,
 } from "@/lib/app-sync";
-import { applyDeliveryToToday } from "@/lib/app-data-cache";
+import {
+  applyDeliveryToToday,
+  type CreatedDelivery,
+} from "@/lib/app-data-cache";
+import { emptyTodaySummary } from "@/lib/empty-today-summary";
+import {
+  isIsoOnDateInput,
+  todayDateInputValue,
+} from "@/lib/local-date";
 import { isServerConfigComplete } from "@/lib/onboarding";
 import {
   type ConfigSavePayload,
@@ -68,6 +76,7 @@ type AppDataContextValue = {
   refreshDeliveries: () => Promise<void>;
   refreshStats: (period: "week" | "month") => Promise<void>;
   refreshConfigStatus: () => Promise<boolean>;
+  applyDeliveryOptimistic: (delivery: CreatedDelivery) => void;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -90,7 +99,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [today, setToday] = useState<TodaySummary | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryListItem[]>([]);
-  const [deliveriesDate, setDeliveriesDate] = useState("");
+  const [deliveriesDate, setDeliveriesDate] = useState(todayDateInputValue);
   const [statsWeek, setStatsWeek] = useState<PeriodStats | null>(null);
   const [statsMonth, setStatsMonth] = useState<PeriodStats | null>(null);
   const [isBootstrapped, setIsBootstrapped] = useState(false);
@@ -162,7 +171,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       );
     }
     if (cached.deliveries.length > 0) setDeliveries(cached.deliveries);
-    if (cached.deliveriesDate) setDeliveriesDate(cached.deliveriesDate);
+    setDeliveriesDate(cached.deliveriesDate || todayDateInputValue());
     if (cached.statsWeek) setStatsWeek(cached.statsWeek);
     if (cached.profileName) setProfileName(cached.profileName);
     setIsBootstrapped(true);
@@ -187,8 +196,48 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [api, schedulePersist, userId]);
 
+  const applyDeliveryOptimistic = useCallback(
+    (delivery: CreatedDelivery) => {
+      const occurredAt = delivery.occurredAt ?? new Date().toISOString();
+      const todayKey = todayDateInputValue();
+      const item: DeliveryListItem = {
+        id: delivery.id,
+        grossValue: delivery.grossValue,
+        originName: delivery.originName ?? null,
+        source: delivery.source,
+        occurredAt,
+        distanceKm: delivery.distanceKm ?? null,
+      };
+
+      if (isIsoOnDateInput(occurredAt, todayKey)) {
+        setToday((prev) => {
+          const base = prev ?? emptyTodaySummary();
+          if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
+          return applyDeliveryToToday(base, { ...delivery, occurredAt });
+        });
+      }
+
+      setDeliveriesDate((current) => {
+        const filter = isIsoOnDateInput(occurredAt, todayKey)
+          ? todayKey
+          : current || todayKey;
+        if (isIsoOnDateInput(occurredAt, filter)) {
+          setDeliveries((prev) => {
+            if (prev.some((x) => x.id === item.id)) return prev;
+            return [item, ...prev];
+          });
+        }
+        return filter;
+      });
+
+      if (userId) persistNow(userId);
+    },
+    [userId, persistNow],
+  );
+
   const refreshDeliveries = useCallback(async () => {
-    const q = deliveriesDate ? `?date=${deliveriesDate}` : "";
+    const date = deliveriesDate || todayDateInputValue();
+    const q = `?date=${date}`;
     try {
       const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
       setDeliveries(r.items);
@@ -406,24 +455,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const incoming = detail?.topics ?? ["all"];
 
       if (detail?.delivery) {
-        setToday((prev) =>
-          prev ? applyDeliveryToToday(prev, detail.delivery!) : prev,
-        );
-        const d = detail.delivery;
-        const item: DeliveryListItem = {
-          id: d.id,
-          grossValue: d.grossValue,
-          originName: d.originName ?? null,
-          source: d.source,
-          occurredAt: d.occurredAt ?? new Date().toISOString(),
-          distanceKm: d.distanceKm ?? null,
-        };
-        setDeliveries((prev) => {
-          if (prev.some((x) => x.id === item.id)) return prev;
-          return [item, ...prev];
-        });
-        persistNow(userId);
-        queueReconcile();
+        applyDeliveryOptimistic(detail.delivery);
+        void refreshToday();
         return;
       }
 
@@ -488,10 +521,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [
     applyCacheSnapshot,
+    applyDeliveryOptimistic,
     isBootstrapped,
-    persistNow,
     queueConfigRefresh,
     queueReconcile,
+    refreshToday,
     userId,
   ]);
 
@@ -514,6 +548,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshDeliveries,
       refreshStats,
       refreshConfigStatus,
+      applyDeliveryOptimistic,
     }),
     [
       today,
@@ -532,6 +567,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       refreshDeliveries,
       refreshStats,
       refreshConfigStatus,
+      applyDeliveryOptimistic,
     ],
   );
 

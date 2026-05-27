@@ -6,6 +6,7 @@ import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
 import { AppPage } from "@/components/app-page";
+import { todayDateInputValue } from "@/lib/local-date";
 
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
@@ -23,27 +24,29 @@ export default function EntregasPage() {
     deliveries,
     deliveriesDate,
     setDeliveriesDate,
-    refreshDeliveries,
-    refreshToday,
     isBootstrapped,
   } = useAppData();
+
+  const filterDate = deliveriesDate || todayDateInputValue();
+  const isToday = filterDate === todayDateInputValue();
 
   return (
     <AppPage className="p-3 space-y-3">
       <h1 className="text-lg font-bold px-1">Entregas</h1>
 
-      <AddDeliveryForm
-        onSuccess={() => {
-          void Promise.all([refreshDeliveries(), refreshToday()]);
-        }}
-      />
+      <AddDeliveryForm />
 
-      <Input
-        type="date"
-        value={deliveriesDate}
-        onChange={(e) => setDeliveriesDate(e.target.value)}
-        className="h-10 text-sm"
-      />
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground px-1">
+          {isToday ? "Entregas de hoje" : "Entregas do dia"}
+        </label>
+        <Input
+          type="date"
+          value={filterDate}
+          onChange={(e) => setDeliveriesDate(e.target.value)}
+          className="h-10 text-sm"
+        />
+      </div>
 
       {!isBootstrapped && deliveries.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-6 animate-pulse">
@@ -74,7 +77,7 @@ export default function EntregasPage() {
           ))}
           {deliveries.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-6">
-              Nenhuma entrega. Registre acima ou pelo WhatsApp.
+              Nenhuma entrega neste dia. Registre acima ou pelo WhatsApp.
             </p>
           )}
         </ul>

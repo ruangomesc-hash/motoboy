@@ -4,6 +4,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/use-api";
+import { useAppData } from "@/components/app-data-provider";
+import { extractCreatedDelivery } from "@/lib/app-data-cache";
+import {
+  datetimeLocalFromIso,
+  formatDateTimeLabel,
+  isoFromDatetimeLocal,
+  todayDateInputValue,
+} from "@/lib/local-date";
 import { Plus, X } from "lucide-react";
 
 const SOURCES = [
@@ -14,17 +22,38 @@ const SOURCES = [
   { value: "OTHER", label: "Outro" },
 ] as const;
 
-export function AddDeliveryForm({ onSuccess }: { onSuccess: () => void }) {
+export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();
+  const { applyDeliveryOptimistic, setDeliveriesDate } = useAppData();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [editDateTime, setEditDateTime] = useState(false);
+  const [occurredAtLocal, setOccurredAtLocal] = useState(() =>
+    datetimeLocalFromIso(new Date().toISOString()),
+  );
   const [form, setForm] = useState({
     grossValue: "",
     source: "PARTICULAR",
     originName: "",
     distanceKm: "",
   });
+
+  function resetForm() {
+    setForm({
+      grossValue: "",
+      source: "PARTICULAR",
+      originName: "",
+      distanceKm: "",
+    });
+    setEditDateTime(false);
+    setOccurredAtLocal(datetimeLocalFromIso(new Date().toISOString()));
+    setError("");
+  }
+
+  const previewIso = editDateTime
+    ? isoFromDatetimeLocal(occurredAtLocal)
+    : new Date().toISOString();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,10 +62,15 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess: () => void }) {
       setError("Informe o valor da entrega");
       return;
     }
+
+    const occurredAt = editDateTime
+      ? isoFromDatetimeLocal(occurredAtLocal)
+      : new Date().toISOString();
+
     setLoading(true);
     setError("");
     try {
-      await api("/me/deliveries", {
+      const created = await api<Record<string, unknown>>("/me/deliveries", {
         method: "POST",
         body: JSON.stringify({
           grossValue: value,
@@ -45,16 +79,27 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess: () => void }) {
           distanceKm: form.distanceKm
             ? Number(form.distanceKm.replace(",", "."))
             : null,
+          occurredAt,
         }),
       });
-      setForm({
-        grossValue: "",
-        source: "PARTICULAR",
-        originName: "",
-        distanceKm: "",
-      });
+
+      const parsed =
+        extractCreatedDelivery(created, "/me/deliveries", "POST") ?? {
+          id: String(created.id ?? `local-${Date.now()}`),
+          grossValue: value,
+          source: form.source,
+          originName: form.originName.trim() || null,
+          distanceKm: form.distanceKm
+            ? Number(form.distanceKm.replace(",", "."))
+            : null,
+          occurredAt,
+        };
+
+      applyDeliveryOptimistic({ ...parsed, occurredAt });
+      setDeliveriesDate(todayDateInputValue());
+      resetForm();
       setOpen(false);
-      onSuccess();
+      onSuccess?.();
     } catch {
       setError("Não foi possível salvar. Tente de novo.");
     } finally {
@@ -84,12 +129,48 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess: () => void }) {
         <h2 className="text-sm font-semibold">Nova entrega</h2>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            setOpen(false);
+            resetForm();
+          }}
           className="text-muted-foreground p-1"
           aria-label="Fechar"
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+
+      <div className="rounded-lg bg-muted/30 p-3 space-y-2">
+        <p className="text-xs text-muted-foreground">Data e hora da entrega</p>
+        <p className="text-sm font-medium">{formatDateTimeLabel(previewIso)}</p>
+        {!editDateTime ? (
+          <button
+            type="button"
+            className="text-xs text-primary underline"
+            onClick={() => setEditDateTime(true)}
+          >
+            Alterar data
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <Input
+              type="datetime-local"
+              value={occurredAtLocal}
+              onChange={(e) => setOccurredAtLocal(e.target.value)}
+              className="h-10 text-sm"
+            />
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline"
+              onClick={() => {
+                setEditDateTime(false);
+                setOccurredAtLocal(datetimeLocalFromIso(new Date().toISOString()));
+              }}
+            >
+              Usar data e hora de agora
+            </button>
+          </div>
+        )}
       </div>
 
       <div>

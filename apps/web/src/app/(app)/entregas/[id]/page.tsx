@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatBRL, formatTime } from "@/lib/utils";
+import {
+  datetimeLocalFromIso,
+  formatDateTimeLabel,
+  isoFromDatetimeLocal,
+} from "@/lib/local-date";
 import { AppPage } from "@/components/app-page";
 
 interface DeliveryDetail {
@@ -25,10 +31,16 @@ export default function EntregaDetailPage() {
   const router = useRouter();
   const api = useApi();
   const [delivery, setDelivery] = useState<DeliveryDetail | null>(null);
+  const [editDateTime, setEditDateTime] = useState(false);
+  const [occurredAtLocal, setOccurredAtLocal] = useState("");
+  const [savingDate, setSavingDate] = useState(false);
 
   useEffect(() => {
     api<DeliveryDetail>(`/me/deliveries/${id}`)
-      .then(setDelivery)
+      .then((d) => {
+        setDelivery(d);
+        setOccurredAtLocal(datetimeLocalFromIso(d.occurredAt));
+      })
       .catch(() => setDelivery(null));
   }, [api, id]);
 
@@ -36,6 +48,22 @@ export default function EntregaDetailPage() {
     if (!confirm("Apagar esta entrega?")) return;
     await api(`/me/deliveries/${id}`, { method: "DELETE" });
     router.push("/entregas");
+  }
+
+  async function handleSaveDate() {
+    if (!delivery) return;
+    setSavingDate(true);
+    try {
+      const occurredAt = isoFromDatetimeLocal(occurredAtLocal);
+      const updated = await api<DeliveryDetail>(`/me/deliveries/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ occurredAt }),
+      });
+      setDelivery(updated);
+      setEditDateTime(false);
+    } finally {
+      setSavingDate(false);
+    }
   }
 
   if (!delivery) {
@@ -56,6 +84,54 @@ export default function EntregaDetailPage() {
       <p className="text-muted-foreground">
         {delivery.originName ?? delivery.source} · {formatTime(delivery.occurredAt)}
       </p>
+
+      <section className="rounded-xl border border-border bg-card p-4 space-y-2">
+        <p className="text-sm font-medium">Data e hora</p>
+        <p className="text-sm text-muted-foreground">
+          {formatDateTimeLabel(delivery.occurredAt)}
+        </p>
+        {!editDateTime ? (
+          <button
+            type="button"
+            className="text-xs text-primary underline"
+            onClick={() => setEditDateTime(true)}
+          >
+            Alterar data
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <Input
+              type="datetime-local"
+              value={occurredAtLocal}
+              onChange={(e) => setOccurredAtLocal(e.target.value)}
+              className="h-10 text-sm"
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1"
+                disabled={savingDate}
+                onClick={handleSaveDate}
+              >
+                {savingDate ? "Salvando..." : "Salvar data"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditDateTime(false);
+                  setOccurredAtLocal(datetimeLocalFromIso(delivery.occurredAt));
+                }}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
+
       {delivery.destinationAddr && (
         <p className="text-sm break-words">{delivery.destinationAddr}</p>
       )}

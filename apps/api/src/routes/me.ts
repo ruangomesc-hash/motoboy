@@ -247,9 +247,22 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       where: { id, userId },
     });
     if (!existing) return reply.status(404).send({ error: "Não encontrado" });
+    const data: {
+      grossValue?: number;
+      originName?: string | null;
+      distanceKm?: number | null;
+      source?: (typeof body)["source"];
+      occurredAt?: Date;
+    } = {};
+    if (body.grossValue !== undefined) data.grossValue = body.grossValue;
+    if (body.originName !== undefined) data.originName = body.originName;
+    if (body.distanceKm !== undefined) data.distanceKm = body.distanceKm;
+    if (body.source !== undefined) data.source = body.source;
+    if (body.occurredAt !== undefined) data.occurredAt = new Date(body.occurredAt);
+
     const updated = await prisma.delivery.updateMany({
       where: { id, userId },
-      data: body,
+      data,
     });
     if (updated.count === 0) {
       return reply.status(404).send({ error: "Não encontrado" });

@@ -361,6 +361,7 @@ export const deliveryPatchSchema = z.object({
   originName: z.string().nullable().optional(),
   distanceKm: z.number().nonnegative().nullable().optional(),
   source: deliverySourceSchema.optional(),
+  occurredAt: z.string().datetime().optional(),
 });
 
 export const deliveryCreateSchema = z.object({
