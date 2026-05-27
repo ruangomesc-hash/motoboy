@@ -1,26 +1,31 @@
 #!/usr/bin/env node
 /**
- * Build Vercel: Prisma generate → types → Next.js.
- * Tabelas: `bash scripts/setup-supabase.sh` no Mac após o deploy.
+ * Build Vercel: Prisma (binary + rhel) → types → Next.js.
+ * Tabelas: `bash scripts/setup-supabase.sh` no Mac após o primeiro deploy.
  */
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = resolve(root, "apps/web");
 
-console.log("\n[vercel-build] v4 — monorepo + Next (sem api tsc)\n");
+console.log("\n[vercel-build] v5 — Prisma binary + tracing Vercel\n");
 
 function ensureEnv(name, fallback) {
   if (!process.env[name]?.trim()) {
     process.env[name] = fallback;
-    console.log(`[vercel-build] ${name} → placeholder (defina na Vercel para runtime)`);
+    console.log(
+      `[vercel-build] ${name} → placeholder (defina na Vercel para runtime)`,
+    );
   }
 }
 
 const vercelHost = process.env.VERCEL_URL?.trim();
-const appOrigin = vercelHost ? `https://${vercelHost}` : "https://placeholder.vercel.app";
+const appOrigin = vercelHost
+  ? `https://${vercelHost}`
+  : "https://placeholder.vercel.app";
 
 ensureEnv(
   "DATABASE_URL",
@@ -32,6 +37,9 @@ ensureEnv("APP_URL", appOrigin);
 ensureEnv("NEXT_PUBLIC_APP_URL", appOrigin);
 ensureEnv("NEXTAUTH_SECRET", "vercel-build-nextauth-secret-32chars!!");
 ensureEnv("JWT_SECRET", "vercel-build-jwt-secret-min-16-chars!!");
+
+process.env.PRISMA_CLIENT_ENGINE_TYPE = "binary";
+process.env.PRISMA_CLI_QUERY_ENGINE_TYPE = "binary";
 
 function run(cmd, opts = {}) {
   console.log(`\n> ${cmd}`);
@@ -50,7 +58,22 @@ function run(cmd, opts = {}) {
   }
 }
 
-run("pnpm db:generate");
+run(
+  "pnpm --filter @motoboy/db exec prisma generate --schema=./prisma/schema.prisma",
+);
 run("pnpm exec next build", { cwd: webDir });
+
+const engineHints = [
+  resolve(root, "node_modules/.prisma/client"),
+  resolve(root, "node_modules/@prisma/client"),
+];
+const hasEngine = engineHints.some((p) => existsSync(p));
+if (!hasEngine) {
+  console.warn(
+    "[vercel-build] AVISO: pasta .prisma/client não encontrada na raiz — confira pnpm install",
+  );
+} else {
+  console.log("[vercel-build] Prisma client gerado OK");
+}
 
 console.log("\n[vercel-build] OK\n");

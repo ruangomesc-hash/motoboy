@@ -33,7 +33,8 @@ Após o primeiro deploy com sucesso, no Mac: `pnpm db:deploy` (com `.env` do Sup
    - `NEXTAUTH_SECRET` → terminal: `openssl rand -base64 32`
    - `JWT_SECRET` → outro valor aleatório (mín. 16 caracteres)
    - `NEXTAUTH_URL` e `APP_URL` e `NEXT_PUBLIC_APP_URL` → `https://seu-projeto.vercel.app`
-   - `ADMIN_EMAIL`, `ADMIN_PASSWORD`
+   - `ADMIN_EMAIL` (senha: defina na primeira visita em `/admin/login`, ou use `ADMIN_PASSWORD` no env)
+   - `ALLOW_SKIP_AUTH_CODE=true` e `NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE=true` (cadastro sem WhatsApp)
 
    Desligar demo:
    - `NEXT_PUBLIC_ALLOW_DEMO_LOGIN` = `false`
@@ -62,7 +63,9 @@ Detalhes: [docs/ASAAS.md](./docs/ASAAS.md)
 
 2. Cadastro: `/cadastro` → confira na Supabase → **Table Editor → User**
 
-3. Admin: `/admin/login` com `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+3. Admin: `/admin/login` → **Continuar sem senha** (primeira vez) → definir senha → painel
+
+Checklist completo: [DEPLOY-PRONTO.md](./DEPLOY-PRONTO.md)
 
 ## 4. Domínio próprio (opcional)
 
@@ -76,6 +79,7 @@ Atualize `NEXTAUTH_URL`, `APP_URL` e `NEXT_PUBLIC_APP_URL` para o domínio novo 
 | Build falha “DATABASE_URL” | Cadastre a variável e marque **Build** |
 | Health 503 | `DIRECT_URL` correta; veja logs do deploy (migrate) |
 | Login admin não funciona | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `JWT_SECRET` |
-| Código WhatsApp não chega | Configure `EVOLUTION_*` ou veja logs (modo mock sem Evolution) |
+| Código WhatsApp não chega | Com `ALLOW_SKIP_AUTH_CODE=true`, use cadastro direto; Evolution só quando ativar |
+| Erro Prisma no cadastro | Redeploy **sem cache**; ver [DEPLOY-PRONTO.md](./DEPLOY-PRONTO.md) |
 
 Guia técnico completo: [DEPLOY.md](./DEPLOY.md)

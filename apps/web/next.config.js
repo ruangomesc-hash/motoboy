@@ -8,6 +8,21 @@ const withPWA = require("next-pwa")({
     process.env.NODE_ENV === "development" || process.env.VERCEL === "1",
 });
 
+let PrismaPlugin;
+try {
+  PrismaPlugin =
+    require("@prisma/nextjs-monorepo-workaround-plugin").PrismaPlugin;
+} catch {
+  PrismaPlugin = null;
+}
+
+const tracingRoot = path.join(__dirname, "../..");
+const prismaTraceGlobs = [
+  "node_modules/.pnpm/**/node_modules/.prisma/**",
+  "node_modules/.pnpm/**/node_modules/@prisma/client/**",
+  "node_modules/.pnpm/**/node_modules/@prisma/engines/**",
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
@@ -25,25 +40,19 @@ const nextConfig = {
     "@motoboy/ai",
   ],
   experimental: {
-    // Monorepo: inclui arquivos fora de apps/web no tracing do bundle serverless.
-    outputFileTracingRoot: path.join(__dirname, "../.."),
+    outputFileTracingRoot: tracingRoot,
     outputFileTracingIncludes: {
-      // Garante o Prisma engine no bundle da rota backend (Vercel serverless).
-      "/api/backend/[...path]": [
-        "../../node_modules/.pnpm/@prisma+client@*/node_modules/@prisma/client/runtime/**/*",
-        "../../node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/**/*",
-        "../../node_modules/.pnpm/prisma@*/node_modules/prisma/**/*",
-      ],
+      "/api/backend/[...path]": prismaTraceGlobs,
+      "/api/auth/[...nextauth]": prismaTraceGlobs,
     },
-    serverComponentsExternalPackages: [
-      "@prisma/client",
-      "bullmq",
-      "ioredis",
-    ],
+    // @prisma/client NÃO pode ser external — quebra o query engine no Vercel.
+    serverComponentsExternalPackages: ["bullmq", "ioredis"],
   },
   webpack: (config, { isServer }) => {
-    // API usa imports ESM com sufixo .js (NodeNext); o Next resolve para .ts no bundle.
     if (isServer) {
+      if (PrismaPlugin) {
+        config.plugins = [...(config.plugins || []), new PrismaPlugin()];
+      }
       config.resolve.extensionAlias = {
         ".js": [".ts", ".tsx", ".js"],
       };
@@ -51,7 +60,6 @@ const nextConfig = {
     return config;
   },
   async rewrites() {
-    // Produção (Vercel): /api/backend/* é atendido por Route Handlers (mesmo domínio → Supabase).
     if (process.env.VERCEL === "1") {
       return [];
     }
