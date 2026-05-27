@@ -119,14 +119,14 @@ export default function AdminDashboardPage() {
               <StatCard
                 label="Em trial"
                 value={data.users.trial}
-                hint="Teste gratuito"
+                hint={`${data.trialDays} dias por cadastro`}
                 icon={Clock}
                 tone="warning"
               />
               <StatCard
                 label="Trial vencido"
                 value={data.users.overdue}
-                hint="Precisam assinar"
+                hint={`Passou dos ${data.trialDays}d`}
                 icon={AlertTriangle}
                 tone="danger"
               />

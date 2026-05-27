@@ -1,5 +1,7 @@
 import type { AdminUserRow } from "@motoboy/types";
 import { buildCsv, downloadCsvFile } from "@/lib/csv";
+import { formatAdminTrialCell } from "@/lib/admin-trial";
+import { TRIAL_DAYS } from "@motoboy/types";
 
 const STATUS_LABEL: Record<AdminUserRow["status"], string> = {
   ACTIVE: "Ativo",
@@ -35,6 +37,7 @@ export const CLIENT_CSV_HEADERS = [
   "Cidade",
   "Status",
   "Cadastro",
+  "Trial (resumo)",
   "Trial até",
   "Assinante desde",
   "Cupom indicação",
@@ -71,6 +74,7 @@ function rowToCsvCells(row: AdminUserRow): string[] {
   }
   const tempoNoApp =
     usageParts.length > 0 ? usageParts.join(" e ") : "Hoje";
+  const trial = formatAdminTrialCell(row, TRIAL_DAYS);
 
   return [
     row.id,
@@ -80,6 +84,7 @@ function rowToCsvCells(row: AdminUserRow): string[] {
     row.city ?? "",
     STATUS_LABEL[row.status],
     formatDateBr(row.createdAt),
+    `${trial.headline}${trial.detail ? ` — ${trial.detail}` : ""}`,
     formatDateBr(row.trialEndsAt),
     formatDateBr(row.subscribedAt),
     row.affiliateCode ?? "",

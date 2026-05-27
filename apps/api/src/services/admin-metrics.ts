@@ -476,6 +476,33 @@ function formatIsoDateBr(iso: string | null): string {
   return d.toLocaleDateString("pt-BR");
 }
 
+function trialSummaryForCsv(row: AdminUserRow): string {
+  if (row.status !== "TRIAL" || !row.trialEndsAt) {
+    if (row.status === "ACTIVE") return "Assinante";
+    return "";
+  }
+  const start = new Date(row.createdAt);
+  const end = new Date(row.trialEndsAt);
+  const now = new Date();
+  const msDay = 86_400_000;
+  const totalDays = Math.max(
+    1,
+    Math.ceil((end.getTime() - start.getTime()) / msDay),
+  );
+  const usedDays = Math.min(
+    totalDays,
+    Math.max(
+      0,
+      Math.ceil((Math.min(now.getTime(), end.getTime()) - start.getTime()) / msDay),
+    ),
+  );
+  const remaining = Math.ceil((end.getTime() - now.getTime()) / msDay);
+  if (remaining <= 0) {
+    return `Vencido há ${Math.abs(remaining)}d · ${usedDays}/${totalDays}d usados`;
+  }
+  return `Faltam ${remaining}d · ${usedDays}/${totalDays}d usados`;
+}
+
 function adminUserRowToCsvCells(row: AdminUserRow): string[] {
   const usageParts: string[] = [];
   if (row.usageMonths > 0) {
@@ -501,6 +528,7 @@ function adminUserRowToCsvCells(row: AdminUserRow): string[] {
     row.city ?? "",
     STATUS_EXPORT_LABEL[row.status],
     formatIsoDateBr(row.createdAt),
+    trialSummaryForCsv(row),
     formatIsoDateBr(row.trialEndsAt),
     formatIsoDateBr(row.subscribedAt),
     row.affiliateCode ?? "",

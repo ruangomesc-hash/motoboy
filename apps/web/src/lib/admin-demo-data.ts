@@ -31,6 +31,7 @@ function last7DaysSignups(): { date: string; count: number }[] {
 export const demoAdminOverview: AdminOverview = {
   generatedAt: new Date().toISOString(),
   subscriptionPrice: 14.9,
+  trialDays: 4,
   users: {
     total: 48,
     active: 22,
