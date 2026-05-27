@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
 import { extractDeliveryMutation } from "@/lib/app-data-cache";
-import { notifyAppSync } from "@/lib/app-sync";
 import {
   datetimeLocalFromIso,
   formatDateTimeLabel,
@@ -26,8 +25,12 @@ const SOURCES = [
 
 export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
   const api = useApi();
-  const { applyDeliveryOptimistic, removeDeliveryOptimistic, setDeliveriesDate } =
-    useAppData();
+  const {
+    applyDeliveryOptimistic,
+    removeDeliveryOptimistic,
+    setDeliveriesDate,
+    publishAppSync,
+  } = useAppData();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -123,7 +126,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
         };
       removeDeliveryOptimistic(tempId);
       applyDeliveryOptimistic({ ...parsed, occurredAt });
-      notifyAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(["deliveries", "today", "stats"], {
         delivery: { ...parsed, occurredAt },
         skipReconcile: true,
       });

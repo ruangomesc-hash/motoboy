@@ -21,6 +21,12 @@ export function createDeletedDeliveryRegistry() {
     clear() {
       ids.clear();
     },
+    toArray(): string[] {
+      return [...ids];
+    },
+    hydrate(remoteIds: string[]) {
+      for (const id of remoteIds) ids.add(id);
+    },
     filter<T extends { id: string }>(items: T[]): T[] {
       if (ids.size === 0) return items;
       return items.filter((d) => !ids.has(d.id));

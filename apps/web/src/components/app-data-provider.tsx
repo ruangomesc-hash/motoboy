@@ -12,6 +12,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import { flushSync } from "react-dom";
 import { useSession } from "next-auth/react";
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
@@ -19,6 +20,7 @@ import {
   type AppSyncDetail,
   type AppSyncTopic,
   notifyAppSync,
+  registerAppSyncPersist,
   shouldHandleSync,
   subscribeAppSync,
 } from "@/lib/app-sync";
@@ -92,6 +94,11 @@ type AppDataContextValue = {
   ) => void;
   removeDeliveryOptimistic: (id: string, fallback?: CreatedDelivery) => void;
   patchDeliveryInList: (item: DeliveryListItem) => void;
+  /** Persiste cache + notifica outras abas na hora */
+  publishAppSync: (
+    topics: AppSyncTopic | AppSyncTopic[],
+    extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
+  ) => void;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -156,22 +163,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     meSettings,
   };
 
-  const persistNow = useCallback(
-    (uid: string) => {
-      const s = stateRef.current;
-      writeAppCache(uid, {
-        today: s.today,
-        meSettings: s.meSettings,
-        deliveries: s.deliveries,
-        deliveriesDate: s.deliveriesDate,
-        statsWeek: s.statsWeek,
-        statsMonth: s.statsMonth,
-        profileName: s.profileName,
-        configComplete: s.configComplete,
-      });
-    },
-    [],
-  );
+  const persistCacheNow = useCallback((uid: string) => {
+    const s = stateRef.current;
+    writeAppCache(uid, {
+      today: s.today,
+      meSettings: s.meSettings,
+      deliveries: s.deliveries,
+      deliveriesDate: s.deliveriesDate,
+      statsWeek: s.statsWeek,
+      statsMonth: s.statsMonth,
+      profileName: s.profileName,
+      configComplete: s.configComplete,
+      deletedDeliveryIds: deletedDeliveries.current.toArray(),
+    });
+  }, []);
+
+  const persistNow = persistCacheNow;
 
   const schedulePersist = useCallback(
     (uid: string) => {
@@ -185,6 +192,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const applyCacheSnapshot = useCallback((cached: PersistedAppCache) => {
+    if (cached.deletedDeliveryIds?.length) {
+      deletedDeliveries.current.hydrate(cached.deletedDeliveryIds);
+    }
     if (cached.today) {
       setToday(deletedDeliveries.current.applyToTodaySummary(cached.today));
     }
@@ -195,9 +205,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         cached.configComplete ?? isServerConfigComplete(cached.meSettings),
       );
     }
-    if (cached.deliveries.length > 0) {
-      setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
-    }
+    setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
     setDeliveriesDate(cached.deliveriesDate || todayDateInputValue());
     if (cached.statsWeek) setStatsWeek(cached.statsWeek);
     if (cached.statsMonth) setStatsMonth(cached.statsMonth);
@@ -301,43 +309,48 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           };
         })();
 
-      setDeliveries((prev) => {
-        const idx = prev.findIndex((d) => d.id === item.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = item;
-          return next;
-        }
-        return [item, ...prev];
-      });
+      flushSync(() => {
+        setDeliveries((prev) => {
+          const idx = prev.findIndex((d) => d.id === item.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = item;
+            return next;
+          }
+          return [item, ...prev];
+        });
 
-      setDeliveriesDate((current) => {
-        const filter = isIsoOnDateInput(occurredAt, todayKey)
-          ? todayKey
-          : current || todayKey;
-        return filter;
-      });
+        setDeliveriesDate((current) => {
+          const filter = isIsoOnDateInput(occurredAt, todayKey)
+            ? todayKey
+            : current || todayKey;
+          return filter;
+        });
 
-      setToday((prev) => {
-        const base = prev ?? emptyTodaySummary();
-        const nextPayload = { ...delivery, occurredAt };
-        if (prevPayload) {
-          const wasToday = isIsoOnDateInput(prevPayload.occurredAt ?? "", todayKey);
-          const isToday = isIsoOnDateInput(occurredAt, todayKey);
-          if (wasToday && isToday) {
-            return replaceDeliveryInToday(base, prevPayload, nextPayload);
+        setToday((prev) => {
+          const base = prev ?? emptyTodaySummary();
+          const nextPayload = { ...delivery, occurredAt };
+          if (prevPayload) {
+            const wasToday = isIsoOnDateInput(
+              prevPayload.occurredAt ?? "",
+              todayKey,
+            );
+            const isToday = isIsoOnDateInput(occurredAt, todayKey);
+            if (wasToday && isToday) {
+              return replaceDeliveryInToday(base, prevPayload, nextPayload);
+            }
+            if (wasToday && !isToday) {
+              return removeDeliveryFromToday(base, prevPayload);
+            }
+            if (!wasToday && isToday) {
+              return applyDeliveryToToday(base, nextPayload);
+            }
+            return base;
           }
-          if (wasToday && !isToday) {
-            return removeDeliveryFromToday(base, prevPayload);
-          }
-          if (!wasToday && isToday) {
-            return applyDeliveryToToday(base, nextPayload);
-          }
-          return base;
-        }
-        if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
-        if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
-        return applyDeliveryToToday(base, nextPayload);
+          if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
+          if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
+          return applyDeliveryToToday(base, nextPayload);
+        });
       });
 
       const newGross = Number(delivery.grossValue);
@@ -352,9 +365,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         count: prevPayload ? 0 : 1,
       });
 
-      if (userId) persistNow(userId);
+      if (userId) persistCacheNow(userId);
     },
-    [userId, persistNow, applyStatsDelta],
+    [userId, persistCacheNow, applyStatsDelta],
   );
 
   const applyDeliveryOptimistic = useCallback(
@@ -367,11 +380,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const removeDeliveryOptimistic = useCallback(
     (deliveryId: string, fallback?: CreatedDelivery) => {
       deletedDeliveries.current.mark(deliveryId);
-      let removed: DeliveryListItem | undefined;
-      setDeliveries((prev) => {
-        removed = prev.find((d) => d.id === deliveryId);
-        return prev.filter((d) => d.id !== deliveryId);
-      });
+      const s = stateRef.current;
+      const todayKey = todayDateInputValue();
+      const removed = s.deliveries.find((d) => d.id === deliveryId);
 
       const payload: CreatedDelivery | undefined = removed
         ? {
@@ -384,15 +395,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           }
         : fallback;
 
+      const nextDeliveries = s.deliveries.filter((d) => d.id !== deliveryId);
+      let nextToday = s.today;
       if (
         payload &&
-        isIsoOnDateInput(payload.occurredAt ?? "", todayDateInputValue())
+        nextToday &&
+        isIsoOnDateInput(payload.occurredAt ?? "", todayKey)
       ) {
-        setToday((prev) => {
-          if (!prev) return prev;
-          return removeDeliveryFromToday(prev, payload);
-        });
+        nextToday = removeDeliveryFromToday(nextToday, payload);
       }
+
+      stateRef.current = {
+        ...s,
+        deliveries: nextDeliveries,
+        today: nextToday,
+      };
+
+      setDeliveries(nextDeliveries);
+      if (nextToday !== s.today) setToday(nextToday);
 
       if (payload) {
         const gross = Number(payload.grossValue);
@@ -405,9 +425,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      if (userId) persistNow(userId);
+      if (userId) persistCacheNow(userId);
     },
-    [userId, persistNow, applyStatsDelta],
+    [userId, persistCacheNow, applyStatsDelta],
   );
 
   const patchDeliveryInList = useCallback(
@@ -539,16 +559,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }, BACKGROUND_RECONCILE_MS);
   }, [flushReconcile]);
 
+  const publishAppSync = useCallback(
+    (
+      topics: AppSyncTopic | AppSyncTopic[],
+      extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
+    ) => {
+      if (userId) persistCacheNow(userId);
+      notifyAppSync(topics, {
+        ...extra,
+        deletedDeliveryIds: deletedDeliveries.current.toArray(),
+      });
+    },
+    [userId, persistCacheNow],
+  );
+
   const applySyncDetail = useCallback(
     (detail: AppSyncDetail | undefined) => {
       if (!detail) return;
       const incoming = detail.topics ?? ["all"];
+
+      if (detail.deletedDeliveryIds?.length) {
+        deletedDeliveries.current.hydrate(detail.deletedDeliveryIds);
+      }
 
       if (detail.removedDeliveryId) {
         removeDeliveryOptimistic(detail.removedDeliveryId);
       } else if (detail.delivery) {
         upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
       }
+
+      if (userId) persistCacheNow(userId);
 
       if (detail.skipReconcile) {
         if (!detail.removedDeliveryId) {
@@ -566,10 +606,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     },
     [
       flushReconcile,
+      persistCacheNow,
       queueConfigRefresh,
       removeDeliveryOptimistic,
       scheduleBackgroundReconcile,
       upsertDeliveryOptimistic,
+      userId,
     ],
   );
 
@@ -634,7 +676,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       await Promise.all(requests);
 
       const snap = await loadMeSettings({ force: true, silent: true });
-      notifyAppSync(["profile", "today", "stats"], { skipReconcile: true });
+      publishAppSync(["profile", "today", "stats"], { skipReconcile: true });
       scheduleBackgroundReconcile();
 
       return {
@@ -647,6 +689,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       applyMeSnapshot,
       loadMeSettings,
       persistNow,
+      publishAppSync,
       scheduleBackgroundReconcile,
       userId,
     ],
@@ -723,6 +766,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [deliveriesDate, isBootstrapped, refreshDeliveries]);
 
   useEffect(() => {
+    registerAppSyncPersist(() => {
+      if (userId) persistCacheNow(userId);
+    });
+    return () => registerAppSyncPersist(null);
+  }, [userId, persistCacheNow]);
+
+  useEffect(() => {
     if (!isBootstrapped || !userId) return;
 
     const unsubscribe = subscribeAppSync(applySyncDetail);
@@ -795,6 +845,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       upsertDeliveryOptimistic,
       removeDeliveryOptimistic,
       patchDeliveryInList,
+      publishAppSync,
     }),
     [
       today,
@@ -817,6 +868,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       upsertDeliveryOptimistic,
       removeDeliveryOptimistic,
       patchDeliveryInList,
+      publishAppSync,
     ],
   );
 

@@ -21,6 +21,8 @@ export type PersistedAppCache = {
   statsMonth: PeriodStats | null;
   profileName: string | null;
   configComplete: boolean | null;
+  /** IDs apagados em qualquer aba — sincronização instantânea entre abas. */
+  deletedDeliveryIds?: string[];
   savedAt: number;
 };
 

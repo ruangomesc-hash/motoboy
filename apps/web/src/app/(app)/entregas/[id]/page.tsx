@@ -18,7 +18,6 @@ import {
 } from "@/lib/decimal-input";
 import { AppPage } from "@/components/app-page";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
-import { notifyAppSync } from "@/lib/app-sync";
 import type { CreatedDelivery } from "@/lib/app-data-cache";
 
 interface DeliveryDetail extends DeliveryListItem {
@@ -68,6 +67,7 @@ export default function EntregaDetailPage() {
     deliveries,
     removeDeliveryOptimistic,
     upsertDeliveryOptimistic,
+    publishAppSync,
   } = useAppData();
 
   const cached = useMemo(
@@ -146,7 +146,7 @@ export default function EntregaDetailPage() {
     const optimisticPayload = toPayload(optimistic);
     setDelivery(optimistic);
     upsertDeliveryOptimistic(optimisticPayload, previousPayload);
-    notifyAppSync(["deliveries", "today", "stats"], {
+    publishAppSync(["deliveries", "today", "stats"], {
       delivery: optimisticPayload,
       previousDelivery: previousPayload,
       skipReconcile: true,
@@ -171,7 +171,7 @@ export default function EntregaDetailPage() {
       setForm(toForm(updated));
       const serverPayload = toPayload(updated);
       upsertDeliveryOptimistic(serverPayload, previousPayload);
-      notifyAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(["deliveries", "today", "stats"], {
         delivery: serverPayload,
         previousDelivery: previousPayload,
         skipReconcile: true,
@@ -179,7 +179,7 @@ export default function EntregaDetailPage() {
     } catch (err) {
       setDelivery(previous);
       upsertDeliveryOptimistic(previousPayload, optimisticPayload);
-      notifyAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(["deliveries", "today", "stats"], {
         delivery: previousPayload,
         previousDelivery: optimisticPayload,
         skipReconcile: true,
@@ -200,7 +200,7 @@ export default function EntregaDetailPage() {
     const snapshot = toPayload(delivery);
 
     removeDeliveryOptimistic(id, snapshot);
-    notifyAppSync(["deliveries", "today", "stats"], {
+    publishAppSync(["deliveries", "today", "stats"], {
       removedDeliveryId: id,
       skipReconcile: true,
     });
@@ -213,12 +213,12 @@ export default function EntregaDetailPage() {
 
     try {
       await api(`/me/deliveries/${id}`, { method: "DELETE" }, { skipSync: true });
-      notifyAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(["deliveries", "today", "stats"], {
         removedDeliveryId: id,
       });
     } catch (err) {
       upsertDeliveryOptimistic(snapshot);
-      notifyAppSync(["deliveries", "today", "stats"], {
+      publishAppSync(["deliveries", "today", "stats"], {
         delivery: snapshot,
         skipReconcile: true,
       });

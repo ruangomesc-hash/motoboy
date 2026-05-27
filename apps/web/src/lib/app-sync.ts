@@ -19,11 +19,17 @@ export type AppSyncDetail = {
   /** Entrega anterior (edição) para recalcular Home na hora */
   previousDelivery?: CreatedDelivery;
   removedDeliveryId?: string;
+  /** Tombstones replicados entre abas */
+  deletedDeliveryIds?: string[];
   /** true = só aplica cache local; API reconcilia em background */
   skipReconcile?: boolean;
+  /** Evita processar o mesmo evento 2x (CustomEvent + BroadcastChannel) */
+  syncKey?: string;
 };
 
 let broadcastChannel: BroadcastChannel | null = null;
+let persistBeforeBroadcast: (() => void) | null = null;
+const recentSyncKeys = new Map<string, number>();
 
 function getBroadcastChannel(): BroadcastChannel | null {
   if (typeof BroadcastChannel === "undefined") return null;
@@ -33,13 +39,48 @@ function getBroadcastChannel(): BroadcastChannel | null {
   return broadcastChannel;
 }
 
+export function registerAppSyncPersist(fn: (() => void) | null): void {
+  persistBeforeBroadcast = fn;
+}
+
+function buildSyncKey(detail: AppSyncDetail): string {
+  return [
+    detail.removedDeliveryId ?? "",
+    detail.delivery?.id ?? "",
+    detail.previousDelivery?.id ?? "",
+    (detail.deletedDeliveryIds ?? []).join(","),
+    detail.topics.join(","),
+    String(detail.skipReconcile ?? false),
+  ].join("|");
+}
+
+function shouldProcessIncoming(detail: AppSyncDetail): boolean {
+  const key = detail.syncKey ?? buildSyncKey(detail);
+  const now = Date.now();
+  const last = recentSyncKeys.get(key);
+  if (last != null && now - last < 80) return false;
+  recentSyncKeys.set(key, now);
+  if (recentSyncKeys.size > 200) {
+    for (const [k, ts] of recentSyncKeys) {
+      if (now - ts > 5000) recentSyncKeys.delete(k);
+    }
+  }
+  return true;
+}
+
 export function notifyAppSync(
   topics: AppSyncTopic | AppSyncTopic[] = "all",
-  extra?: Omit<AppSyncDetail, "topics">,
+  extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
 ): void {
   if (typeof window === "undefined") return;
   const list = Array.isArray(topics) ? topics : [topics];
-  const detail: AppSyncDetail = { topics: list, ...extra };
+  const detail: AppSyncDetail = {
+    topics: list,
+    ...extra,
+    syncKey: buildSyncKey({ topics: list, ...extra, syncKey: "" }),
+  };
+
+  persistBeforeBroadcast?.();
 
   window.dispatchEvent(
     new CustomEvent<AppSyncDetail>(APP_SYNC_EVENT, { detail }),
@@ -67,14 +108,20 @@ export function subscribeAppSync(
   if (typeof window === "undefined") return () => {};
 
   const onEvent = (event: Event) => {
-    handler((event as CustomEvent<AppSyncDetail>).detail);
+    const detail = (event as CustomEvent<AppSyncDetail>).detail;
+    if (!detail?.topics) return;
+    if (!shouldProcessIncoming(detail)) return;
+    handler(detail);
   };
 
   const onStorage = (event: StorageEvent) => {
     if (event.key !== APP_SYNC_BRIDGE_KEY || !event.newValue) return;
     try {
       const parsed = JSON.parse(event.newValue) as { detail?: AppSyncDetail };
-      if (parsed.detail) handler(parsed.detail);
+      if (parsed.detail?.topics) {
+        if (!shouldProcessIncoming(parsed.detail)) return;
+        handler(parsed.detail);
+      }
     } catch {
       /* ignore */
     }
@@ -82,7 +129,9 @@ export function subscribeAppSync(
 
   const channel = getBroadcastChannel();
   const onBroadcast = (event: MessageEvent<AppSyncDetail>) => {
-    if (event.data?.topics) handler(event.data);
+    if (!event.data?.topics) return;
+    if (!shouldProcessIncoming(event.data)) return;
+    handler(event.data);
   };
 
   window.addEventListener(APP_SYNC_EVENT, onEvent);
