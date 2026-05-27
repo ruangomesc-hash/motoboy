@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import { extractCreatedDelivery } from "@/lib/app-data-cache";
 import { notifyAppSync, syncTopicsForPath } from "@/lib/app-sync";
 import { demoFetch } from "@/lib/demo-data";
 
@@ -25,21 +26,7 @@ export function useApi() {
           });
       const syncTopics = syncTopicsForPath(path, method);
       if (syncTopics.length > 0) {
-        const delivery =
-          method === "POST" &&
-          path.includes("/deliveries") &&
-          result &&
-          typeof result === "object" &&
-          "id" in (result as object)
-            ? (result as {
-                id: string;
-                grossValue: number | string;
-                source: string;
-                originName?: string | null;
-                occurredAt?: string;
-                distanceKm?: number | string | null;
-              })
-            : undefined;
+        const delivery = extractCreatedDelivery(result, path, method);
         notifyAppSync(syncTopics, delivery ? { delivery } : undefined);
       }
       return result;

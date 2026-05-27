@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
-import { isAppTourDone, markConfigOnboardingDone } from "@/lib/onboarding";
+import {
+  isAppTourSeen,
+  isServerConfigComplete,
+  type MeConfigSnapshot,
+} from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
@@ -96,6 +100,7 @@ function ConfigPageInner() {
   }, [api]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [configReady, setConfigReady] = useState(false);
 
   useEffect(() => {
     setLoadError(null);
@@ -131,6 +136,10 @@ function ConfigPageInner() {
         }
       })
       .catch((e: Error) => setLoadError(e.message));
+
+    api<MeConfigSnapshot>("/me")
+      .then((me) => setConfigReady(isServerConfigComplete(me)))
+      .catch(() => setConfigReady(false));
   }, [api]);
 
   async function save() {
@@ -163,12 +172,17 @@ function ConfigPageInner() {
       }),
     });
     setSaved(true);
-    markConfigOnboardingDone();
     setTimeout(() => setSaved(false), 2000);
-    if (!isAppTourDone()) {
-      router.push("/?tour=1");
-    } else {
-      router.push("/");
+
+    const me = await api<MeConfigSnapshot>("/me");
+    const ready = isServerConfigComplete(me);
+    setConfigReady(ready);
+    if (ready) {
+      if (!isAppTourSeen()) {
+        router.push("/?tour=1");
+      } else {
+        router.push("/");
+      }
     }
   }
 
@@ -328,6 +342,15 @@ function ConfigPageInner() {
       >
         Ver explicação das configurações novamente
       </button>
+      {configReady && !isAppTourSeen() && (
+        <button
+          type="button"
+          className="w-full text-center text-xs text-muted-foreground hover:text-primary"
+          onClick={() => router.push("/?tour=1")}
+        >
+          Ver apresentação do app
+        </button>
+      )}
     </AppPage>
   );
 }

@@ -1,7 +1,7 @@
 import type { GoalsPlan, UserProfile } from "@motoboy/types";
 
-const CONFIG_KEY = "motocopiloto_config_onboarding_v1";
-const TOUR_KEY = "motocopiloto_app_tour_v1";
+/** Tour do app — só na primeira vez (localStorage). */
+const TOUR_SEEN_KEY = "motocopiloto_app_tour_seen_v1";
 
 export type MeConfigSnapshot = {
   profile: UserProfile;
@@ -9,6 +9,7 @@ export type MeConfigSnapshot = {
   costs: { otherDailyCost: number } | null;
 };
 
+/** Config completa = dados salvos no servidor (sem flag local). */
 export function isServerConfigComplete(me: MeConfigSnapshot): boolean {
   const { profile, goalsPlan, costs } = me;
   return Boolean(
@@ -22,28 +23,17 @@ export function isServerConfigComplete(me: MeConfigSnapshot): boolean {
   );
 }
 
-export function isConfigOnboardingDone(): boolean {
+export function isAppTourSeen(): boolean {
   if (typeof window === "undefined") return true;
-  return localStorage.getItem(CONFIG_KEY) === "1";
+  return localStorage.getItem(TOUR_SEEN_KEY) === "1";
 }
 
-export function markConfigOnboardingDone(): void {
+export function markAppTourSeen(): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(CONFIG_KEY, "1");
+  localStorage.setItem(TOUR_SEEN_KEY, "1");
 }
 
-export function isAppTourDone(): boolean {
-  if (typeof window === "undefined") return true;
-  return localStorage.getItem(TOUR_KEY) === "1";
-}
-
-export function markAppTourDone(): void {
+export function resetAppTourSeen(): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(TOUR_KEY, "1");
-}
-
-export function resetOnboardingForDev(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(CONFIG_KEY);
-  localStorage.removeItem(TOUR_KEY);
+  localStorage.removeItem(TOUR_SEEN_KEY);
 }

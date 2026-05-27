@@ -84,9 +84,12 @@ const STEPS = [
 export function ConfigSetupGuide({
   active,
   onFinished,
+  allowSkip = true,
 }: {
   active: boolean;
   onFinished: () => void;
+  /** false = obrigatório até salvar config no servidor */
+  allowSkip?: boolean;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex]!;
@@ -154,7 +157,7 @@ export function ConfigSetupGuide({
         totalSteps={total}
         showBack={stepIndex > 0}
         onBack={() => setStepIndex((i) => Math.max(0, i - 1))}
-        onSkip={onFinished}
+        onSkip={allowSkip ? onFinished : undefined}
         nextLabel={stepIndex === total - 1 ? "Entendi" : "Próximo"}
         onNext={() => {
           if (stepIndex >= total - 1) {

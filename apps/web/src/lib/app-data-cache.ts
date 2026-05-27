@@ -9,6 +9,48 @@ export type CreatedDelivery = {
   distanceKm?: number | string | null;
 };
 
+/** Extrai entrega criada da resposta POST /me/deliveries (sem cast em genérico). */
+export function extractCreatedDelivery(
+  result: unknown,
+  path: string,
+  method: string,
+): CreatedDelivery | undefined {
+  if (
+    method !== "POST" ||
+    !path.includes("/deliveries") ||
+    !result ||
+    typeof result !== "object"
+  ) {
+    return undefined;
+  }
+  const row = result as Record<string, unknown>;
+  if (typeof row.id !== "string" || typeof row.source !== "string") {
+    return undefined;
+  }
+  if (
+    typeof row.grossValue !== "number" &&
+    typeof row.grossValue !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    id: row.id,
+    grossValue: row.grossValue,
+    source: row.source,
+    originName:
+      typeof row.originName === "string" || row.originName === null
+        ? row.originName
+        : null,
+    occurredAt: typeof row.occurredAt === "string" ? row.occurredAt : undefined,
+    distanceKm:
+      typeof row.distanceKm === "number" ||
+      typeof row.distanceKm === "string" ||
+      row.distanceKm === null
+        ? row.distanceKm
+        : null,
+  };
+}
+
 /** Atualiza o resumo do dia na hora (antes do refetch da API). */
 export function applyDeliveryToToday(
   today: TodaySummary,

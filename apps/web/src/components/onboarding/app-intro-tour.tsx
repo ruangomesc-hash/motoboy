@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BarChart3,
+  CheckCircle2,
   Home,
   Map,
   MessageCircle,
@@ -12,7 +13,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { CoachBackdrop, CoachMark } from "./coach-mark";
-import { markAppTourDone } from "@/lib/onboarding";
+import { markAppTourSeen } from "@/lib/onboarding";
 
 const TOUR_STEPS = [
   {
@@ -88,13 +89,17 @@ const TOUR_STEPS = [
     ),
   },
   {
-    title: "Configurações",
-    icon: Settings,
+    title: "Pronto para rodar",
+    icon: CheckCircle2,
     body: (
       <>
         <p>
-          Em <strong>Config</strong> você altera meta, custos e perfil quando
-          quiser. Tudo que você salvou já está valendo.
+          Você já configurou o app. Use as abas quando quiser — em{" "}
+          <strong>Config</strong> altera meta e custos.
+        </p>
+        <p className="text-xs text-emerald-400/90">
+          Toque em <strong>Marcar como visto</strong> para não ver esta
+          apresentação de novo.
         </p>
       </>
     ),
@@ -110,12 +115,18 @@ export function AppIntroTour({
 }) {
   const router = useRouter();
   const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (active) setIndex(0);
+  }, [active]);
+
   const step = TOUR_STEPS[index]!;
   const Icon = step.icon;
   const total = TOUR_STEPS.length;
+  const isLast = index === total - 1;
 
-  function finish() {
-    markAppTourDone();
+  function markSeenAndClose() {
+    markAppTourSeen();
     onClose();
     router.push("/");
   }
@@ -132,11 +143,11 @@ export function AppIntroTour({
         totalSteps={total}
         showBack={index > 0}
         onBack={() => setIndex((i) => Math.max(0, i - 1))}
-        onSkip={finish}
-        nextLabel={index === total - 1 ? "Começar a usar" : "Próximo"}
+        onSkip={isLast ? undefined : markSeenAndClose}
+        nextLabel={isLast ? "Marcar como visto" : "Próximo"}
         onNext={() => {
-          if (index >= total - 1) {
-            finish();
+          if (isLast) {
+            markSeenAndClose();
             return;
           }
           setIndex((i) => i + 1);
