@@ -3,7 +3,12 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
+import { useAppData } from "@/components/app-data-provider";
+import { notifyAppSync } from "@/lib/app-sync";
 import {
+  clearSetupGuideHidden,
+  describeIncompleteConfig,
+  getConfigSaveBlockers,
   isAppTourSeen,
   isServerConfigComplete,
   type MeConfigSnapshot,
@@ -46,6 +51,7 @@ const emptyProfile: ProfileFormState = {
 
 function ConfigPageInner() {
   const api = useApi();
+  const { refreshConfigStatus } = useAppData();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isSetup = searchParams.get("setup") === "1";
@@ -58,6 +64,8 @@ function ConfigPageInner() {
     otherDailyCost: "33",
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
 
@@ -143,46 +151,91 @@ function ConfigPageInner() {
   }, [api]);
 
   async function save() {
-    await api("/me/profile", {
-      method: "PUT",
-      body: JSON.stringify({
-        name: profile.name.trim() || undefined,
-        email: profile.email.trim() || undefined,
-        city: profile.city.trim() || null,
-        workApps: profile.workApps,
-        subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
-        workDays: profile.workDays,
-      }),
+    const blocker = getConfigSaveBlockers({
+      name: profile.name,
+      email: profile.email,
+      workApps: profile.workApps,
+      workDays: profile.workDays,
+      monthlyGoal,
     });
-    await api("/me/goals/plan", {
-      method: "PUT",
-      body: JSON.stringify({
-        monthlyTarget: Number(monthlyGoal),
-        workDays: profile.workDays,
-      }),
-    });
-    await api("/me/costs", {
-      method: "PUT",
-      body: JSON.stringify({
-        fuelPricePerLiter: Number(costs.fuelPricePerLiter),
-        kmPerLiter: Number(costs.kmPerLiter),
-        maintenancePerKm: Number(costs.maintenancePerKm),
-        dailyFoodCost: 0,
-        otherDailyCost: Number(costs.otherDailyCost),
-      }),
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (blocker) {
+      setSaveError(blocker);
+      return;
+    }
 
-    const me = await api<MeConfigSnapshot>("/me");
-    const ready = isServerConfigComplete(me);
-    setConfigReady(ready);
-    if (ready) {
-      if (!isAppTourSeen()) {
-        router.push("/?tour=1");
-      } else {
-        router.push("/");
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api(
+        "/me/profile",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name: profile.name.trim(),
+            email: profile.email.trim(),
+            city: profile.city.trim() || null,
+            workApps: profile.workApps,
+            subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
+            workDays: profile.workDays,
+          }),
+        },
+        { skipSync: true },
+      );
+      await api(
+        "/me/goals/plan",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            monthlyTarget: Number(monthlyGoal),
+            workDays: profile.workDays,
+          }),
+        },
+        { skipSync: true },
+      );
+      await api(
+        "/me/costs",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            fuelPricePerLiter: Number(costs.fuelPricePerLiter),
+            kmPerLiter: Number(costs.kmPerLiter),
+            maintenancePerKm: Number(costs.maintenancePerKm),
+            dailyFoodCost: 0,
+            otherDailyCost: Number(costs.otherDailyCost),
+          }),
+        },
+        { skipSync: true },
+      );
+
+      const ready = await refreshConfigStatus();
+      notifyAppSync(["profile", "today", "stats"]);
+      setConfigReady(ready);
+      clearSetupGuideHidden();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+
+      if (ready) {
+        if (!isAppTourSeen()) {
+          router.replace("/?tour=1");
+        } else {
+          router.replace("/");
+        }
+        return;
       }
+
+      const me = await api<MeConfigSnapshot>("/me");
+      const missing = describeIncompleteConfig(me);
+      setSaveError(
+        missing
+          ? `Não foi possível concluir a configuração. Falta: ${missing}.`
+          : "Não foi possível concluir a configuração. Tente salvar novamente.",
+      );
+    } catch (e) {
+      setSaveError(
+        e instanceof Error ? e.message : "Erro ao salvar. Tente novamente.",
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -202,6 +255,11 @@ function ConfigPageInner() {
       {loadError && (
         <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/10 p-3">
           {loadError}
+        </p>
+      )}
+      {saveError && (
+        <p className="text-sm text-destructive rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+          {saveError}
         </p>
       )}
 
@@ -324,8 +382,16 @@ function ConfigPageInner() {
         </p>
       </section>
 
-      <Button id="onboarding-save" onClick={save} className="w-full scroll-mt-4" size="lg">
-        {saved ? (
+      <Button
+        id="onboarding-save"
+        onClick={save}
+        className="w-full scroll-mt-4"
+        size="lg"
+        disabled={saving}
+      >
+        {saving ? (
+          "Salvando..."
+        ) : saved ? (
           <span className="inline-flex items-center gap-2">
             <Check className="h-4 w-4" strokeWidth={2} />
             Salvo

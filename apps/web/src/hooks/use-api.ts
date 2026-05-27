@@ -7,13 +7,19 @@ import { extractCreatedDelivery } from "@/lib/app-data-cache";
 import { notifyAppSync, syncTopicsForPath } from "@/lib/app-sync";
 import { demoFetch } from "@/lib/demo-data";
 
+export type UseApiOptions = { skipSync?: boolean };
+
 export function useApi() {
   const { data: session } = useSession();
   const token = session?.accessToken;
   const isDemo = session?.demo === true;
 
   return useCallback(
-    async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+    async <T,>(
+      path: string,
+      options: RequestInit = {},
+      apiOptions?: UseApiOptions,
+    ): Promise<T> => {
       const method = (options.method ?? "GET").toUpperCase();
       const result = isDemo
         ? await demoFetch<T>(path, options)
@@ -24,10 +30,12 @@ export function useApi() {
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
           });
-      const syncTopics = syncTopicsForPath(path, method);
-      if (syncTopics.length > 0) {
-        const delivery = extractCreatedDelivery(result, path, method);
-        notifyAppSync(syncTopics, delivery ? { delivery } : undefined);
+      if (!apiOptions?.skipSync) {
+        const syncTopics = syncTopicsForPath(path, method);
+        if (syncTopics.length > 0) {
+          const delivery = extractCreatedDelivery(result, path, method);
+          notifyAppSync(syncTopics, delivery ? { delivery } : undefined);
+        }
       }
       return result;
     },

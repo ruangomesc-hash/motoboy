@@ -4,7 +4,12 @@ import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useAppData } from "@/components/app-data-provider";
-import { isAppTourSeen } from "@/lib/onboarding";
+import {
+  clearSetupGuideHidden,
+  hideSetupGuide,
+  isAppTourSeen,
+  isSetupGuideHidden,
+} from "@/lib/onboarding";
 import { ConfigSetupGuide } from "./config-setup-guide";
 import { AppIntroTour } from "./app-intro-tour";
 
@@ -30,21 +35,30 @@ function OnboardingManagerInner() {
   }, [status, configComplete, pathname, router]);
 
   useEffect(() => {
+    if (configComplete === true) {
+      clearSetupGuideHidden();
+      if (pathname === "/config" && searchParams.get("setup") === "1") {
+        router.replace("/config");
+      }
+    }
+  }, [configComplete, pathname, router, searchParams]);
+
+  useEffect(() => {
     if (pathname !== "/config") {
       setShowConfigGuide(false);
-      setGuideDismissed(false);
       return;
     }
 
+    const isSetupMode = searchParams.get("setup") === "1";
     const replayGuide = searchParams.get("guide") === "1";
 
-    if (configComplete === false) {
-      setShowConfigGuide(!guideDismissed);
+    if (replayGuide && configComplete === true) {
+      setShowConfigGuide(true);
       return;
     }
 
-    if (configComplete === true && replayGuide) {
-      setShowConfigGuide(true);
+    if (isSetupMode && configComplete === false && !isSetupGuideHidden()) {
+      setShowConfigGuide(!guideDismissed);
       return;
     }
 
@@ -71,6 +85,7 @@ function OnboardingManagerInner() {
           if (configGuideSkippable) {
             setShowConfigGuide(false);
           } else {
+            hideSetupGuide();
             setGuideDismissed(true);
           }
         }}

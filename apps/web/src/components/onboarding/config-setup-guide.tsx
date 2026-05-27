@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CoachBackdrop, CoachMark } from "./coach-mark";
 
 const STEPS = [
@@ -92,6 +92,7 @@ export function ConfigSetupGuide({
   allowSkip?: boolean;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
+  const wasActive = useRef(false);
   const step = STEPS[stepIndex]!;
   const total = STEPS.length;
 
@@ -105,8 +106,8 @@ export function ConfigSetupGuide({
   }, []);
 
   useEffect(() => {
-    if (!active) return;
-    setStepIndex(0);
+    if (active && !wasActive.current) setStepIndex(0);
+    wasActive.current = active;
   }, [active]);
 
   useEffect(() => {

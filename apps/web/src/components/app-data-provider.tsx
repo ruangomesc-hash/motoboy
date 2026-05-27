@@ -70,6 +70,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
   const [configComplete, setConfigComplete] = useState<boolean | null>(null);
   const bootstrapStarted = useRef(false);
+  const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshToday = useCallback(async () => {
     try {
@@ -105,6 +106,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshConfigStatus = useCallback(async () => {
+    if (configRefreshTimer.current) {
+      clearTimeout(configRefreshTimer.current);
+      configRefreshTimer.current = null;
+    }
     try {
       const me = await api<MeConfigSnapshot>("/me");
       const complete = isServerConfigComplete(me);
@@ -116,6 +121,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   }, [api]);
+
+  const queueConfigRefresh = useCallback(() => {
+    if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
+    configRefreshTimer.current = setTimeout(() => {
+      configRefreshTimer.current = null;
+      void refreshConfigStatus();
+    }, 400);
+  }, [refreshConfigStatus]);
 
   const bootstrap = useCallback(async () => {
     await Promise.all([refreshToday(), refreshConfigStatus()]);
@@ -176,7 +189,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         void Promise.all([refreshStats("week"), refreshStats("month")]);
       }
       if (topicsMatch(["profile", "all"], incoming)) {
-        void refreshConfigStatus();
+        queueConfigRefresh();
       }
     };
 
@@ -209,6 +222,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     refreshDeliveries,
     refreshStats,
     refreshConfigStatus,
+    queueConfigRefresh,
   ]);
 
   const value = useMemo(
