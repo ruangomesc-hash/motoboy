@@ -46,14 +46,14 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70"
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-black/70"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-xl border border-border bg-card p-5 space-y-4 shadow-xl"
+        className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="space-y-2">
@@ -71,7 +71,7 @@ export function ConfirmDialog({
           </p>
         )}
 
-        <div className="flex gap-2">
+        <div className="sticky bottom-0 bg-card pt-3 flex gap-2">
           <Button
             type="button"
             variant="outline"
