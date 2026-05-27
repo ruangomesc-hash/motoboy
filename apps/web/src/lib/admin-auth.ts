@@ -1,36 +1,34 @@
-import jwt from "jsonwebtoken";
+import { resolveApiBase } from "./api-base";
 
-function normalizeEnvSecret(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return value.replace(/^["']|["']$/g, "").trim();
-}
-
-export function getAdminCredentialsFromEnv(): {
-  email: string;
-  password: string;
-} | null {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const password = normalizeEnvSecret(process.env.ADMIN_PASSWORD);
-  if (!email || !password) return null;
-  return { email, password };
-}
-
-/** Valida admin e emite JWT (mesmo formato da API). */
-export function issueAdminToken(email: string, password: string): string | null {
-  const creds = getAdminCredentialsFromEnv();
-  if (!creds) return null;
-
-  const normalizedEmail = email.trim().toLowerCase();
-  if (normalizedEmail !== creds.email || password !== creds.password) {
-    return null;
+export async function loginAdminViaApi(
+  email: string,
+  password: string,
+): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${resolveApiBase()}/admin/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+  } catch {
+    throw new Error(
+      "Não foi possível conectar à API. Verifique DATABASE_URL e as migrations no Supabase.",
+    );
   }
-
-  const secret = normalizeEnvSecret(process.env.JWT_SECRET);
-  if (!secret || secret.length < 16) return null;
-
-  return jwt.sign(
-    { userId: "admin", role: "admin" as const },
-    secret,
-    { expiresIn: "7d" },
-  );
+  const data = (await res.json().catch(() => ({}))) as {
+    token?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!res.ok) {
+    if (data.code === "NEEDS_SETUP") {
+      throw new Error(
+        data.error ??
+          "Primeiro acesso: use Continuar sem senha e defina sua senha.",
+      );
+    }
+    throw new Error(data.error ?? "E-mail ou senha incorretos");
+  }
+  return data.token ?? null;
 }

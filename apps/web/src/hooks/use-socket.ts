@@ -2,36 +2,32 @@
 
 import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
+import { notifyAppSync } from "@/lib/app-sync";
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
-export function useSocket(
-  userId: string | undefined,
-  onDeliveryCreated?: () => void,
-  enabled = true,
-): void {
+function resolveSocketUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (typeof window !== "undefined") return window.location.origin;
+  return "http://localhost:3001";
+}
+
+export function useSocket(userId: string | undefined, enabled = true): void {
   useEffect(() => {
     if (!SOCKET_ENABLED || !userId || !enabled) return;
     let socket: Socket | undefined;
-    socket = io(API_URL, {
+    socket = io(resolveSocketUrl(), {
       auth: { userId },
       transports: ["websocket", "polling"],
     });
-    socket.on("delivery:created", () => {
-      onDeliveryCreated?.();
-    });
-    socket.on("delivery:deleted", () => {
-      onDeliveryCreated?.();
-    });
-    socket.on("fuel:refuel", () => {
-      onDeliveryCreated?.();
-    });
-    socket.on("odometer:updated", () => {
-      onDeliveryCreated?.();
-    });
+    const bump = () => notifyAppSync("all");
+    socket.on("delivery:created", bump);
+    socket.on("delivery:deleted", bump);
+    socket.on("fuel:refuel", bump);
+    socket.on("odometer:updated", bump);
     return () => {
       socket?.disconnect();
     };
-  }, [userId, onDeliveryCreated, enabled]);
+  }, [userId, enabled]);
 }

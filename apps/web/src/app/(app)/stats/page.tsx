@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PeriodStats } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
+import { useAppSync } from "@/hooks/use-app-sync";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
 import { formatHours } from "@/lib/format-hours";
@@ -22,6 +23,8 @@ export default function StatsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useAppSync(load, ["stats", "today"]);
 
   async function toggleShift() {
     setShiftLoading(true);

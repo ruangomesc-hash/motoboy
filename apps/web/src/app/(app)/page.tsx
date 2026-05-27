@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import type { TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
@@ -9,8 +8,8 @@ import {
   CollapsibleSummarySection,
 } from "@/components/collapsible-summary-row";
 import { Button } from "@/components/ui/button";
-import { useApi, useIsDemoMode } from "@/hooks/use-api";
-import { useSocket } from "@/hooks/use-socket";
+import { useApi } from "@/hooks/use-api";
+import { useAppSync } from "@/hooks/use-app-sync";
 import { formatBRL, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
@@ -70,9 +69,7 @@ function sourceLabel(source: string): string {
 }
 
 export default function HomePage() {
-  const { data: session } = useSession();
   const api = useApi();
-  const isDemo = useIsDemoMode();
   const [summary, setSummary] = useState<TodaySummary | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,7 +95,7 @@ export default function HomePage() {
       .catch(() => setDisplayName(null));
   }, [api]);
 
-  useSocket(session?.userId, load, !isDemo);
+  useAppSync(load, ["today", "deliveries", "stats", "profile"]);
 
   const hour = new Date().getHours();
   const greeting =

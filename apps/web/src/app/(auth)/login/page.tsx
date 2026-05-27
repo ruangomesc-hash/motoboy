@@ -9,9 +9,6 @@ import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
 import { maskPhone } from "@/lib/phone-mask";
 
-const skipAuthCodeAllowed =
-  process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
-
 const demoLoginAllowed =
   process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
 
@@ -19,7 +16,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
-  const [codeFlowLoading, setCodeFlowLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,50 +28,20 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    if (skipAuthCodeAllowed) {
-      const result = await signIn("whatsapp", {
-        phone: digits,
-        code: "000000",
-        redirect: false,
-      });
-      setLoading(false);
-      if (result?.error) {
-        setError(
-          "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail.",
-        );
-        return;
-      }
-      router.push("/");
-      router.refresh();
+    const result = await signIn("whatsapp", {
+      phone: digits,
+      code: "000000",
+      redirect: false,
+    });
+    setLoading(false);
+    if (result?.error) {
+      setError(
+        "Conta não encontrada. Crie seu cadastro em Criar conta com nome e e-mail.",
+      );
       return;
     }
-
-    setCodeFlowLoading(true);
-    try {
-      const res = await fetch("/api/backend/auth/whatsapp/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digits }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(
-          data.error ??
-            "Não foi possível enviar o código. Crie sua conta se for a primeira vez.",
-        );
-        return;
-      }
-      sessionStorage.setItem("motoboy-phone", digits);
-      sessionStorage.removeItem("motoboy-name");
-      sessionStorage.removeItem("motoboy-email");
-      sessionStorage.setItem("motoboy-auth-mode", "login");
-      router.push("/verify");
-    } catch {
-      setError("Não foi possível enviar o código. Tente de novo.");
-    } finally {
-      setLoading(false);
-      setCodeFlowLoading(false);
-    }
+    router.push("/");
+    router.refresh();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -100,9 +66,7 @@ export default function LoginPage() {
     <AuthShell
       title="Entrar"
       subtitle={
-        skipAuthCodeAllowed
-          ? "Use o WhatsApp da sua conta. Primeira vez? Faça o cadastro completo."
-          : "Use o WhatsApp da sua conta. Primeira vez? Crie o cadastro."
+        "Use o WhatsApp da sua conta. Primeira vez? Faça o cadastro completo."
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -123,26 +87,10 @@ export default function LoginPage() {
           type="submit"
           className="w-full"
           size="lg"
-          disabled={loading || codeFlowLoading}
+          disabled={loading}
         >
           {loading ? "Entrando..." : "Entrar"}
         </Button>
-        {!skipAuthCodeAllowed && (
-          <p className="text-xs text-center text-muted-foreground">
-            Enviaremos um código no WhatsApp para confirmar.
-          </p>
-        )}
-        {!skipAuthCodeAllowed && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            disabled={codeFlowLoading || loading}
-            onClick={enterWithPhone}
-          >
-            {codeFlowLoading ? "Enviando..." : "Receber código no WhatsApp"}
-          </Button>
-        )}
         {demoLoginAllowed && (
           <Button
             type="button"

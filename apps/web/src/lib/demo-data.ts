@@ -1,6 +1,7 @@
 import type {
   ActivityLogItem,
   GoalsPlan,
+  SubscriptionStatus,
   TodaySummary,
   UserProfile,
   WeeklyGoalProgress,
@@ -122,6 +123,19 @@ function pushDemoActivity(
   });
 }
 
+export const demoSubscription: SubscriptionStatus = {
+  status: "TRIAL",
+  trialEndsAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+  subscribedAt: null,
+  subscriptionPaymentMethod: "PIX",
+  lastPayment: null,
+  asaas: {
+    configured: false,
+    sandbox: true,
+    webhookPath: "/api/backend/webhooks/asaas",
+  },
+};
+
 export const demoToday: TodaySummary = {
   grossTotal: 247.8,
   fuelCost: 39,
@@ -236,6 +250,9 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
 
   if (path === "/me/today") {
     return Promise.resolve(demoToday as T);
+  }
+  if (path === "/me/subscription") {
+    return Promise.resolve(demoSubscription as T);
   }
   if (path === "/me/fuel") {
     return Promise.resolve({

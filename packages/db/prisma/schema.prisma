@@ -251,3 +251,11 @@ model AuthCode {
 
   @@index([phone, expiresAt])
 }
+
+model AdminAccount {
+  id           String   @id @default("primary")
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

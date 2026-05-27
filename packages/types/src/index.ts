@@ -227,23 +227,36 @@ export type FuelDayStats = z.infer<typeof fuelDayStatsSchema>;
 export type OdometerDayStats = z.infer<typeof odometerDayStatsSchema>;
 export type TodaySummary = z.infer<typeof todaySummarySchema>;
 
+const emptyToUndefined = (val: unknown) => {
+  if (typeof val === "string" && val.trim() === "") return undefined;
+  return val;
+};
+
 export const envSchema = z.object({
   DATABASE_URL: z.string().url().or(z.string().startsWith("postgresql://")),
-  /** Supabase: URL direta (porta 5432) para migrations. Opcional em dev local. */
-  DIRECT_URL: z
-    .string()
-    .url()
-    .or(z.string().startsWith("postgresql://"))
-    .optional(),
-  REDIS_URL: z.string().optional().default("redis://localhost:6379"),
-  EVOLUTION_API_URL: z.string().url().optional(),
-  EVOLUTION_API_KEY: z.string().optional(),
-  EVOLUTION_INSTANCE: z.string().optional(),
-  EVOLUTION_BOT_NUMBER: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
-  GOOGLE_MAPS_API_KEY: z.string().optional(),
-  ASAAS_API_KEY: z.string().optional(),
-  ASAAS_WEBHOOK_TOKEN: z.string().optional(),
+  DIRECT_URL: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .url()
+      .or(z.string().startsWith("postgresql://"))
+      .optional(),
+  ),
+  REDIS_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().optional().default("redis://localhost:6379"),
+  ),
+  EVOLUTION_API_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
+  EVOLUTION_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  EVOLUTION_INSTANCE: z.preprocess(emptyToUndefined, z.string().optional()),
+  EVOLUTION_BOT_NUMBER: z.preprocess(emptyToUndefined, z.string().optional()),
+  OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_MAPS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  ASAAS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  ASAAS_WEBHOOK_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   ASAAS_SANDBOX: z
     .string()
     .optional()
@@ -252,8 +265,14 @@ export const envSchema = z.object({
   API_URL: z.string().default("http://localhost:3001"),
   APP_URL: z.string().default("http://localhost:3002"),
   PORT: z.coerce.number().default(3001),
-  ADMIN_EMAIL: z.string().email().optional(),
-  ADMIN_PASSWORD: z.string().min(8).optional(),
+  ADMIN_EMAIL: z.preprocess(
+    emptyToUndefined,
+    z.string().email().optional(),
+  ),
+  ADMIN_PASSWORD: z.preprocess(
+    emptyToUndefined,
+    z.string().min(8).optional(),
+  ),
 });
 
 export type Env = z.infer<typeof envSchema>;

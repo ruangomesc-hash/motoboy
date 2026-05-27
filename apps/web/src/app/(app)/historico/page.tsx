@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, History } from "lucide-react";
 import type { ActivityHistory } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
+import { useAppSync } from "@/hooks/use-app-sync";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { Button } from "@/components/ui/button";
 
@@ -40,6 +41,8 @@ export default function HistoricoPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useAppSync(load, ["history"]);
 
   const hasMore =
     data != null && data.items.length < data.total && !loading;

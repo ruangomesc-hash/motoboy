@@ -16,9 +16,6 @@ import {
   clearPersistedAffiliateCode,
 } from "@/lib/affiliate-ref";
 
-const skipAuthCodeAllowed =
-  process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
-
 function CadastroForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -56,7 +53,6 @@ function CadastroForm() {
       const data = (await res.json()) as {
         valid?: boolean;
         name?: string | null;
-        error?: string;
       };
       if (data.valid && data.name) {
         setCouponHint(`Indicação: ${data.name}`);
@@ -67,8 +63,6 @@ function CadastroForm() {
       setCouponError("Cupom inválido ou inativo");
       return false;
     } catch {
-      setCouponHint(null);
-      setCouponError("");
       return true;
     }
   }
@@ -77,8 +71,6 @@ function CadastroForm() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setCouponError("");
-
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
       setError("Informe um WhatsApp válido com DDD.");
@@ -95,12 +87,10 @@ function CadastroForm() {
       setLoading(false);
       return;
     }
-
     try {
       const affiliateCode = coupon.trim()
         ? normalizeAffiliateCode(coupon)
         : undefined;
-
       if (affiliateCode) {
         const ok = await validateCoupon(affiliateCode);
         if (!ok) {
@@ -109,51 +99,23 @@ function CadastroForm() {
         }
         persistAffiliateCode(affiliateCode);
       }
-
-      if (skipAuthCodeAllowed) {
-        const result = await signIn("whatsapp", {
-          phone: digits,
-          code: "000000",
-          name: name.trim(),
-          email: email.trim(),
-          affiliateCode: affiliateCode ?? "",
-          redirect: false,
-        });
-        if (result?.error) {
-          setError(
-            "Não foi possível criar a conta. Verifique se o WhatsApp ou e-mail já não estão em uso.",
-          );
-          return;
-        }
-        clearPersistedAffiliateCode();
-        router.push("/");
-        router.refresh();
-        return;
-      }
-
-      const res = await fetch("/api/backend/auth/register/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: digits,
-          name: name.trim(),
-          email: email.trim(),
-          affiliateCode,
-        }),
+      const result = await signIn("whatsapp", {
+        phone: digits,
+        code: "000000",
+        name: name.trim(),
+        email: email.trim(),
+        affiliateCode: affiliateCode ?? "",
+        redirect: false,
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(data.error ?? "Não foi possível enviar o código.");
+      if (result?.error) {
+        setError(
+          "Não foi possível criar a conta. Verifique WhatsApp ou e-mail já em uso.",
+        );
         return;
       }
-      sessionStorage.setItem("motoboy-phone", digits);
-      sessionStorage.setItem("motoboy-name", name.trim());
-      sessionStorage.setItem("motoboy-email", email.trim());
-      sessionStorage.setItem("motoboy-auth-mode", "register");
-      if (affiliateCode) {
-        persistAffiliateCode(affiliateCode);
-      }
-      router.push("/verify");
+      clearPersistedAffiliateCode();
+      router.push("/");
+      router.refresh();
     } catch {
       setError("Não foi possível concluir o cadastro. Tente de novo.");
     } finally {
@@ -164,11 +126,7 @@ function CadastroForm() {
   return (
     <AuthShell
       title="Criar conta"
-      subtitle={
-        skipAuthCodeAllowed
-          ? "Preencha todos os campos. Seus dados aparecem no painel do administrador."
-          : "Nome, e-mail e WhatsApp — depois confirmamos com um código."
-      }
+      subtitle="Preencha seus dados e entre direto no app — sem código no primeiro acesso."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -179,7 +137,6 @@ function CadastroForm() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Como você se chama"
-            autoComplete="name"
             required
             minLength={2}
           />
@@ -193,7 +150,6 @@ function CadastroForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="seu@email.com"
-            autoComplete="email"
             required
           />
         </div>
@@ -206,7 +162,6 @@ function CadastroForm() {
             placeholder="(11) 99999-9999"
             value={phone}
             onChange={(e) => setPhone(maskPhone(e.target.value))}
-            autoComplete="tel"
             required
           />
         </div>
@@ -216,17 +171,13 @@ function CadastroForm() {
           </label>
           <Input
             value={coupon}
-            onChange={(e) => {
-              const v = e.target.value.toUpperCase().replace(/\s/g, "");
-              setCoupon(v);
-              setCouponError("");
-              setCouponHint(null);
-            }}
+            onChange={(e) =>
+              setCoupon(e.target.value.toUpperCase().replace(/\s/g, ""))
+            }
             onBlur={() => {
               if (coupon.trim()) void validateCoupon(coupon);
             }}
             placeholder="Ex: JOAO10"
-            autoComplete="off"
           />
           {couponHint && (
             <p className="text-xs text-emerald-400 mt-1">{couponHint}</p>
@@ -237,11 +188,7 @@ function CadastroForm() {
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading
-            ? "Criando conta..."
-            : skipAuthCodeAllowed
-              ? "Criar conta e entrar"
-              : "Receber código no WhatsApp"}
+          {loading ? "Criando conta..." : "Criar conta e entrar"}
         </Button>
         <p className="text-center text-sm text-muted-foreground pt-1">
           Já tem conta?{" "}

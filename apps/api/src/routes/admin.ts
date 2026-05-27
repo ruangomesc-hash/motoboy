@@ -4,11 +4,12 @@ import {
   adminCreateUserSchema,
   adminLoginSchema,
 } from "@motoboy/types";
+import { requireAdmin, signAdminToken } from "../lib/auth.js";
 import {
-  getAdminCredentials,
-  requireAdmin,
-  signAdminToken,
-} from "../lib/auth.js";
+  isAdminConfigured,
+  setupAdminAccount,
+  verifyAdminLoginWithEnvFallback,
+} from "../services/admin-auth-store.js";
 import {
   activateAdminUser,
   createAdminPaymentLink,
@@ -29,21 +30,50 @@ import {
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
+  app.get("/admin/auth/status", async (_request, reply) => {
+    return reply.send({
+      configured: await isAdminConfigured(),
+      bootstrapEmail: process.env.ADMIN_EMAIL?.trim() ?? null,
+    });
+  });
+
+  app.post("/admin/auth/setup", async (request, reply) => {
+    const body = adminLoginSchema.parse(request.body);
+    try {
+      const { email } = await setupAdminAccount(
+        body.email,
+        body.password.trim(),
+      );
+      const token = signAdminToken(env.JWT_SECRET);
+      reply.setCookie("motoboy-admin-token", token, {
+        httpOnly: true,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      });
+      return reply.send({ ok: true, token, email });
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply
+        .status(e.statusCode ?? 400)
+        .send({ error: e.message });
+    }
+  });
+
   app.post("/admin/auth/login", async (request, reply) => {
     const body = adminLoginSchema.parse(request.body);
-    const creds = getAdminCredentials(env);
-    if (!creds) {
-      return reply.status(503).send({
+    if (!(await isAdminConfigured())) {
+      return reply.status(400).send({
         error:
-          "Painel admin não configurado. Defina ADMIN_EMAIL e ADMIN_PASSWORD no .env",
+          "Primeiro acesso: use Continuar sem senha e defina sua senha de administrador.",
+        code: "NEEDS_SETUP",
       });
     }
     const email = body.email.trim().toLowerCase();
     const password = body.password.trim();
-    if (email !== creds.email || password !== creds.password) {
+    if (!(await verifyAdminLoginWithEnvFallback(email, password))) {
       return reply.status(401).send({ error: "E-mail ou senha incorretos" });
     }
-
     const token = signAdminToken(env.JWT_SECRET);
     reply.setCookie("motoboy-admin-token", token, {
       httpOnly: true,
@@ -55,9 +85,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.addHook("preHandler", async (request, reply) => {
+    const path = request.url.split("?")[0];
     if (
-      request.method === "POST" &&
-      request.url.split("?")[0] === "/admin/auth/login"
+      path === "/admin/auth/login" ||
+      path === "/admin/auth/setup" ||
+      path === "/admin/auth/status"
     ) {
       return;
     }

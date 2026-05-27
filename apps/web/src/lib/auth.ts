@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { DEMO_USER_ID } from "./demo-data";
 
-import { issueAdminToken, getAdminCredentialsFromEnv } from "./admin-auth";
+import { loginAdminViaApi } from "./admin-auth";
 import { resolveApiBase } from "./api-base";
 
 const API_URL = resolveApiBase();
@@ -108,21 +108,11 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-
-        if (!getAdminCredentialsFromEnv()) {
-          throw new Error(
-            "Admin não configurado: defina ADMIN_EMAIL, ADMIN_PASSWORD e JWT_SECRET na Vercel e faça Redeploy.",
-          );
-        }
-
-        const token = issueAdminToken(
+        const token = await loginAdminViaApi(
           credentials.email,
           credentials.password,
         );
-        if (!token) {
-          throw new Error("E-mail ou senha incorretos");
-        }
-
+        if (!token) return null;
         return {
           id: "admin",
           name: "Administrador",

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
+import { useAppSync } from "@/hooks/use-app-sync";
 import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
@@ -42,6 +43,8 @@ export default function EntregasPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useAppSync(load, ["deliveries", "today"]);
 
   return (
     <div className="p-3 space-y-3">

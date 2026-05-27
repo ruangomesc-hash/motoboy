@@ -10,6 +10,10 @@ import { signToken } from "../lib/auth.js";
 import { redisDel, redisGet, redisSetex } from "../lib/redis.js";
 import { validateAffiliateCode } from "../services/affiliate.js";
 import {
+  isEvolutionConfigured,
+  isSkipAuthCodeEnabled,
+} from "../lib/auth-config.js";
+import {
   createUserWithProfile,
   findUserByPhone,
 } from "../services/user.js";
@@ -36,6 +40,11 @@ async function sendAuthCode(
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
+  app.get("/auth/config", async () => ({
+    skipAuthCode: isSkipAuthCodeEnabled(env),
+    evolutionConfigured: isEvolutionConfigured(env),
+  }));
+
   app.get("/auth/affiliate/validate", async (request, reply) => {
     const q = request.query as { code?: string };
     if (!q.code?.trim()) {
@@ -48,6 +57,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const body = registerRequestSchema.parse(request.body);
     const phone = normalizePhone(body.phone);
     const email = body.email.trim().toLowerCase();
+
+    if (isSkipAuthCodeEnabled(env)) {
+      return reply.send({ ok: true, skipVerify: true });
+    }
 
     const existingPhone = await findUserByPhone(phone);
     if (existingPhone) {
@@ -82,6 +95,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const body = whatsappRequestSchema.parse(request.body);
     const phone = normalizePhone(body.phone);
 
+    if (isSkipAuthCodeEnabled(env)) {
+      return reply.send({ ok: true, skipVerify: true });
+    }
+
     const user = await findUserByPhone(phone);
     if (!user) {
       return reply.status(404).send({
@@ -104,8 +121,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       where: { phone, code: body.code, expiresAt: { gt: new Date() } },
     });
 
-    const skipAuthCode = process.env.ALLOW_SKIP_AUTH_CODE === "true";
-    const bypassCode = skipAuthCode && body.code === "000000";
+    const bypassCode =
+      isSkipAuthCodeEnabled(env) && body.code === "000000";
 
     const codeValid =
       bypassCode || record?.code === body.code || stored === body.code;
