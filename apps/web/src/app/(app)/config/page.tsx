@@ -344,7 +344,7 @@ function ConfigPageInner() {
         onClick={save}
         className="w-full scroll-mt-4"
         size="lg"
-        disabled={saving || showLoading}
+        disabled={saving}
       >
         {saving ? (
           "Salvando..."

@@ -85,6 +85,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [configComplete, setConfigComplete] = useState<boolean | null>(null);
   const [meSettings, setMeSettings] = useState<MeSettingsSnapshot | null>(null);
   const [meSettingsLoading, setMeSettingsLoading] = useState(false);
+  const meSettingsRef = useRef<MeSettingsSnapshot | null>(null);
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meLoadSeq = useRef(0);
@@ -124,6 +125,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const applyMeSnapshot = useCallback((snap: MeSettingsSnapshot) => {
     setMeSettings(snap);
+    meSettingsRef.current = snap;
     const complete = isServerConfigComplete(snap);
     setConfigComplete(complete);
     setProfileName(snap.profile?.name ?? null);
@@ -133,9 +135,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadMeSettings = useCallback(
     async (opts?: { force?: boolean }) => {
       if (status !== "authenticated") return null;
-      if (!token && !session?.demo) return meSettings;
+      if (!token && !session?.demo) return meSettingsRef.current;
 
-      if (!opts?.force && meSettings) return meSettings;
+      if (!opts?.force && meSettingsRef.current) return meSettingsRef.current;
 
       const seq = ++meLoadSeq.current;
       setMeSettingsLoading(true);
@@ -152,7 +154,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (seq === meLoadSeq.current) setMeSettingsLoading(false);
       }
     },
-    [api, applyMeSnapshot, meSettings, session?.demo, status, token],
+    [api, applyMeSnapshot, session?.demo, status, token],
   );
 
   const refreshConfigStatus = useCallback(async () => {
@@ -209,6 +211,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setIsBootstrapped(false);
       setConfigComplete(null);
       setMeSettings(null);
+      meSettingsRef.current = null;
       meLoadSeq.current += 1;
       return;
     }
