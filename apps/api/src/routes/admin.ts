@@ -5,7 +5,7 @@ import {
   adminLoginSchema,
   adminSetUserPasswordSchema,
 } from "@motoboy/types";
-import { requireAdmin, signAdminToken } from "../lib/auth.js";
+import { signAdminToken } from "../lib/auth.js";
 import {
   envAdminCredentialsConfigured,
   isAdminConfigured,
@@ -16,10 +16,7 @@ import {
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
 import { MIGRATIONS_REQUIRED_MESSAGE } from "../lib/prisma-errors.js";
-import {
-  parseAdminBody,
-  runAdminMutation,
-} from "../lib/admin-route.js";
+import { authenticateAdmin } from "../lib/admin-auth.js";
 import { sendPrismaOrServiceError } from "../lib/prisma-http.js";
 import { strictAuthRateLimit } from "../lib/rate-limit.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
@@ -162,8 +159,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     ) {
       return;
     }
-    await requireAdmin(request, reply);
-    if (reply.sent) {
+    const admin = await authenticateAdmin(request, reply);
+    if (!admin) {
       return reply;
     }
   });
@@ -257,32 +254,31 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.put("/admin/users/:userId/password", async (request, reply) => {
     const { userId } = request.params as { userId: string };
-    return runAdminMutation(
-      request,
-      reply,
-      "Não foi possível salvar a senha do cliente.",
-      async () => {
-        const body = parseAdminBody(
-          adminSetUserPasswordSchema,
-          request.body,
-        );
-        const user = await setAdminUserPassword(userId, body.password);
-        return reply.send(user);
-      },
-    );
+    try {
+      const body = adminSetUserPasswordSchema.parse(request.body);
+      const result = await setAdminUserPassword(userId, body.password);
+      return reply.send(result);
+    } catch (err) {
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível salvar a senha do cliente.",
+      );
+    }
   });
 
   app.delete("/admin/users/:userId", async (request, reply) => {
     const { userId } = request.params as { userId: string };
-    return runAdminMutation(
-      request,
-      reply,
-      "Não foi possível excluir o cliente.",
-      async () => {
-        await deleteAdminUser(userId);
-        return reply.status(200).send({ ok: true });
-      },
-    );
+    try {
+      await deleteAdminUser(userId);
+      return reply.status(200).send({ ok: true });
+    } catch (err) {
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível excluir o cliente.",
+      );
+    }
   });
 
   app.get("/admin/affiliates", async () => getAdminAffiliatesRanking());

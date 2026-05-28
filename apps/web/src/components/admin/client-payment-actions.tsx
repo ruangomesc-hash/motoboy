@@ -85,7 +85,7 @@ export function ClientPaymentActions({
     setLoadingPassword(true);
     setError(null);
     try {
-      await api<AdminUserRow>(`/admin/users/${client.id}/password`, {
+      await api<{ ok: boolean }>(`/admin/users/${client.id}/password`, {
         method: "PUT",
         body: JSON.stringify({ password: newPassword }),
       });

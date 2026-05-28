@@ -162,11 +162,20 @@ function mapUserRow(
 export async function setAdminUserPassword(
   userId: string,
   password: string,
-): Promise<AdminUserRow> {
-  const now = new Date();
+): Promise<{ ok: true; userId: string; hasPassword: true }> {
+  const { isUserPasswordColumnReady } = await import("./admin-auth-store.js");
+  if (!(await isUserPasswordColumnReady())) {
+    throw Object.assign(
+      new Error(
+        "Banco sem coluna de senha do motoboy. Rode a migration passwordHash no Supabase.",
+      ),
+      { statusCode: 503, code: "MIGRATIONS_REQUIRED" },
+    );
+  }
+
   const existing = await prisma.user.findUnique({
     where: { id: userId },
-    include: userInclude,
+    select: { id: true },
   });
   if (!existing) {
     throw Object.assign(new Error("Cliente não encontrado"), {
@@ -181,7 +190,7 @@ export async function setAdminUserPassword(
     data: { passwordHash },
   });
 
-  return mapUserRow({ ...existing, passwordHash }, now);
+  return { ok: true, userId, hasPassword: true };
 }
 
 export async function deleteAdminUser(userId: string): Promise<void> {
@@ -197,15 +206,22 @@ export async function deleteAdminUser(userId: string): Promise<void> {
   }
 
   try {
-    // Uma query com CASCADE no Postgres (menos round-trips no pooler Supabase).
     await prisma.user.delete({ where: { id: userId } });
+    return;
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code !== "P2003" && code !== "P2014") {
       throw err;
     }
-    await purgeUserChildrenForDelete(userId);
-    await prisma.user.delete({ where: { id: userId } });
+  }
+
+  await purgeUserChildrenForDelete(userId);
+  const removed = await prisma.user.deleteMany({ where: { id: userId } });
+  if (removed.count === 0) {
+    throw Object.assign(new Error("Cliente não encontrado"), {
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
   }
 }
 
@@ -221,7 +237,13 @@ async function purgeUserChildrenForDelete(userId: string): Promise<void> {
   await prisma.shift.deleteMany({ where: { userId } });
   await prisma.goal.deleteMany({ where: { userId } });
   await prisma.costConfig.deleteMany({ where: { userId } });
-  await prisma.whatsAppMessage.deleteMany({ where: { userId } });
+  try {
+    await prisma.whatsAppMessage.deleteMany({ where: { userId } });
+  } catch (err) {
+    if (!isPrismaTableMissingError(err)) {
+      throw err;
+    }
+  }
 }
 
 export async function createAdminUser(

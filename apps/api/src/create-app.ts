@@ -102,11 +102,19 @@ export async function createApp(
       return reply.status(400).send({ error: "Corpo da requisição inválido" });
     }
     app.log.error(error);
+    const path = request.url.split("?")[0] ?? "";
+    const isAdminMutation =
+      path.includes("/admin/users/") &&
+      (request.method === "DELETE" || request.method === "PUT");
+    const message =
+      err instanceof Error ? err.message : "Erro interno do servidor";
     return reply.status(500).send({
-      error:
-        process.env.NODE_ENV === "production"
+      error: isAdminMutation
+        ? message.slice(0, 240)
+        : process.env.NODE_ENV === "production"
           ? "Erro interno do servidor"
-          : (err.message ?? "Erro interno do servidor"),
+          : message,
+      code: "INTERNAL_ERROR",
     });
   });
 

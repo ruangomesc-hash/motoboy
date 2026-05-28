@@ -16,8 +16,12 @@ export interface JwtPayload {
 
 const JWT_ALG = "HS256" as const;
 
+function normalizeJwtSecret(secret: string): string {
+  return secret.replace(/^["']|["']$/g, "").trim();
+}
+
 export function signToken(payload: JwtPayload, secret: string): string {
-  return jwt.sign(payload, secret, {
+  return jwt.sign(payload, normalizeJwtSecret(secret), {
     expiresIn: "30d",
     algorithm: JWT_ALG,
   });
@@ -26,13 +30,13 @@ export function signToken(payload: JwtPayload, secret: string): string {
 export function signAdminToken(secret: string): string {
   return jwt.sign(
     { userId: "admin", role: "admin" as const },
-    secret,
+    normalizeJwtSecret(secret),
     { expiresIn: "7d", algorithm: JWT_ALG },
   );
 }
 
 export function verifyToken(token: string, secret: string): JwtPayload {
-  return jwt.verify(token, secret, {
+  return jwt.verify(token, normalizeJwtSecret(secret), {
     algorithms: [JWT_ALG],
   }) as JwtPayload;
 }
@@ -123,29 +127,8 @@ export async function requireAdmin(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
-  const env = (request.server as { config: { env: Env } }).config.env;
-  const header = request.headers.authorization;
-  const cookie = (request.cookies as Record<string, string> | undefined)?.[
-    "motoboy-admin-token"
-  ];
-  const token =
-    header?.startsWith("Bearer ") ? header.slice(7) : cookie;
-
-  if (!token) {
-    await reply.status(401).send({ error: "Não autenticado" });
-    return;
-  }
-
-  try {
-    const payload = verifyToken(token, env.JWT_SECRET);
-    if (payload.role !== "admin") {
-      await reply.status(403).send({ error: "Acesso negado" });
-      return;
-    }
-    request.user = payload;
-  } catch {
-    await reply.status(401).send({ error: "Token inválido" });
-  }
+  const { authenticateAdmin } = await import("./admin-auth.js");
+  await authenticateAdmin(request, reply);
 }
 
 function normalizeEnvSecret(value: string | undefined): string | undefined {

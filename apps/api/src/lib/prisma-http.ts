@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { isPrismaTableMissingError, MIGRATIONS_REQUIRED_MESSAGE } from "./prisma-errors.js";
 
 export type PrismaHttpErrorBody = {
@@ -108,23 +109,45 @@ export function mapPrismaHttpError(err: unknown): {
 }
 
 export function sendPrismaOrServiceError(
-  reply: { status: (code: number) => { send: (body: unknown) => unknown } },
+  reply: {
+    sent: boolean;
+    status: (code: number) => { send: (body: unknown) => unknown };
+  },
   err: unknown,
   fallbackMessage: string,
 ): unknown {
-  const withStatus = err as Error & { statusCode?: number; code?: string };
-  if (withStatus.statusCode) {
-    return reply.status(withStatus.statusCode).send({
-      error: withStatus.message,
-      code: withStatus.code,
+  if (reply.sent) {
+    return reply;
+  }
+  try {
+    if (err instanceof ZodError) {
+      const first = err.errors[0]?.message ?? "Dados inválidos";
+      return reply.status(400).send({
+        error: first,
+        code: "VALIDATION_ERROR",
+      });
+    }
+    const withStatus = err as Error & { statusCode?: number; code?: string };
+    if (withStatus.statusCode) {
+      return reply.status(withStatus.statusCode).send({
+        error: withStatus.message,
+        code: withStatus.code,
+      });
+    }
+    const mapped = mapPrismaHttpError(err);
+    if (mapped) {
+      return reply.status(mapped.status).send(mapped.body);
+    }
+    const detail =
+      err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({
+      error: fallbackMessage,
+      code: "INTERNAL_ERROR",
+      ...(process.env.NODE_ENV !== "production" && detail
+        ? { detail }
+        : {}),
     });
+  } catch {
+    return reply;
   }
-  const mapped = mapPrismaHttpError(err);
-  if (mapped) {
-    return reply.status(mapped.status).send(mapped.body);
-  }
-  return reply.status(500).send({
-    error: fallbackMessage,
-    code: "INTERNAL_ERROR",
-  });
 }
