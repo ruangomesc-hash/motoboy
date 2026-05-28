@@ -27,10 +27,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
-import {
-  buildRecentDeliveriesForHome,
-  recomputeTodayFromDeliveries,
-} from "@/lib/today-recent-from-deliveries";
+import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
 
@@ -96,10 +93,7 @@ export default function HomePage() {
     if (!today) return emptySummary;
     return recomputeTodayFromDeliveries(deliveries, today);
   }, [today, deliveries]);
-  const recentDeliveries = useMemo(
-    () => buildRecentDeliveriesForHome(deliveries),
-    [deliveries],
-  );
+  const recentDeliveries = s.recentDeliveries;
   const kmSourceLabel =
     s.odometer.kmSource === "odometer"
       ? "Hodômetro (painel)"

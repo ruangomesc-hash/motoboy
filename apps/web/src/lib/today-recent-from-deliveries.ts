@@ -68,7 +68,7 @@ export function recomputeTodayFromDeliveries(
 /** Lista única para Home — mesma fonte que Entregas. */
 export function buildRecentDeliveriesForHome(
   deliveries: DeliveryListItem[],
-  tombstoneIds: ReadonlySet<string>,
+  tombstoneIds: ReadonlySet<string> = new Set(),
   todayKey = todayDateInputValue(),
 ): TodaySummary["recentDeliveries"] {
   const todays = deliveriesForToday(deliveries, todayKey, tombstoneIds);
