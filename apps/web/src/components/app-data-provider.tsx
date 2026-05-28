@@ -71,6 +71,7 @@ import {
 } from "@/lib/stats-preview";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
 import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
+import { clearInflightCreates } from "@/lib/inflight-delivery-create";
 import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 import {
   dedupeRecentDeliveries,
@@ -117,6 +118,8 @@ type AppDataContextValue = {
   ) => void;
   /** Alinha Home, Entregas e Stats com o servidor (debounced). */
   scheduleDeliveryReconcile: () => void;
+  markDeliveryCancelled: (localId: string) => void;
+  isDeliveryCancelled: (localId: string) => boolean;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -190,7 +193,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     writeAppCache(uid, {
       today: s.today,
       meSettings: s.meSettings,
-      deliveries: s.deliveries,
+      deliveries: deletedDeliveries.current.filter(s.deliveries),
       deliveriesDate: s.deliveriesDate,
       statsWeek: s.statsWeek,
       statsMonth: s.statsMonth,
@@ -620,6 +623,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }, 80);
   }, [loadMeSettings]);
 
+  const markDeliveryCancelled = useCallback((localId: string) => {
+    pendingDeliveries.current.markCancelled(localId);
+  }, []);
+
+  const isDeliveryCancelled = useCallback((localId: string) => {
+    return pendingDeliveries.current.isCancelled(localId);
+  }, []);
+
   const scheduleDeliveryReconcile = useCallback(() => {
     if (deliveryReconcileTimer.current) {
       clearTimeout(deliveryReconcileTimer.current);
@@ -839,6 +850,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       clearConfigSavedOnce();
       deletedDeliveries.current.clear();
       pendingDeliveries.current.clear();
+      clearInflightCreates();
       setIsBootstrapped(false);
       setConfigComplete(null);
       setMeSettings(null);
@@ -959,6 +971,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       patchDeliveryInList,
       publishAppSync,
       scheduleDeliveryReconcile,
+      markDeliveryCancelled,
+      isDeliveryCancelled,
     }),
     [
       today,
@@ -983,6 +997,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       patchDeliveryInList,
       publishAppSync,
       scheduleDeliveryReconcile,
+      markDeliveryCancelled,
+      isDeliveryCancelled,
     ],
   );
 

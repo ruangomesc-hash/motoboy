@@ -359,6 +359,11 @@ export default function HomePage() {
             setDeleteTarget(null);
           } else {
             setDeleteError(result.error);
+            if (typeof window !== "undefined") {
+              window.alert(
+                `${result.error}\n\nA entrega continua salva. Tente apagar de novo.`,
+              );
+            }
           }
         }}
       />
