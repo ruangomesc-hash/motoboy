@@ -54,18 +54,23 @@ export default function AdminLoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const res = await signIn("admin", {
-      email: email.trim(),
-      password,
-      redirect: false,
-    });
-    setLoading(false);
-    if (res?.error) {
-      setError(res.error);
-      return;
+    try {
+      const res = await signIn("admin", {
+        email: email.trim(),
+        password,
+        redirect: false,
+      });
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      router.push("/admin");
+      router.refresh();
+    } catch {
+      setError("Falha ao autenticar admin. Tente novamente.");
+    } finally {
+      setLoading(false);
     }
-    router.push("/admin");
-    router.refresh();
   }
 
   async function submitSetup(e: React.FormEvent) {
@@ -99,7 +104,6 @@ export default function AdminLoginPage() {
       };
       if (!res.ok) {
         setError(data.error ?? "Não foi possível salvar a senha.");
-        setLoading(false);
         return;
       }
       const sign = await signIn("admin", {
@@ -107,7 +111,6 @@ export default function AdminLoginPage() {
         password,
         redirect: false,
       });
-      setLoading(false);
       if (sign?.error) {
         setError(sign.error);
         return;
@@ -115,8 +118,9 @@ export default function AdminLoginPage() {
       router.push("/admin");
       router.refresh();
     } catch {
-      setLoading(false);
       setError("Erro de conexão.");
+    } finally {
+      setLoading(false);
     }
   }
 
