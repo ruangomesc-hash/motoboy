@@ -242,13 +242,14 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post("/admin/users/:userId/activate", async (request, reply) => {
     const { userId } = request.params as { userId: string };
     try {
-      return await activateAdminUser(userId);
+      const user = await activateAdminUser(userId);
+      return reply.send(user);
     } catch (err) {
-      const e = err as Error & { statusCode?: number };
-      if (e.statusCode) {
-        return reply.status(e.statusCode).send({ error: e.message });
-      }
-      throw err;
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível ativar a assinatura.",
+      );
     }
   });
 

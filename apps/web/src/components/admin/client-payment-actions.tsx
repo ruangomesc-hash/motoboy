@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { AdminPaymentLinkResponse, AdminUserRow } from "@motoboy/types";
+import { formatPhoneDisplay } from "@/lib/phone-mask";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAdminApi } from "@/hooks/use-admin-api";
@@ -28,6 +29,7 @@ export function ClientPaymentActions({
     null,
   );
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [activateOpen, setActivateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [loadingLink, setLoadingLink] = useState(false);
@@ -57,17 +59,13 @@ export function ClientPaymentActions({
   }
 
   async function confirmPayment() {
-    if (
-      !window.confirm(
-        `Confirmar que ${clientLabel} pagou via Pix e ativar a assinatura?`,
-      )
-    ) {
-      return;
-    }
     setLoadingActivate(true);
     setError(null);
     try {
-      await api(`/admin/users/${client.id}/activate`, { method: "POST" });
+      await api<AdminUserRow>(`/admin/users/${client.id}/activate`, {
+        method: "POST",
+      });
+      setActivateOpen(false);
       onUpdated();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao ativar");
@@ -146,7 +144,10 @@ export function ClientPaymentActions({
           variant="outline"
           className="h-8 text-xs justify-start px-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
           disabled={loadingActivate || isActive}
-          onClick={confirmPayment}
+          onClick={() => {
+            setError(null);
+            setActivateOpen(true);
+          }}
           title={isActive ? "Cliente já ativo" : "Dar baixa manual do Pix"}
         >
           <Check className="h-3.5 w-3.5 mr-1 shrink-0" />
@@ -185,6 +186,87 @@ export function ClientPaymentActions({
           <p className="text-[10px] text-destructive leading-tight">{error}</p>
         )}
       </div>
+
+      {activateOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activate-pix-title"
+            className="w-full max-w-md rounded-2xl border border-emerald-500/25 bg-[#0a0f0d] p-5 space-y-4 shadow-xl shadow-black/40"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                <Check className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 id="activate-pix-title" className="font-semibold text-base">
+                  Confirmar pagamento Pix
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                  Confirmar que{" "}
+                  <span className="text-foreground font-medium">
+                    {clientLabel}
+                  </span>{" "}
+                  pagou via Pix e ativar a assinatura?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActivateOpen(false);
+                  setError(null);
+                }}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <ul className="text-xs text-muted-foreground space-y-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+              <li>
+                <span className="text-foreground/80">WhatsApp:</span>{" "}
+                {formatPhoneDisplay(client.whatsappNumber)}
+              </li>
+              <li>
+                <span className="text-foreground/80">Status atual:</span>{" "}
+                {client.status} → Ativo (pago)
+              </li>
+              <li>
+                O app do motoboy libera o acesso na hora (perfil e assinatura).
+              </li>
+            </ul>
+
+            {error && (
+              <p className="text-sm text-destructive text-center">{error}</p>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="sm:min-w-[7rem]"
+                disabled={loadingActivate}
+                onClick={() => {
+                  setActivateOpen(false);
+                  setError(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="sm:min-w-[7rem] bg-emerald-600 hover:bg-emerald-500 text-white border-0"
+                disabled={loadingActivate}
+                onClick={() => void confirmPayment()}
+              >
+                {loadingActivate ? "Ativando..." : "Confirmar e ativar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70">

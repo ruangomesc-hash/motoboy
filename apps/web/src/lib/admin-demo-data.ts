@@ -385,8 +385,14 @@ export function adminDemoFetch<T>(
     client.daysOverdue = null;
     client.lastPaymentStatus = "PAID";
     demoAdminOverview.users.active += 1;
-    if (client.delinquencyReason) demoAdminOverview.growth.delinquentTotal -= 1;
-    return Promise.resolve({ ok: true, status: "ACTIVE" } as T);
+    demoAdminOverview.users.trial = Math.max(0, demoAdminOverview.users.trial - 1);
+    if (client.delinquencyReason) {
+      demoAdminOverview.growth.delinquentTotal = Math.max(
+        0,
+        demoAdminOverview.growth.delinquentTotal - 1,
+      );
+    }
+    return Promise.resolve(client as T);
   }
 
   if (path === "/admin/overview" || path.startsWith("/admin/overview")) {

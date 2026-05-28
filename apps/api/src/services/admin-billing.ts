@@ -1,6 +1,7 @@
 import { prisma } from "@motoboy/db";
-import type { AdminPaymentLinkResponse, Env } from "@motoboy/types";
-import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
+import type { AdminPaymentLinkResponse, AdminUserRow, Env } from "@motoboy/types";
+import { getAdminUserRowById, SUBSCRIPTION_PRICE } from "./admin-metrics.js";
+import { recordActivitySafe } from "./activity-log.js";
 import { AsaasService } from "./asaas.js";
 
 function buildWhatsappText(
@@ -55,10 +56,7 @@ export async function createAdminPaymentLink(
   };
 }
 
-export async function activateAdminUser(userId: string): Promise<{
-  ok: true;
-  status: "ACTIVE";
-}> {
+export async function activateAdminUser(userId: string): Promise<AdminUserRow> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw Object.assign(new Error("Cliente não encontrado"), { statusCode: 404 });
@@ -69,6 +67,7 @@ export async function activateAdminUser(userId: string): Promise<{
   }
 
   const now = new Date();
+  const previousStatus = user.status;
   const pending = await prisma.payment.findFirst({
     where: { userId, status: "PENDING" },
     orderBy: { createdAt: "desc" },
@@ -98,5 +97,30 @@ export async function activateAdminUser(userId: string): Promise<{
     }),
   ]);
 
-  return { ok: true, status: "ACTIVE" };
+  await recordActivitySafe(userId, {
+    category: "PROFILE",
+    action: "UPDATED",
+    title: "Assinatura ativada (Pix confirmado)",
+    changes: [
+      {
+        field: "status",
+        label: "Status da conta",
+        from: previousStatus,
+        to: "ACTIVE",
+      },
+      {
+        field: "subscription",
+        label: "Assinatura",
+        from: pending ? "Pagamento pendente" : "Sem cobrança aberta",
+        to: "Ativa — baixa manual no painel admin",
+      },
+    ],
+    source: "app",
+  });
+
+  const row = await getAdminUserRowById(userId);
+  if (!row) {
+    throw Object.assign(new Error("Cliente não encontrado"), { statusCode: 404 });
+  }
+  return row;
 }

@@ -294,6 +294,18 @@ export async function createAdminUser(
   return mapUserRow(refreshed, now);
 }
 
+export async function getAdminUserRowById(
+  userId: string,
+): Promise<AdminUserRow | null> {
+  const now = new Date();
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: userInclude,
+  });
+  if (!user) return null;
+  return mapUserRow(user, now);
+}
+
 async function deleteUserChildRows(
   op: () => Promise<unknown>,
 ): Promise<void> {
