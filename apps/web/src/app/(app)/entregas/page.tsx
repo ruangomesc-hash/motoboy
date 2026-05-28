@@ -1,12 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
 import { AppPage } from "@/components/app-page";
-import { todayDateInputValue } from "@/lib/local-date";
+import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
 
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
@@ -29,6 +30,11 @@ export default function EntregasPage() {
 
   const filterDate = deliveriesDate || todayDateInputValue();
   const isToday = filterDate === todayDateInputValue();
+  const visibleDeliveries = useMemo(
+    () =>
+      deliveries.filter((d) => isIsoOnDateInput(d.occurredAt, filterDate)),
+    [deliveries, filterDate],
+  );
 
   return (
     <AppPage className="p-3 space-y-3">
@@ -48,13 +54,13 @@ export default function EntregasPage() {
         />
       </div>
 
-      {!isBootstrapped && deliveries.length === 0 ? (
+      {!isBootstrapped && visibleDeliveries.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-6 animate-pulse">
           Carregando entregas...
         </p>
       ) : (
         <ul className="space-y-2">
-          {deliveries.map((d) => (
+          {visibleDeliveries.map((d) => (
             <li key={d.id}>
               <Link
                 href={`/entregas/${d.id}`}
@@ -75,7 +81,7 @@ export default function EntregasPage() {
               </Link>
             </li>
           ))}
-          {deliveries.length === 0 && (
+          {visibleDeliveries.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-6">
               Nenhuma entrega neste dia. Registre acima ou pelo WhatsApp.
             </p>

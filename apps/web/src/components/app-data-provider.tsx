@@ -71,6 +71,10 @@ import {
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
 import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
 import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
+import {
+  mergeDeliveryLists,
+  mergeTodaySummary,
+} from "@/lib/merge-app-data";
 
 export type { DeliveryListItem };
 
@@ -148,6 +152,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     null,
   );
   const meLoadSeq = useRef(0);
+  const deliveriesFetchSeq = useRef(0);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
@@ -236,13 +241,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshToday = useCallback(async () => {
-    if (pendingDeliveries.current.hasLocal()) return;
     try {
       const data = await api<TodaySummary>("/me/today");
       const tomb = deletedDeliveries.current;
-      const merged = tomb.applyToTodaySummary(data);
-      setToday(merged);
-      tomb.pruneConfirmedAbsent(merged.recentDeliveries.map((d) => d.id));
+      const todayKey = todayDateInputValue();
+      setToday((prev) => {
+        const fromServer = tomb.applyToTodaySummary(data);
+        return mergeTodaySummary(fromServer, prev, todayKey);
+      });
+      tomb.pruneConfirmedAbsent(data.recentDeliveries.map((d) => d.id));
       if (userId) schedulePersist(userId);
     } catch {
       /* mantém cache */
@@ -362,6 +369,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             );
             const isToday = isIsoOnDateInput(occurredAt, todayKey);
             const idChanged = prevPayload.id !== item.id;
+            if (idChanged && wasToday && isToday) {
+              return replaceDeliveryInToday(base, prevPayload, nextPayload);
+            }
             let working = base;
             if (idChanged && wasToday) {
               working = removeDeliveryFromToday(working, prevPayload);
@@ -483,14 +493,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshDeliveries = useCallback(async () => {
-    if (pendingDeliveries.current.hasLocal()) return;
     const date = deliveriesDate || todayDateInputValue();
+    const seq = ++deliveriesFetchSeq.current;
     const q = `?date=${date}`;
     try {
       const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
+      if (seq !== deliveriesFetchSeq.current) return;
       const tomb = deletedDeliveries.current;
       const items = tomb.filter(r.items);
-      setDeliveries(items);
+      setDeliveries((prev) => mergeDeliveryLists(items, prev, date));
       tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
       if (userId) schedulePersist(userId);
     } catch {
