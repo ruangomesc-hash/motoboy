@@ -101,7 +101,10 @@ export function applyDeliveryToToday(
     totalExpenses,
     netProfit: grossTotal - totalExpenses,
     profitPerKm: totalKm > 0 ? (grossTotal - totalExpenses) / totalKm : 0,
-    recentDeliveries: [newRecent, ...today.recentDeliveries].slice(0, 3),
+    recentDeliveries: [
+      newRecent,
+      ...today.recentDeliveries.filter((r) => r.id !== newRecent.id),
+    ].slice(0, 3),
   };
 }
 

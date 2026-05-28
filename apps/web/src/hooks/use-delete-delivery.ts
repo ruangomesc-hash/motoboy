@@ -12,6 +12,7 @@ export function useDeleteDelivery() {
     removeDeliveryOptimistic,
     upsertDeliveryOptimistic,
     publishAppSync,
+    scheduleDeliveryReconcile,
   } = useAppData();
 
   const deleteDelivery = useCallback(
@@ -32,7 +33,9 @@ export function useDeleteDelivery() {
         publishAppSync(DELIVERY_SYNC_TOPICS, {
           removedDeliveryId: id,
           removedDelivery: snapshot,
+          skipReconcile: true,
         });
+        scheduleDeliveryReconcile();
         return { ok: true as const };
       } catch (err) {
         upsertDeliveryOptimistic(snapshot);
@@ -47,7 +50,13 @@ export function useDeleteDelivery() {
         return { ok: false as const, error: message };
       }
     },
-    [api, publishAppSync, removeDeliveryOptimistic, upsertDeliveryOptimistic],
+    [
+      api,
+      publishAppSync,
+      removeDeliveryOptimistic,
+      scheduleDeliveryReconcile,
+      upsertDeliveryOptimistic,
+    ],
   );
 
   return { deleteDelivery };

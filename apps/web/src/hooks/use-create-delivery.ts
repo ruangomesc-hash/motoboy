@@ -26,9 +26,7 @@ export function useCreateDelivery() {
     removeDeliveryOptimistic,
     publishAppSync,
     setDeliveriesDate,
-    refreshToday,
-    refreshDeliveries,
-    refreshStats,
+    scheduleDeliveryReconcile,
   } = useAppData();
 
   const createDelivery = useCallback(
@@ -89,12 +87,7 @@ export function useCreateDelivery() {
           skipReconcile: true,
         });
 
-        void Promise.all([
-          refreshToday(),
-          refreshDeliveries(),
-          refreshStats("week"),
-          refreshStats("month"),
-        ]);
+        scheduleDeliveryReconcile();
 
         return { ok: true as const, delivery: realDelivery };
       } catch (err) {
@@ -116,9 +109,7 @@ export function useCreateDelivery() {
       applyDeliveryOptimistic,
       publishAppSync,
       removeDeliveryOptimistic,
-      refreshDeliveries,
-      refreshStats,
-      refreshToday,
+      scheduleDeliveryReconcile,
       setDeliveriesDate,
       upsertDeliveryOptimistic,
     ],

@@ -13,20 +13,20 @@ import { buildPreviewPeriodStats } from "@/lib/stats-preview";
 function mergeDisplayStats(
   api: PeriodStats | null,
   preview: PeriodStats,
-  costsConfigured: boolean,
 ): PeriodStats {
   if (!api) return preview;
-  if (!costsConfigured) {
-    return {
-      ...api,
-      totalGross: preview.totalGross,
-      totalNet: preview.totalNet,
-      count: preview.count,
-      totalKm: preview.totalKm,
-      series: preview.series.length > 0 ? preview.series : api.series,
-    };
-  }
-  return api;
+  const usePreview =
+    preview.count > api.count ||
+    preview.totalGross > api.totalGross + 0.001;
+  if (!usePreview) return api;
+  return {
+    ...api,
+    totalGross: Math.max(api.totalGross, preview.totalGross),
+    totalNet: Math.max(api.totalNet, preview.totalNet),
+    count: Math.max(api.count, preview.count),
+    totalKm: Math.max(api.totalKm, preview.totalKm),
+    series: preview.series.length > 0 ? preview.series : api.series,
+  };
 }
 
 export default function StatsPage() {
@@ -56,13 +56,8 @@ export default function StatsPage() {
   );
 
   const stats = useMemo(
-    () =>
-      mergeDisplayStats(
-        apiStats,
-        preview,
-        today?.costsConfigured ?? false,
-      ),
-    [apiStats, preview, today?.costsConfigured],
+    () => mergeDisplayStats(apiStats, preview),
+    [apiStats, preview],
   );
 
   useEffect(() => {

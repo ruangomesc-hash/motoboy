@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
@@ -27,6 +27,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
+import { dedupeRecentDeliveries } from "@/lib/merge-app-data";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
 
@@ -89,6 +90,10 @@ export default function HomePage() {
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
 
   const s = today ?? emptySummary;
+  const recentDeliveries = useMemo(
+    () => dedupeRecentDeliveries(s.recentDeliveries).slice(0, 3),
+    [s.recentDeliveries],
+  );
   const kmSourceLabel =
     s.odometer.kmSource === "odometer"
       ? "Hodômetro (painel)"
@@ -296,12 +301,12 @@ export default function HomePage() {
           Últimas entregas
         </h2>
         <ul className="space-y-0">
-          {s.recentDeliveries.length === 0 && (
+          {recentDeliveries.length === 0 && (
             <li className="text-[10px] text-muted-foreground px-1">
               Nenhuma entrega hoje. Manda no WhatsApp!
             </li>
           )}
-          {s.recentDeliveries.slice(0, 3).map((d) => (
+          {recentDeliveries.map((d) => (
             <li key={d.id} className="flex items-center gap-0.5 border-b border-border/40">
               <Link
                 href={`/entregas/${d.id}`}

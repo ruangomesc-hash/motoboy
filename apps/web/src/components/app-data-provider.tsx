@@ -17,6 +17,7 @@ import { useSession } from "next-auth/react";
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
+  buildAppSyncKey,
   type AppSyncDetail,
   type AppSyncTopic,
   notifyAppSync,
@@ -72,6 +73,7 @@ import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones
 import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
 import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 import {
+  dedupeRecentDeliveries,
   mergeDeliveryLists,
   mergeTodaySummary,
 } from "@/lib/merge-app-data";
@@ -113,14 +115,16 @@ type AppDataContextValue = {
     topics: AppSyncTopic | AppSyncTopic[],
     extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
   ) => void;
+  /** Alinha Home, Entregas e Stats com o servidor (debounced). */
+  scheduleDeliveryReconcile: () => void;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 8_000;
-const RECONCILE_MS = 60;
-const BACKGROUND_RECONCILE_MS = 500;
+const POLL_MS = 30_000;
+const DELIVERY_RECONCILE_MS = 500;
+const OWN_SYNC_KEY_TTL_MS = 1_500;
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
   return shouldHandleSync(subscribed, incoming);
@@ -147,12 +151,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const meSettingsRef = useRef<MeSettingsSnapshot | null>(null);
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const backgroundReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const meLoadSeq = useRef(0);
   const deliveriesFetchSeq = useRef(0);
+  const ownSyncKeys = useRef(new Set<string>());
+  const deliveryReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
@@ -247,7 +251,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const todayKey = todayDateInputValue();
       setToday((prev) => {
         const fromServer = tomb.applyToTodaySummary(data);
-        return mergeTodaySummary(fromServer, prev, todayKey);
+        const merged = mergeTodaySummary(fromServer, prev, todayKey);
+        return {
+          ...merged,
+          recentDeliveries: dedupeRecentDeliveries(merged.recentDeliveries).slice(
+            0,
+            3,
+          ),
+        };
       });
       tomb.pruneConfirmedAbsent(data.recentDeliveries.map((d) => d.id));
       if (userId) schedulePersist(userId);
@@ -392,7 +403,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           }
           if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
           if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
-          return applyDeliveryToToday(base, nextPayload);
+          const next = applyDeliveryToToday(base, nextPayload);
+          return {
+            ...next,
+            recentDeliveries: dedupeRecentDeliveries(next.recentDeliveries).slice(
+              0,
+              3,
+            ),
+          };
         });
       });
 
@@ -602,34 +620,34 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }, 80);
   }, [loadMeSettings]);
 
-  const flushReconcile = useCallback(() => {
-    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
-    reconcileTimer.current = setTimeout(() => {
-      reconcileTimer.current = null;
+  const scheduleDeliveryReconcile = useCallback(() => {
+    if (deliveryReconcileTimer.current) {
+      clearTimeout(deliveryReconcileTimer.current);
+    }
+    deliveryReconcileTimer.current = setTimeout(() => {
+      deliveryReconcileTimer.current = null;
+      if (pendingDeliveries.current.hasLocal()) return;
       void Promise.all([
         refreshToday(),
         refreshDeliveries(),
         refreshStats("week"),
         refreshStats("month"),
       ]);
-    }, RECONCILE_MS);
-  }, [refreshToday, refreshDeliveries, refreshStats]);
-
-  const scheduleBackgroundReconcile = useCallback(() => {
-    if (backgroundReconcileTimer.current) {
-      clearTimeout(backgroundReconcileTimer.current);
-    }
-    backgroundReconcileTimer.current = setTimeout(() => {
-      backgroundReconcileTimer.current = null;
-      flushReconcile();
-    }, BACKGROUND_RECONCILE_MS);
-  }, [flushReconcile]);
+    }, DELIVERY_RECONCILE_MS);
+  }, [refreshDeliveries, refreshStats, refreshToday]);
 
   const publishAppSync = useCallback(
     (
       topics: AppSyncTopic | AppSyncTopic[],
       extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
     ) => {
+      const list = Array.isArray(topics) ? topics : [topics];
+      const syncKey = buildAppSyncKey(list, extra);
+      ownSyncKeys.current.add(syncKey);
+      window.setTimeout(() => {
+        ownSyncKeys.current.delete(syncKey);
+      }, OWN_SYNC_KEY_TTL_MS);
+
       if (userId) persistCacheNow(userId);
       notifyAppSync(topics, {
         ...extra,
@@ -648,13 +666,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         deletedDeliveries.current.hydrate(detail.deletedDeliveryIds);
       }
 
-      if (detail.removedDeliveryId) {
-        removeDeliveryOptimistic(
-          detail.removedDeliveryId,
-          detail.removedDelivery,
-        );
-      } else if (detail.delivery) {
-        upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
+      const isOwnEvent =
+        detail.syncKey != null && ownSyncKeys.current.has(detail.syncKey);
+
+      if (!isOwnEvent) {
+        if (detail.removedDeliveryId) {
+          removeDeliveryOptimistic(
+            detail.removedDeliveryId,
+            detail.removedDelivery,
+          );
+        } else if (detail.delivery) {
+          upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
+        }
       }
 
       if (userId) persistCacheNow(userId);
@@ -664,18 +687,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        flushReconcile();
+        scheduleDeliveryReconcile();
       }
       if (topicsMatch(["profile", "all"], incoming)) {
         queueConfigRefresh();
       }
     },
     [
-      flushReconcile,
       persistCacheNow,
       queueConfigRefresh,
       removeDeliveryOptimistic,
-      scheduleBackgroundReconcile,
+      scheduleDeliveryReconcile,
       upsertDeliveryOptimistic,
       userId,
     ],
@@ -875,10 +897,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
+      if (pendingDeliveries.current.hasLocal()) return;
       const cached = readAppCache(userId);
-      if (cached) applyCacheSnapshot(cached);
       if (!cached || isCacheStale(cached.savedAt, 12_000)) {
-        flushReconcile();
+        scheduleDeliveryReconcile();
       }
     };
 
@@ -891,7 +913,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!SOCKET_ENABLED) {
       poll = setInterval(() => {
         if (document.visibilityState !== "visible") return;
-        flushReconcile();
+        if (pendingDeliveries.current.hasLocal()) return;
+        scheduleDeliveryReconcile();
       }, POLL_MS);
     }
 
@@ -906,8 +929,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [
     applyCacheSnapshot,
     applySyncDetail,
-    flushReconcile,
     isBootstrapped,
+    scheduleDeliveryReconcile,
     userId,
   ]);
 
@@ -935,6 +958,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       removeDeliveryOptimistic,
       patchDeliveryInList,
       publishAppSync,
+      scheduleDeliveryReconcile,
     }),
     [
       today,
@@ -958,6 +982,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       removeDeliveryOptimistic,
       patchDeliveryInList,
       publishAppSync,
+      scheduleDeliveryReconcile,
     ],
   );
 

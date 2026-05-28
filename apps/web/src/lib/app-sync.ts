@@ -45,6 +45,13 @@ export function registerAppSyncPersist(fn: (() => void) | null): void {
   persistBeforeBroadcast = fn;
 }
 
+export function buildAppSyncKey(
+  topics: AppSyncTopic[],
+  extra?: Omit<AppSyncDetail, "topics" | "syncKey">,
+): string {
+  return buildSyncKey({ topics, ...extra, syncKey: "" });
+}
+
 function buildSyncKey(detail: AppSyncDetail): string {
   return [
     detail.removedDeliveryId ?? "",

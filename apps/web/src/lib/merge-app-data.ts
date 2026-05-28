@@ -4,21 +4,27 @@ import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import { isIsoOnDateInput } from "@/lib/local-date";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
 
-/** Mantém entregas locais do dia que o servidor ainda não devolveu (evita “piscar” na lista). */
+function isPendingDeliveryId(id: string): boolean {
+  return id.startsWith("local-");
+}
+
+/** Mantém só entregas `local-*` em voo; servidor é a fonte da verdade para IDs reais. */
 export function mergeDeliveryLists(
   server: DeliveryListItem[],
   local: DeliveryListItem[],
   dateFilter: string,
 ): DeliveryListItem[] {
   const serverIds = new Set(server.map((d) => d.id));
-  const extras = local.filter(
+  const pending = local.filter(
     (d) =>
-      isIsoOnDateInput(d.occurredAt, dateFilter) && !serverIds.has(d.id),
+      isPendingDeliveryId(d.id) &&
+      isIsoOnDateInput(d.occurredAt, dateFilter) &&
+      !serverIds.has(d.id),
   );
-  if (extras.length === 0) {
+  if (pending.length === 0) {
     return sortDeliveriesByOccurredAt(server);
   }
-  return sortDeliveriesByOccurredAt([...server, ...extras]);
+  return sortDeliveriesByOccurredAt([...server, ...pending]);
 }
 
 function sortDeliveriesByOccurredAt(
@@ -30,7 +36,7 @@ function sortDeliveriesByOccurredAt(
   );
 }
 
-/** Preserva entregas de hoje no resumo quando o GET /me/today ainda não as inclui. */
+/** Só acrescenta entregas pendentes (`local-*`) ao resumo do dia; evita duplicar totais. */
 export function mergeTodaySummary(
   server: TodaySummary,
   local: TodaySummary | null | undefined,
@@ -38,26 +44,32 @@ export function mergeTodaySummary(
 ): TodaySummary {
   if (!local) return server;
 
-  const serverRecentIds = new Set(server.recentDeliveries.map((r) => r.id));
-  const missing = local.recentDeliveries.filter(
+  const serverIds = new Set(server.recentDeliveries.map((r) => r.id));
+  const pending = local.recentDeliveries.filter(
     (r) =>
-      !serverRecentIds.has(r.id) && isIsoOnDateInput(r.occurredAt, todayKey),
+      isPendingDeliveryId(r.id) &&
+      !serverIds.has(r.id) &&
+      isIsoOnDateInput(r.occurredAt, todayKey),
   );
-  if (missing.length === 0) return server;
-
-  if (server.deliveryCount >= local.deliveryCount) {
-    const combined = [
-      ...missing,
-      ...server.recentDeliveries.filter(
-        (r) => !missing.some((m) => m.id === r.id),
-      ),
-    ].slice(0, 3);
-    return { ...server, recentDeliveries: combined };
-  }
+  if (pending.length === 0) return server;
 
   let merged = server;
-  for (const row of missing) {
+  for (const row of pending) {
     merged = applyDeliveryToToday(merged, recentDeliveryToPayload(row));
   }
   return merged;
+}
+
+/** Remove duplicatas por id (mantém a primeira ocorrência). */
+export function dedupeRecentDeliveries<
+  T extends { id: string },
+>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
 }
