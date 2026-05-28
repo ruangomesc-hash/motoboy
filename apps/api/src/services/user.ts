@@ -1,7 +1,37 @@
-import { prisma } from "@motoboy/db";
+import { prisma, type Prisma } from "@motoboy/db";
 import { TRIAL_DAYS } from "@motoboy/types";
 import { normalizePhone } from "../lib/phone.js";
-import { attachReferralToUser } from "./affiliate.js";
+import { attachReferralToUser, validateAffiliateCode } from "./affiliate.js";
+
+/** Custos + meta diária padrão — mesmo baseline para cadastro público e admin. */
+export function defaultUserNestedCreate(): Pick<
+  Prisma.UserCreateInput,
+  "costs" | "goals"
+> {
+  return {
+    costs: { create: {} },
+    goals: {
+      create: {
+        period: "DAILY",
+        targetValue: 250,
+        active: true,
+      },
+    },
+  };
+}
+
+export async function assertAffiliateCodeValid(
+  affiliateCode: string | undefined,
+): Promise<void> {
+  if (!affiliateCode?.trim()) return;
+  const check = await validateAffiliateCode(affiliateCode);
+  if (!check.valid) {
+    throw Object.assign(new Error("Cupom de indicação inválido ou inativo."), {
+      statusCode: 400,
+      code: "INVALID_AFFILIATE",
+    });
+  }
+}
 
 export async function findUserByPhone(whatsappNumber: string) {
   const normalized = normalizePhone(whatsappNumber);
@@ -35,6 +65,8 @@ export async function createUserWithProfile(input: {
   const trialEndsAt = new Date();
   trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
 
+  await assertAffiliateCodeValid(input.affiliateCode);
+
   const user = await prisma.user.create({
     data: {
       whatsappNumber: normalized,
@@ -43,14 +75,7 @@ export async function createUserWithProfile(input: {
       passwordHash: input.passwordHash,
       status: "TRIAL",
       trialEndsAt,
-      costs: { create: {} },
-      goals: {
-        create: {
-          period: "DAILY",
-          targetValue: 250,
-          active: true,
-        },
-      },
+      ...defaultUserNestedCreate(),
     },
     include: { costs: true },
   });
@@ -109,14 +134,7 @@ export async function findOrCreateUser(whatsappNumber: string) {
         whatsappNumber: normalized,
         status: "TRIAL",
         trialEndsAt,
-        costs: { create: {} },
-        goals: {
-          create: {
-            period: "DAILY",
-            targetValue: 250,
-            active: true,
-          },
-        },
+        ...defaultUserNestedCreate(),
       },
       include: { costs: true },
     });

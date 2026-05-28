@@ -11,6 +11,10 @@ import type {
 import { buildCsv } from "../lib/csv.js";
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser } from "./affiliate.js";
+import {
+  assertAffiliateCodeValid,
+  defaultUserNestedCreate,
+} from "./user.js";
 
 import { SUBSCRIPTION_PRICE_BRL, TRIAL_DAYS } from "@motoboy/types";
 
@@ -260,6 +264,8 @@ export async function createAdminUser(
     });
   }
 
+  await assertAffiliateCodeValid(input.affiliateCode);
+
   const status = input.status ?? "TRIAL";
   const trialEndsAt = new Date(now);
   trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
@@ -272,14 +278,7 @@ export async function createAdminUser(
       status,
       trialEndsAt: status === "ACTIVE" ? null : trialEndsAt,
       subscribedAt: status === "ACTIVE" ? now : null,
-      costs: { create: {} },
-      goals: {
-        create: {
-          period: "DAILY",
-          targetValue: 250,
-          active: true,
-        },
-      },
+      ...defaultUserNestedCreate(),
     },
     include: userInclude,
   });
