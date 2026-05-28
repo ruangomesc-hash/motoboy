@@ -170,18 +170,39 @@ export async function verifyAdminLoginWithEnvFallback(
 
   const normalizedEmail = normalizeEmail(email);
   // Compat: prioriza email (dados antigos podem ter id diferente de "primary").
-  const account =
+  const accountByEmail =
     (await prisma.adminAccount.findUnique({
       where: { email: normalizedEmail },
-    })) ??
-    (await prisma.adminAccount.findUnique({
+    })) ?? null;
+  const accountPrimary = await prisma.adminAccount.findUnique({
       where: { id: ADMIN_ID },
-    }));
+    });
+  const account = accountByEmail ?? accountPrimary;
   if (!account) return false;
 
-  if (normalizedEmail !== account.email) return false;
+  // Caminho normal: email + senha batem.
+  if (
+    normalizedEmail === account.email &&
+    (await verifyAdminPasswordCompat(password, account.passwordHash))
+  ) {
+    return true;
+  }
 
-  return verifyAdminPasswordCompat(password, account.passwordHash);
+  // Recuperacao de compatibilidade: senha do admin principal bate, mas email mudou.
+  if (
+    accountPrimary &&
+    (await verifyAdminPasswordCompat(password, accountPrimary.passwordHash))
+  ) {
+    if (accountPrimary.email !== normalizedEmail) {
+      await prisma.adminAccount.update({
+        where: { id: accountPrimary.id },
+        data: { email: normalizedEmail },
+      });
+    }
+    return true;
+  }
+
+  return false;
 }
 
 async function verifyAdminPasswordCompat(
