@@ -31,12 +31,16 @@ export function buildPreviewPeriodStats(
 ): PeriodStats {
   const now = new Date();
   const series = new Map<string, number>();
+  const seenIds = new Set<string>();
   let totalGross = 0;
   let totalKm = 0;
   let count = 0;
 
   for (const d of deliveries) {
     if (!isInStatsPeriod(d.occurredAt, period, now)) continue;
+    if (seenIds.has(d.id)) continue;
+    seenIds.add(d.id);
+
     const gross = Number(d.grossValue);
     const km = d.distanceKm != null ? Number(d.distanceKm) : 0;
     const key = d.occurredAt.slice(0, 10);
@@ -48,16 +52,10 @@ export function buildPreviewPeriodStats(
 
   const todayKey = todayDateInputValue();
   if (today && isInStatsPeriod(new Date().toISOString(), period, now)) {
-    const listedToday = series.get(todayKey) ?? 0;
-    if (today.grossTotal > listedToday) {
-      totalGross += today.grossTotal - listedToday;
+    const listedTodayGross = series.get(todayKey) ?? 0;
+    if (today.grossTotal > listedTodayGross) {
+      totalGross += today.grossTotal - listedTodayGross;
       series.set(todayKey, today.grossTotal);
-    }
-    if (today.deliveryCount > count) {
-      count = today.deliveryCount;
-    }
-    if (today.totalKm > totalKm) {
-      totalKm = today.totalKm;
     }
   }
 
