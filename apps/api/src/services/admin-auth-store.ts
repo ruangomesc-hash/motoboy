@@ -41,6 +41,24 @@ export async function isAdminTableReady(): Promise<boolean> {
   }
 }
 
+/** Coluna User.passwordHash (migration 20260527210000). Sem ela, salvar senha no admin quebra. */
+export async function isUserPasswordColumnReady(): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'User'
+          AND column_name = 'passwordHash'
+      ) AS "exists"
+    `;
+    return Boolean(rows[0]?.exists);
+  } catch {
+    return false;
+  }
+}
+
 export async function isAdminConfigured(): Promise<boolean> {
   if (!(await isAdminTableReady())) return false;
   try {

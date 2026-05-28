@@ -23,6 +23,16 @@ describe("mapPrismaHttpError", () => {
     expect(mapped?.body.code).toBe("DATABASE_UNAVAILABLE");
   });
 
+  it("maps P2022 passwordHash to migrations hint", () => {
+    const mapped = mapPrismaHttpError({
+      code: "P2022",
+      message: 'column "passwordHash" does not exist',
+    });
+    expect(mapped?.status).toBe(503);
+    expect(mapped?.body.code).toBe("MIGRATIONS_REQUIRED");
+    expect(mapped?.body.error).toContain("senha");
+  });
+
   it("returns null for unknown errors", () => {
     expect(mapPrismaHttpError(new Error("boom"))).toBeNull();
   });

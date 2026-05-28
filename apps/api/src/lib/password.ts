@@ -16,9 +16,16 @@ export function assertPasswordLength(password: string): void {
 
 export async function hashPassword(password: string): Promise<string> {
   assertPasswordLength(password);
-  const salt = randomBytes(16).toString("hex");
-  const derived = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${salt}:${derived.toString("hex")}`;
+  try {
+    const salt = randomBytes(16).toString("hex");
+    const derived = (await scryptAsync(password, salt, 64)) as Buffer;
+    return `${salt}:${derived.toString("hex")}`;
+  } catch {
+    throw Object.assign(
+      new Error("Não foi possível processar a senha. Tente novamente."),
+      { statusCode: 503, code: "PASSWORD_HASH_FAILED" },
+    );
+  }
 }
 
 export async function verifyPassword(

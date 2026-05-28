@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { ZodError } from "zod";
 import {
   adminCreateAffiliateSchema,
   adminCreateUserSchema,
@@ -250,12 +251,16 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.put("/admin/users/:userId/password", async (request, reply) => {
-    const { userId } = request.params as { userId: string };
-    const body = adminSetUserPasswordSchema.parse(request.body);
     try {
+      const { userId } = request.params as { userId: string };
+      const body = adminSetUserPasswordSchema.parse(request.body);
       const user = await setAdminUserPassword(userId, body.password);
       return reply.send(user);
     } catch (err) {
+      if (err instanceof ZodError) {
+        const first = err.errors[0]?.message ?? "Senha inválida";
+        return reply.status(400).send({ error: first, code: "VALIDATION_ERROR" });
+      }
       return sendPrismaOrServiceError(
         reply,
         err,

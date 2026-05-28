@@ -9,9 +9,22 @@ export function mapPrismaHttpError(err: unknown): {
   status: number;
   body: PrismaHttpErrorBody;
 } | null {
-  const code = (err as { code?: string }).code;
-  const name = (err as { name?: string }).name;
-  const message = err instanceof Error ? err.message : String(err);
+  const raw = err as { code?: string; name?: string; message?: string };
+  const code = raw.code;
+  const name = raw.name ?? (err instanceof Error ? err.name : undefined);
+  const message =
+    (err instanceof Error ? err.message : raw.message) ?? String(err);
+
+  if (code === "P2022" && /passwordHash/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Banco sem coluna de senha do motoboy. Rode a migration passwordHash no Supabase.",
+        code: "MIGRATIONS_REQUIRED",
+      },
+    };
+  }
 
   if (isPrismaTableMissingError(err)) {
     return {
@@ -56,7 +69,7 @@ export function mapPrismaHttpError(err: unknown): {
     };
   }
 
-  if (code === "P2021") {
+  if (code === "P2021" || code === "P2022") {
     return {
       status: 503,
       body: {

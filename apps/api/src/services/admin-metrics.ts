@@ -1,5 +1,7 @@
 import { prisma } from "@motoboy/db";
-import { setUserPassword } from "./user-password.js";
+import { hashPassword } from "../lib/password.js";
+import { isPrismaTableMissingError } from "../lib/prisma-errors.js";
+import { isUserPasswordColumnReady } from "./admin-auth-store.js";
 import type {
   AdminCreateUserInput,
   AdminOverview,
@@ -162,21 +164,34 @@ export async function setAdminUserPassword(
   userId: string,
   password: string,
 ): Promise<AdminUserRow> {
+  if (!(await isUserPasswordColumnReady())) {
+    throw Object.assign(
+      new Error(
+        "Banco sem coluna de senha do motoboy. Rode a migration passwordHash no Supabase e redeploy.",
+      ),
+      { statusCode: 503, code: "MIGRATIONS_REQUIRED" },
+    );
+  }
+
+  const now = new Date();
   const existing = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true },
+    include: userInclude,
   });
   if (!existing) {
     throw Object.assign(new Error("Cliente não encontrado"), {
       statusCode: 404,
+      code: "NOT_FOUND",
     });
   }
-  await setUserPassword(userId, password);
-  const refreshed = await prisma.user.findUniqueOrThrow({
+
+  const passwordHash = await hashPassword(password);
+  await prisma.user.update({
     where: { id: userId },
-    include: userInclude,
+    data: { passwordHash },
   });
-  return mapUserRow(refreshed, new Date());
+
+  return mapUserRow({ ...existing, passwordHash }, now);
 }
 
 export async function deleteAdminUser(userId: string): Promise<void> {
@@ -194,7 +209,9 @@ export async function deleteAdminUser(userId: string): Promise<void> {
   // Exclusão explícita (sem $transaction interativa — incompatível com pooler 6543).
   // Cobre FKs sem CASCADE no banco de produção.
   await prisma.whatsAppMessage.deleteMany({ where: { userId } });
-  await prisma.activityLog.deleteMany({ where: { userId } });
+  await deleteUserChildRows(() =>
+    prisma.activityLog.deleteMany({ where: { userId } }),
+  );
   await prisma.delivery.deleteMany({ where: { userId } });
   await prisma.fuelRefuel.deleteMany({ where: { userId } });
   await prisma.odometerReading.deleteMany({ where: { userId } });
@@ -252,6 +269,17 @@ export async function createAdminUser(
   });
 
   return mapUserRow(refreshed, now);
+}
+
+async function deleteUserChildRows(
+  op: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await op();
+  } catch (err) {
+    if (isPrismaTableMissingError(err)) return;
+    throw err;
+  }
 }
 
 const userInclude = {

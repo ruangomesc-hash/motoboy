@@ -155,7 +155,9 @@ export async function createApp(
   app.get("/health", async (_request, reply) => {
     const { prisma } = await import("@motoboy/db");
     const { isAsaasConfigured } = await import("./lib/asaas-client.js");
-    const { isAdminTableReady } = await import("./services/admin-auth-store.js");
+    const { isAdminTableReady, isUserPasswordColumnReady } = await import(
+      "./services/admin-auth-store.js"
+    );
     try {
       await prisma.$queryRaw`SELECT 1`;
     } catch (err) {
@@ -167,13 +169,18 @@ export async function createApp(
       });
     }
     const adminTable = await isAdminTableReady();
+    const userPasswordColumn = await isUserPasswordColumnReady();
+    const migrationsHint = !adminTable
+      ? "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build"
+      : !userPasswordColumn
+        ? "Rode a migration User.passwordHash no Supabase (20260527210000_user_password_hash)"
+        : null;
     return {
       ok: true,
       database: "connected",
       adminTable,
-      migrationsHint: adminTable
-        ? null
-        : "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build",
+      userPasswordColumn,
+      migrationsHint,
       redis: isRedisEnabled(env),
       asaas: {
         configured: isAsaasConfigured(env),
