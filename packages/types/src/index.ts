@@ -407,12 +407,12 @@ export const deliveryPatchSchema = z.object({
 });
 
 export const deliveryCreateSchema = z.object({
-  grossValue: z.coerce.number().positive(),
+  grossValue: z.coerce.number().finite().positive(),
   source: deliverySourceSchema.default("PARTICULAR"),
   originName: z.string().max(200).nullable().optional(),
   destinationAddr: z.string().max(500).nullable().optional(),
   distanceKm: z
-    .union([z.coerce.number().nonnegative(), z.null()])
+    .union([z.coerce.number().finite().nonnegative(), z.null()])
     .optional(),
   occurredAt: z
     .string()

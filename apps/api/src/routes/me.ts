@@ -200,7 +200,20 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   app.post("/me/deliveries", async (request, reply) => {
     const body = deliveryCreateSchema.parse(request.body);
     const userId = request.sessionUser!.id;
-    const delivery = await createDeliveryManual(userId, body);
+    let delivery: Awaited<ReturnType<typeof createDeliveryManual>>;
+    try {
+      delivery = await createDeliveryManual(userId, body);
+    } catch (err) {
+      request.log.error(
+        { err, userId, body },
+        "Falha ao criar entrega manual",
+      );
+      return reply.status(503).send({
+        error:
+          "Nao foi possivel salvar a entrega agora. Verifique a conexao com o banco e tente novamente.",
+        code: "DELIVERY_SAVE_FAILED",
+      });
+    }
     // Efeitos secundários (log/socket) não podem impedir o salvamento principal.
     try {
       await recordActivitySafe(
