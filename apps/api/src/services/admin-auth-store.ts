@@ -54,8 +54,9 @@ export async function isUserPasswordColumnReady(): Promise<boolean> {
       ) AS "exists"
     `;
     return Boolean(rows[0]?.exists);
-  } catch {
-    return false;
+  } catch (err) {
+    if (isPrismaTableMissingError(err)) return false;
+    throw err;
   }
 }
 

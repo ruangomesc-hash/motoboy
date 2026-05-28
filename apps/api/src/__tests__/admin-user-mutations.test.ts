@@ -51,4 +51,15 @@ describe("admin user password & delete routes", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("DELETE with invalid token does not return generic 500", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/admin/users/user_test",
+      headers: { authorization: "Bearer invalid.token.here" },
+    });
+    expect(res.statusCode).toBe(401);
+    const body = res.json() as { error?: string };
+    expect(body.error).not.toBe("Erro interno do servidor");
+  });
 });

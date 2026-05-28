@@ -52,8 +52,19 @@ export async function createApp(
     },
   );
 
-  app.setErrorHandler((error: unknown, _request, reply) => {
+  app.setErrorHandler((error: unknown, request, reply) => {
+    if (reply.sent) {
+      request.log.error({ err: error }, "error after response was sent");
+      return;
+    }
     const err = error as { code?: string; name?: string; message?: string };
+    if (
+      err.code === "FST_ERR_REP_ALREADY_SENT" ||
+      err.message?.includes("Reply was already sent")
+    ) {
+      request.log.error({ err: error }, "duplicate reply prevented");
+      return;
+    }
     const prismaMapped = mapPrismaHttpError(error);
     if (prismaMapped) {
       app.log.error(error);

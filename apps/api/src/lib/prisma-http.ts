@@ -91,7 +91,9 @@ export function mapPrismaHttpError(err: unknown): {
 
   if (
     err instanceof Error &&
-    /transaction|interactive transactions|pgbouncer/i.test(err.message)
+    /transaction|interactive transactions|pgbouncer|prepared statement|42P01/i.test(
+      err.message,
+    )
   ) {
     return {
       status: 503,
