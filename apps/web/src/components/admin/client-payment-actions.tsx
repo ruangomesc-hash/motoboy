@@ -28,6 +28,7 @@ export function ClientPaymentActions({
     null,
   );
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [loadingLink, setLoadingLink] = useState(false);
   const [loadingActivate, setLoadingActivate] = useState(false);
@@ -100,18 +101,12 @@ export function ClientPaymentActions({
     }
   }
 
-  async function deleteClient() {
-    if (
-      !window.confirm(
-        `Excluir permanentemente ${clientLabel}?\n\nIsso remove o cadastro, entregas e histórico. Não dá para desfazer.`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
     setLoadingDelete(true);
     setError(null);
     try {
       await api(`/admin/users/${client.id}`, { method: "DELETE" });
+      setDeleteOpen(false);
       onUpdated();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao excluir cliente");
@@ -178,7 +173,10 @@ export function ClientPaymentActions({
           variant="outline"
           className="h-8 text-xs justify-start px-2 border-red-500/40 text-red-400 hover:bg-red-500/10"
           disabled={loadingDelete}
-          onClick={deleteClient}
+          onClick={() => {
+            setError(null);
+            setDeleteOpen(true);
+          }}
         >
           <Trash2 className="h-3.5 w-3.5 mr-1 shrink-0" />
           Excluir
@@ -187,6 +185,77 @@ export function ClientPaymentActions({
           <p className="text-[10px] text-destructive leading-tight">{error}</p>
         )}
       </div>
+
+      {deleteOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-client-title"
+            className="w-full max-w-md rounded-2xl border border-red-500/25 bg-[#0a0f0d] p-5 space-y-4 shadow-xl shadow-black/40"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 border border-red-500/30">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 id="delete-client-title" className="font-semibold text-base">
+                  Excluir cliente?
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                  Você está prestes a remover{" "}
+                  <span className="text-foreground font-medium">
+                    {clientLabel}
+                  </span>
+                  . O cadastro, entregas e histórico serão apagados para sempre.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteOpen(false);
+                  setError(null);
+                }}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-xs text-red-200/90 leading-relaxed">
+              Esta ação não pode ser desfeita.
+            </div>
+
+            {error && (
+              <p className="text-sm text-destructive text-center">{error}</p>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="sm:min-w-[7rem]"
+                disabled={loadingDelete}
+                onClick={() => {
+                  setDeleteOpen(false);
+                  setError(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="sm:min-w-[7rem] bg-red-600 hover:bg-red-500 text-white border-0"
+                disabled={loadingDelete}
+                onClick={() => void confirmDelete()}
+              >
+                {loadingDelete ? "Excluindo..." : "Excluir cliente"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {passwordOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70">
