@@ -73,6 +73,34 @@ function CadastroForm() {
     }
   }
 
+  async function finishSignup(
+    digits: string,
+    affiliateCode: string | undefined,
+  ) {
+    const result = await signIn("password", {
+      phone: digits,
+      password,
+      redirect: false,
+    });
+    if (result?.error) {
+      setError(
+        result.error === "CredentialsSignin"
+          ? "Conta criada, mas não foi possível entrar. Tente Entrar."
+          : result.error,
+      );
+      return;
+    }
+    clearPersistedAffiliateCode();
+    savePendingRegistration({
+      name: name.trim(),
+      email: email.trim(),
+      phone: digits,
+      password: "",
+      affiliateCode,
+    });
+    router.push("/config?setup=1");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -115,20 +143,45 @@ function CadastroForm() {
         }
         persistAffiliateCode(affiliateCode);
       }
+
+      const payload = {
+        phone: digits,
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        affiliateCode,
+      };
+
       const apiBase = resolveApiBase();
 
-      if (loaded && evolutionConfigured && !skipAuthCode) {
+      const reg = await fetch(`${apiBase}/auth/register/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const regData = (await reg.json().catch(() => ({}))) as {
+        error?: string;
+        needsVerify?: boolean;
+      };
+
+      if (reg.ok) {
+        await finishSignup(digits, affiliateCode);
+        return;
+      }
+
+      const useWhatsappOtp =
+        loaded &&
+        evolutionConfigured &&
+        !skipAuthCode &&
+        (reg.status === 400 || reg.status === 503);
+
+      if (useWhatsappOtp) {
         const req = await fetch(`${apiBase}/auth/register/request`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({
-            phone: digits,
-            name: name.trim(),
-            email: email.trim(),
-            password,
-            affiliateCode,
-          }),
+          body: JSON.stringify(payload),
         });
         const reqData = (await req.json().catch(() => ({}))) as {
           error?: string;
@@ -141,6 +194,8 @@ function CadastroForm() {
           name: name.trim(),
           email: email.trim(),
           phone: digits,
+          password,
+          affiliateCode,
         });
         router.push(
           `/verify?phone=${encodeURIComponent(digits)}&register=1`,
@@ -148,40 +203,7 @@ function CadastroForm() {
         return;
       }
 
-      const reg = await fetch(`${apiBase}/auth/register/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          phone: digits,
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          affiliateCode,
-        }),
-      });
-      const regData = (await reg.json().catch(() => ({}))) as { error?: string };
-      if (!reg.ok) {
-        setError(regData.error ?? "Não foi possível criar a conta.");
-        return;
-      }
-
-      const result = await signIn("password", {
-        phone: digits,
-        password,
-        redirect: false,
-      });
-      if (result?.error) {
-        setError(result.error);
-        return;
-      }
-      clearPersistedAffiliateCode();
-      savePendingRegistration({
-        name: name.trim(),
-        email: email.trim(),
-        phone: digits,
-      });
-      router.push("/config?setup=1");
+      setError(regData.error ?? "Não foi possível criar a conta.");
     } catch {
       setError("Não foi possível concluir o cadastro. Tente de novo.");
     } finally {

@@ -115,7 +115,7 @@ function ConfigPageInner() {
 
   useEffect(() => {
     if (!meSettings || saving) return;
-    const pending = readPendingRegistration();
+    const pending = readPendingRegistration({ requirePassword: false });
     const next = meToConfigForm(meSettings, pending);
     setForm(next);
     setInitialCosts(next.costs);

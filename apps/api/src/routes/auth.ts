@@ -15,6 +15,11 @@ import {
 } from "../services/user-password.js";
 import { normalizePhone } from "../lib/phone.js";
 import { signToken } from "../lib/auth.js";
+import {
+  parseRegisterPending,
+  registerPendingRedisKey,
+  type RegisterPendingPayload,
+} from "../lib/register-pending.js";
 import { redisDel, redisGet, redisSetex } from "../lib/redis.js";
 import { validateAffiliateCode } from "../services/affiliate.js";
 import {
@@ -134,26 +139,33 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    await redisSetex(
+      app.redis,
+      registerPendingRedisKey(phone),
+      600,
+      JSON.stringify({
+        name: body.name.trim(),
+        email,
+        password: body.password,
+        affiliateCode: body.affiliateCode?.trim()
+          ? body.affiliateCode.trim().toUpperCase()
+          : undefined,
+      } satisfies RegisterPendingPayload),
+    );
+
     const code = generateCode();
     await sendAuthCode(app, phone, code);
 
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, needsVerify: true });
   });
 
-  /** Cadastro com senha sem OTP (produção). */
+  /** Cadastro com senha — persiste no Supabase (nome, e-mail, WhatsApp, senha, cupom). */
   app.post("/auth/register/complete", {
     preHandler: strictAuthRateLimit,
   }, async (request, reply) => {
     const body = registerRequestSchema.parse(request.body);
     const phone = normalizePhone(body.phone);
     const email = body.email.trim().toLowerCase();
-
-    if (!isSkipAuthCodeEnabled(env) && isEvolutionConfigured(env)) {
-      return reply.status(400).send({
-        error:
-          "Confirme o código enviado no WhatsApp ou desative OTP no servidor.",
-      });
-    }
 
     const existingPhone = await findUserByPhone(phone);
     if (existingPhone) {
@@ -213,6 +225,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(409).send({ error: e.message });
       }
       throw err;
+    } finally {
+      await redisDel(app.redis, registerPendingRedisKey(phone));
     }
   });
 
@@ -254,24 +268,42 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: "Código inválido ou expirado" });
     }
 
+    const pendingFromServer = parseRegisterPending(
+      await redisGet(app.redis, registerPendingRedisKey(phone)),
+    );
+
     let user = await findUserByPhone(phone);
     let isNewUser = false;
 
+    const profileName = body.name?.trim() || pendingFromServer?.name;
+    const profileEmail = body.email?.trim() || pendingFromServer?.email;
+    const profilePassword = body.password?.trim() || pendingFromServer?.password;
+    const profileAffiliate =
+      body.affiliateCode?.trim() || pendingFromServer?.affiliateCode;
+
     if (!user) {
-      if (!body.name?.trim() || !body.email?.trim()) {
+      if (!profileName || !profileEmail) {
         return reply.status(400).send({
           error: "Complete o cadastro com nome e e-mail.",
           code: "NEEDS_PROFILE",
         });
       }
-      if (!body.password?.trim()) {
+      if (!profilePassword || profilePassword.length < 8) {
         return reply.status(400).send({
           error: "Defina uma senha de no mínimo 8 caracteres no cadastro.",
         });
       }
+      if (profileAffiliate) {
+        const affiliate = await validateAffiliateCode(profileAffiliate);
+        if (!affiliate.valid) {
+          return reply.status(400).send({
+            error: "Cupom de indicação inválido ou inativo.",
+          });
+        }
+      }
       let passwordHash: string;
       try {
-        passwordHash = await hashPassword(body.password.trim());
+        passwordHash = await hashPassword(profilePassword);
       } catch (err) {
         const e = err as Error & { statusCode?: number };
         return reply.status(e.statusCode ?? 400).send({ error: e.message });
@@ -279,10 +311,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       try {
         user = await createUserWithProfile({
           whatsappNumber: phone,
-          name: body.name,
-          email: body.email,
+          name: profileName,
+          email: profileEmail,
           passwordHash,
-          affiliateCode: body.affiliateCode,
+          affiliateCode: profileAffiliate,
         });
         isNewUser = true;
       } catch (err) {
@@ -292,12 +324,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         }
         throw err;
       }
-    } else if (body.name?.trim() && body.email?.trim()) {
+    } else if (profileName && profileEmail) {
       try {
         user = await applyRegistrationInVerify(user, {
-          name: body.name,
-          email: body.email,
-          affiliateCode: body.affiliateCode,
+          name: profileName,
+          email: profileEmail,
+          affiliateCode: profileAffiliate,
         });
       } catch (err) {
         const e = err as Error & { statusCode?: number };
@@ -308,14 +340,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    if (body.password?.trim() && user && !user.passwordHash) {
+    if (profilePassword && user && !user.passwordHash) {
       try {
-        await setUserPassword(user.id, body.password.trim());
+        await setUserPassword(user.id, profilePassword);
       } catch (err) {
         const e = err as Error & { statusCode?: number };
         return reply.status(e.statusCode ?? 400).send({ error: e.message });
       }
     }
+
+    await redisDel(app.redis, registerPendingRedisKey(phone));
 
     const token = signToken(
       { userId: user.id, whatsappNumber: user.whatsappNumber },

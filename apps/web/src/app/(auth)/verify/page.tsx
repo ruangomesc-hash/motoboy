@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { clearPersistedAffiliateCode } from "@/lib/affiliate-ref";
 import {
-  clearPersistedAffiliateCode,
-  readPersistedAffiliateCode,
-} from "@/lib/affiliate-ref";
+  clearPendingRegistration,
+  readPendingRegistration,
+} from "@/lib/registration-pending";
 
 const skipAuthCodeAllowed =
   process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
 
-export default function VerifyPage() {
+function VerifyForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [skipLoading, setSkipLoading] = useState(false);
@@ -24,80 +26,60 @@ export default function VerifyPage() {
   const [isRegister, setIsRegister] = useState(false);
 
   useEffect(() => {
-    setIsRegister(sessionStorage.getItem("motoboy-auth-mode") === "register");
-  }, []);
+    const register =
+      searchParams.get("register") === "1" ||
+      sessionStorage.getItem("motoboy-auth-mode") === "register";
+    setIsRegister(register);
+    const pending = readPendingRegistration();
+    if (register && !pending) {
+      router.replace("/cadastro");
+    }
+  }, [searchParams, router]);
+
+  async function submitCode(submittedCode: string) {
+    const pending = readPendingRegistration();
+    if (!pending) {
+      router.push("/cadastro");
+      return;
+    }
+
+    setError("");
+    const result = await signIn("whatsapp", {
+      phone: pending.phone,
+      code: submittedCode,
+      name: pending.name,
+      email: pending.email,
+      password: pending.password,
+      affiliateCode: pending.affiliateCode ?? "",
+      redirect: false,
+    });
+
+    if (result?.error) {
+      setError(
+        result.error === "CredentialsSignin"
+          ? "Código inválido ou expirado."
+          : result.error,
+      );
+      return false;
+    }
+
+    clearPendingRegistration();
+    clearPersistedAffiliateCode();
+    router.push(isRegister ? "/config?setup=1" : "/");
+    return true;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const phone = sessionStorage.getItem("motoboy-phone");
-    if (!phone) {
-      router.push("/cadastro");
-      return;
-    }
-    const mode = sessionStorage.getItem("motoboy-auth-mode");
-    const name = sessionStorage.getItem("motoboy-name");
-    const email = sessionStorage.getItem("motoboy-email");
-
-    if (mode === "register" && (!name || !email)) {
-      router.push("/cadastro");
-      return;
-    }
-
     setLoading(true);
-    setError("");
-    const affiliateCode = readPersistedAffiliateCode() ?? undefined;
-
-    const result = await signIn("whatsapp", {
-      phone,
-      code,
-      name: name ?? "",
-      email: email ?? "",
-      affiliateCode: affiliateCode ?? "",
-      redirect: false,
-    });
+    await submitCode(code);
     setLoading(false);
-    if (result?.error) {
-      setError("Código inválido ou expirado.");
-      return;
-    }
-    sessionStorage.removeItem("motoboy-name");
-    sessionStorage.removeItem("motoboy-email");
-    sessionStorage.removeItem("motoboy-auth-mode");
-    clearPersistedAffiliateCode();
-    router.push("/");
   }
 
   async function enterWithoutCode() {
-    const phone = sessionStorage.getItem("motoboy-phone");
-    if (!phone) {
-      router.push(isRegister ? "/cadastro" : "/login");
-      return;
-    }
-    const mode = sessionStorage.getItem("motoboy-auth-mode");
-    const name = sessionStorage.getItem("motoboy-name");
-    const email = sessionStorage.getItem("motoboy-email");
-    const affiliateCode = readPersistedAffiliateCode() ?? undefined;
-
     setSkipLoading(true);
-    setError("");
-    const result = await signIn("whatsapp", {
-      phone,
-      code: "000000",
-      name: name ?? "",
-      email: email ?? "",
-      affiliateCode: affiliateCode ?? "",
-      redirect: false,
-    });
+    await submitCode("000000");
     setSkipLoading(false);
-    if (result?.error) {
-      setError("Não foi possível entrar sem código. Tente criar a conta antes.");
-      return;
-    }
-    sessionStorage.removeItem("motoboy-name");
-    sessionStorage.removeItem("motoboy-email");
-    sessionStorage.removeItem("motoboy-auth-mode");
-    clearPersistedAffiliateCode();
-    router.push("/");
   }
 
   return (
@@ -105,7 +87,7 @@ export default function VerifyPage() {
       title="Código de verificação"
       subtitle={
         isRegister
-          ? "Confira o WhatsApp. Estamos criando sua conta."
+          ? "Confira o WhatsApp. Estamos criando sua conta com os dados do cadastro."
           : "Confira a mensagem que o Motocopiloto enviou no WhatsApp."
       }
     >
@@ -135,11 +117,25 @@ export default function VerifyPage() {
           </Button>
         )}
         <p className="text-center text-sm text-muted-foreground pt-2">
-          <Link href="/login" className="text-emerald-400 underline">
-            Voltar
+          <Link href="/cadastro" className="text-emerald-400 underline">
+            Voltar ao cadastro
           </Link>
         </p>
       </form>
     </AuthShell>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthShell title="Código de verificação" subtitle="Carregando...">
+          <p className="text-sm text-muted-foreground text-center">Aguarde</p>
+        </AuthShell>
+      }
+    >
+      <VerifyForm />
+    </Suspense>
   );
 }
