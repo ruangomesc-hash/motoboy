@@ -201,31 +201,39 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const body = deliveryCreateSchema.parse(request.body);
     const userId = request.sessionUser!.id;
     const delivery = await createDeliveryManual(userId, body);
-    await recordActivitySafe(
-      userId,
-      {
-        category: "DELIVERY",
-        action: "CREATED",
-        title: "Entrega registrada",
-        entityId: delivery.id,
-        changes: [
-          {
-            field: "grossValue",
-            label: "Valor",
-            from: null,
-            to: formatMoney(delivery.grossValue),
-          },
-          {
-            field: "source",
-            label: "Origem",
-            from: null,
-            to: formatDeliverySource(delivery.source),
-          },
-        ],
-      },
-      request.log,
-    );
-    emitToUser(userId, "delivery:created", { id: delivery.id });
+    // Efeitos secundários (log/socket) não podem impedir o salvamento principal.
+    try {
+      await recordActivitySafe(
+        userId,
+        {
+          category: "DELIVERY",
+          action: "CREATED",
+          title: "Entrega registrada",
+          entityId: delivery.id,
+          changes: [
+            {
+              field: "grossValue",
+              label: "Valor",
+              from: null,
+              to: formatMoney(delivery.grossValue),
+            },
+            {
+              field: "source",
+              label: "Origem",
+              from: null,
+              to: formatDeliverySource(delivery.source),
+            },
+          ],
+        },
+        request.log,
+      );
+      emitToUser(userId, "delivery:created", { id: delivery.id });
+    } catch (err) {
+      request.log.warn(
+        { err, userId, deliveryId: delivery.id },
+        "Falha em side-effects de criação de entrega",
+      );
+    }
     return reply.status(201).send(toPublicDelivery(delivery));
   });
 
