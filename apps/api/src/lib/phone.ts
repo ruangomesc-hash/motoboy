@@ -1,13 +1,28 @@
+import {
+  formatBrazilWhatsAppDisplay,
+  parseBrazilWhatsAppDigits,
+  toStoredWhatsApp,
+} from "@motoboy/types";
+
+export {
+  WHATSAPP_LOCAL_DIGITS,
+  WHATSAPP_VALIDATION_MESSAGE,
+  digitsOnly,
+  parseBrazilWhatsAppDigits,
+  maskBrazilWhatsAppInput,
+  formatBrazilWhatsAppDisplay,
+} from "@motoboy/types";
+
+/** Normaliza para armazenamento: 55 + 11 dígitos locais. */
 export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("55")) return digits;
-  if (digits.length === 11) return `55${digits}`;
-  return digits;
+  return toStoredWhatsApp(phone);
 }
 
 export function formatPhoneDisplay(phone: string): string {
-  const d = phone.replace(/\D/g, "");
-  const local = d.startsWith("55") ? d.slice(2) : d;
-  if (local.length !== 11) return phone;
-  return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  return formatBrazilWhatsAppDisplay(phone);
+}
+
+/** Valida e retorna 11 dígitos locais (sem 55). */
+export function parseLocalPhone(phone: string): string {
+  return parseBrazilWhatsAppDigits(phone);
 }

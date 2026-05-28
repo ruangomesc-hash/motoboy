@@ -7,7 +7,11 @@ import { signIn } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
-import { maskPhone } from "@/lib/phone-mask";
+import {
+  maskPhone,
+  parseBrazilWhatsAppDigits,
+  WHATSAPP_VALIDATION_MESSAGE,
+} from "@/lib/phone-mask";
 import {
   normalizeAffiliateCode,
   persistAffiliateCode,
@@ -105,9 +109,11 @@ function CadastroForm() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Informe um WhatsApp válido com DDD.");
+    let digits: string;
+    try {
+      digits = parseBrazilWhatsAppDigits(phone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : WHATSAPP_VALIDATION_MESSAGE);
       setLoading(false);
       return;
     }
@@ -250,8 +256,12 @@ function CadastroForm() {
             placeholder="(11) 99999-9999"
             value={phone}
             onChange={(e) => setPhone(maskPhone(e.target.value))}
+            maxLength={16}
             required
           />
+          <p className="text-xs text-muted-foreground mt-1">
+            11 números com DDD (sem +55).
+          </p>
         </div>
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">

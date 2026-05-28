@@ -206,16 +206,16 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/admin/users", async (request, reply) => {
-    const body = adminCreateUserSchema.parse(request.body);
     try {
+      const body = adminCreateUserSchema.parse(request.body);
       const user = await createAdminUser(body);
       return reply.status(201).send(user);
     } catch (err) {
-      const e = err as Error & { statusCode?: number };
-      if (e.statusCode === 409) {
-        return reply.status(409).send({ error: e.message });
-      }
-      throw err;
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível cadastrar o cliente.",
+      );
     }
   });
 

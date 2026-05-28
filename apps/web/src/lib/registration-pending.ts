@@ -1,3 +1,5 @@
+import { parseBrazilWhatsAppDigits } from "@motoboy/types";
+
 const KEY = "motocopiloto_registration_pending_v1";
 
 export type PendingRegistration = {
@@ -41,7 +43,7 @@ export function readPendingRegistration(options?: {
     return {
       name: parsed.name.trim(),
       email: parsed.email.trim(),
-      phone: parsed.phone.replace(/\D/g, ""),
+      phone: parseBrazilWhatsAppDigits(parsed.phone),
       password: parsed.password,
       affiliateCode: parsed.affiliateCode?.trim()
         ? parsed.affiliateCode.trim().toUpperCase()

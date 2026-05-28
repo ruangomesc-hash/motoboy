@@ -1,4 +1,25 @@
 import { z } from "zod";
+import {
+  parseBrazilWhatsAppDigits,
+  WHATSAPP_VALIDATION_MESSAGE,
+} from "./phone";
+
+export * from "./phone";
+
+/** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
+export const brazilWhatsAppFieldSchema = z
+  .string()
+  .min(1, WHATSAPP_VALIDATION_MESSAGE)
+  .transform((value, ctx) => {
+    try {
+      return parseBrazilWhatsAppDigits(value);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : WHATSAPP_VALIDATION_MESSAGE;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+      return z.NEVER;
+    }
+  });
 
 /** Dias de trial gratuito após o cadastro. */
 export const TRIAL_DAYS = 4;
@@ -306,7 +327,7 @@ export const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 export const whatsappRequestSchema = z.object({
-  phone: z.string().min(10).max(15),
+  phone: brazilWhatsAppFieldSchema,
 });
 
 export const affiliateCodeFieldSchema = z
@@ -323,7 +344,7 @@ export const userPasswordSchema = z
   .max(128);
 
 export const registerRequestSchema = z.object({
-  phone: z.string().min(10).max(15),
+  phone: brazilWhatsAppFieldSchema,
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(120),
   password: userPasswordSchema,
@@ -331,7 +352,7 @@ export const registerRequestSchema = z.object({
 });
 
 export const whatsappVerifySchema = z.object({
-  phone: z.string().min(10).max(15),
+  phone: brazilWhatsAppFieldSchema,
   code: z.string().length(6),
   name: z.string().trim().min(1).max(80).optional(),
   email: z.string().trim().email().max(120).optional(),
@@ -340,7 +361,7 @@ export const whatsappVerifySchema = z.object({
 });
 
 export const userPasswordLoginSchema = z.object({
-  phone: z.string().min(10).max(15),
+  phone: brazilWhatsAppFieldSchema,
   password: z.string().min(1).max(128),
 });
 
@@ -639,7 +660,7 @@ export type AdminSetUserPasswordInput = z.infer<
 >;
 
 export const adminCreateUserSchema = z.object({
-  whatsappNumber: z.string().min(10).max(20),
+  whatsappNumber: brazilWhatsAppFieldSchema,
   name: z.string().trim().min(1).max(80).optional(),
   city: z.string().trim().max(80).nullable().optional(),
   status: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELED"]).optional(),

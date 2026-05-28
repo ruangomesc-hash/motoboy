@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { parseBrazilWhatsAppDigits } from "@motoboy/types";
 import { handleBackendRequest } from "@motoboy/api/vercel-handler";
 import { DEMO_USER_ID } from "./demo-data";
 
@@ -57,7 +58,7 @@ export const authOptions: NextAuthOptions = {
           password?: string;
           affiliateCode?: string;
         } = {
-          phone: credentials.phone.replace(/\D/g, ""),
+          phone: parseBrazilWhatsAppDigits(credentials.phone),
           code: credentials.code,
         };
         if (credentials.name?.trim()) payload.name = credentials.name.trim();
@@ -97,7 +98,7 @@ export const authOptions: NextAuthOptions = {
         const login = await callBackendAuth<{ token: string; userId: string }>(
           "/auth/password/login",
           {
-            phone: credentials.phone.replace(/\D/g, ""),
+            phone: parseBrazilWhatsAppDigits(credentials.phone),
             password: credentials.password,
           },
         );

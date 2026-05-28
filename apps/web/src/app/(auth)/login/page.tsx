@@ -7,7 +7,11 @@ import { signIn } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
-import { maskPhone } from "@/lib/phone-mask";
+import {
+  maskPhone,
+  parseBrazilWhatsAppDigits,
+  WHATSAPP_VALIDATION_MESSAGE,
+} from "@/lib/phone-mask";
 
 const demoLoginAllowed =
   process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
@@ -22,9 +26,11 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Informe um WhatsApp válido com DDD.");
+    let digits: string;
+    try {
+      digits = parseBrazilWhatsAppDigits(phone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : WHATSAPP_VALIDATION_MESSAGE);
       return;
     }
     if (!password) {
@@ -78,6 +84,7 @@ export default function LoginPage() {
             placeholder="(11) 99999-9999"
             value={phone}
             onChange={(e) => setPhone(maskPhone(e.target.value))}
+            maxLength={16}
             required
           />
         </div>

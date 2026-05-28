@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import type { AdminCreateUserInput, AdminUserRow } from "@motoboy/types";
+import {
+  maskPhone,
+  parseBrazilWhatsAppDigits,
+  WHATSAPP_VALIDATION_MESSAGE,
+} from "@/lib/phone-mask";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserPlus, X } from "lucide-react";
@@ -35,9 +40,17 @@ export function AddClientDialog({
     e.preventDefault();
     setLoading(true);
     setError("");
+    let whatsappDigits: string;
+    try {
+      whatsappDigits = parseBrazilWhatsAppDigits(phone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : WHATSAPP_VALIDATION_MESSAGE);
+      setLoading(false);
+      return;
+    }
     try {
       await onSubmit({
-        whatsappNumber: phone.replace(/\D/g, ""),
+        whatsappNumber: whatsappDigits,
         name: name.trim() || undefined,
         city: city.trim() || null,
         status,
@@ -97,11 +110,16 @@ export function AddClientDialog({
           <label className="text-sm text-muted-foreground">WhatsApp *</label>
           <Input
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="11999999999"
+            onChange={(e) => setPhone(maskPhone(e.target.value))}
+            placeholder="(61) 99999-9999"
+            inputMode="tel"
+            maxLength={16}
             className="mt-1"
             required
           />
+          <p className="text-xs text-muted-foreground mt-1">
+            11 números com DDD (sem +55).
+          </p>
         </div>
         <div>
           <label className="text-sm text-muted-foreground">Cidade</label>
