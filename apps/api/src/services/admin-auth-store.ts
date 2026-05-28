@@ -117,13 +117,32 @@ export async function verifyAdminLoginWithEnvFallback(
 
   if (!(await isAdminTableReady())) return false;
 
-  const account = await prisma.adminAccount.findUnique({
-    where: { id: ADMIN_ID },
-  });
+  const normalizedEmail = normalizeEmail(email);
+  // Compat: prioriza email (dados antigos podem ter id diferente de "primary").
+  const account =
+    (await prisma.adminAccount.findUnique({
+      where: { email: normalizedEmail },
+    })) ??
+    (await prisma.adminAccount.findUnique({
+      where: { id: ADMIN_ID },
+    }));
   if (!account) return false;
 
-  return (
-    normalizeEmail(email) === account.email &&
-    (await verifyPassword(password, account.passwordHash))
-  );
+  if (normalizedEmail !== account.email) return false;
+
+  return verifyAdminPasswordCompat(password, account.passwordHash);
+}
+
+async function verifyAdminPasswordCompat(
+  password: string,
+  storedHash: string,
+): Promise<boolean> {
+  // Formato atual: scrypt ("salt:hash")
+  if (storedHash.includes(":")) {
+    return verifyPassword(password, storedHash);
+  }
+
+  // Compat legado: dados antigos podem ter senha salva sem hash.
+  // Se autenticar aqui, o usuário consegue entrar e depois pode redefinir senha.
+  return storedHash === password;
 }
