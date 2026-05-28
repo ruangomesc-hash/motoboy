@@ -167,6 +167,17 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      try {
+        const target = new URL(url);
+        const base = new URL(baseUrl);
+        if (target.origin === base.origin) return url;
+      } catch {
+        /* ignore and fallback */
+      }
+      return baseUrl;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.accessToken = (user as { accessToken?: string }).accessToken;

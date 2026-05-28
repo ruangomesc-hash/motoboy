@@ -59,13 +59,18 @@ export default function AdminLoginPage() {
         email: email.trim(),
         password,
         redirect: false,
+        callbackUrl: "/admin",
       });
       if (res?.error) {
         setError(res.error);
         return;
       }
-      router.push("/admin");
-      router.refresh();
+      if (typeof window !== "undefined") {
+        window.location.assign("/admin");
+      } else {
+        router.push("/admin");
+        router.refresh();
+      }
     } catch {
       setError("Falha ao autenticar admin. Tente novamente.");
     } finally {
@@ -110,13 +115,18 @@ export default function AdminLoginPage() {
         email: email.trim(),
         password,
         redirect: false,
+        callbackUrl: "/admin",
       });
       if (sign?.error) {
         setError(sign.error);
         return;
       }
-      router.push("/admin");
-      router.refresh();
+      if (typeof window !== "undefined") {
+        window.location.assign("/admin");
+      } else {
+        router.push("/admin");
+        router.refresh();
+      }
     } catch {
       setError("Erro de conexão.");
     } finally {
