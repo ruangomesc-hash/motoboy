@@ -27,7 +27,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
-import { dedupeRecentDeliveries } from "@/lib/merge-app-data";
+import { buildRecentDeliveriesForHome } from "@/lib/today-recent-from-deliveries";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
 
@@ -75,7 +75,7 @@ function sourceLabel(source: string): string {
 }
 
 export default function HomePage() {
-  const { today, profileName } = useAppData();
+  const { today, profileName, deliveries } = useAppData();
   const { deleteDelivery } = useDeleteDelivery();
   const [deleteTarget, setDeleteTarget] = useState<
     TodaySummary["recentDeliveries"][number] | null
@@ -91,8 +91,8 @@ export default function HomePage() {
 
   const s = today ?? emptySummary;
   const recentDeliveries = useMemo(
-    () => dedupeRecentDeliveries(s.recentDeliveries).slice(0, 3),
-    [s.recentDeliveries],
+    () => buildRecentDeliveriesForHome(deliveries),
+    [deliveries],
   );
   const kmSourceLabel =
     s.odometer.kmSource === "odometer"

@@ -15,8 +15,8 @@ export function useDeleteDelivery() {
   const api = useApi();
   const {
     removeDeliveryOptimistic,
+    upsertDeliveryOptimistic,
     publishAppSync,
-    scheduleDeliveryReconcile,
     markDeliveryCancelled,
   } = useAppData();
 
@@ -34,35 +34,39 @@ export function useDeleteDelivery() {
         return { ok: true as const };
       }
 
-      try {
-        await api(
-          deliveryPath(id),
-          { method: "DELETE" },
-          { skipSync: true },
-        );
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : "Não foi possível apagar no servidor.";
-        return { ok: false as const, error: message };
-      }
-
       removeDeliveryOptimistic(id, snapshot);
       publishAppSync(DELIVERY_SYNC_TOPICS, {
         removedDeliveryId: id,
         removedDelivery: snapshot,
         skipReconcile: true,
       });
-      scheduleDeliveryReconcile();
-      return { ok: true as const };
+
+      try {
+        await api(
+          deliveryPath(id),
+          { method: "DELETE" },
+          { skipSync: true },
+        );
+        return { ok: true as const };
+      } catch (err) {
+        upsertDeliveryOptimistic(snapshot);
+        publishAppSync(DELIVERY_SYNC_TOPICS, {
+          delivery: snapshot,
+          skipReconcile: true,
+        });
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Não foi possível apagar no servidor.";
+        return { ok: false as const, error: message };
+      }
     },
     [
       api,
       markDeliveryCancelled,
       publishAppSync,
       removeDeliveryOptimistic,
-      scheduleDeliveryReconcile,
+      upsertDeliveryOptimistic,
     ],
   );
 

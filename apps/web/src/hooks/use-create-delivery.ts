@@ -30,7 +30,6 @@ export function useCreateDelivery() {
     removeDeliveryOptimistic,
     publishAppSync,
     setDeliveriesDate,
-    scheduleDeliveryReconcile,
     isDeliveryCancelled,
   } = useAppData();
 
@@ -127,7 +126,6 @@ export function useCreateDelivery() {
           previousDelivery: tempDelivery,
           skipReconcile: true,
         });
-        scheduleDeliveryReconcile();
 
         return { ok: true as const, delivery: realDelivery };
       } catch (err) {
@@ -167,7 +165,6 @@ export function useCreateDelivery() {
       isDeliveryCancelled,
       publishAppSync,
       removeDeliveryOptimistic,
-      scheduleDeliveryReconcile,
       setDeliveriesDate,
       upsertDeliveryOptimistic,
     ],

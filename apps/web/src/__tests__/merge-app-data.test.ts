@@ -1,45 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { TodaySummary } from "@motoboy/types";
 import {
-  dedupeRecentDeliveries,
   mergeDeliveryLists,
-  mergeTodaySummary,
+  mergeTodayFromServer,
 } from "@/lib/merge-app-data";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 
 const todayKey = "2026-05-28";
 
 describe("mergeDeliveryLists", () => {
-  it("keeps pending local-* deliveries not yet on server", () => {
-    const server: DeliveryListItem[] = [];
-    const local: DeliveryListItem[] = [
+  it("keeps local delivery when server response is behind", () => {
+    const server: DeliveryListItem[] = [
       {
-        id: "local-1",
-        grossValue: 30,
-        source: "PARTICULAR",
-        originName: "farmacia",
-        occurredAt: `${todayKey}T16:55:00.000Z`,
-        distanceKm: null,
-      },
-    ];
-    const merged = mergeDeliveryLists(server, local, todayKey);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]?.id).toBe("local-1");
-  });
-
-  it("does not re-add real ids that server already returned", () => {
-    const row: DeliveryListItem = {
-      id: "abc",
-      grossValue: 30,
-      source: "PARTICULAR",
-      originName: "farmacia",
-      occurredAt: `${todayKey}T16:55:00.000Z`,
-      distanceKm: null,
-    };
-    const staleLocal: DeliveryListItem[] = [
-      row,
-      {
-        id: "local-old",
+        id: "a",
         grossValue: 25,
         source: "PARTICULAR",
         originName: "mercado",
@@ -47,13 +20,37 @@ describe("mergeDeliveryLists", () => {
         distanceKm: null,
       },
     ];
-    const merged = mergeDeliveryLists([row], staleLocal, todayKey);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]?.id).toBe("abc");
+    const local: DeliveryListItem[] = [
+      ...server,
+      {
+        id: "b",
+        grossValue: 30,
+        source: "PARTICULAR",
+        originName: "farm",
+        occurredAt: `${todayKey}T14:10:00.000Z`,
+        distanceKm: null,
+      },
+    ];
+    const merged = mergeDeliveryLists(server, local, todayKey);
+    expect(merged).toHaveLength(2);
+    expect(merged.some((d) => d.id === "b")).toBe(true);
+  });
+
+  it("hides tombstoned ids even if server still returns them", () => {
+    const row: DeliveryListItem = {
+      id: "gone",
+      grossValue: 25,
+      source: "PARTICULAR",
+      originName: "x",
+      occurredAt: `${todayKey}T14:05:00.000Z`,
+      distanceKm: null,
+    };
+    const merged = mergeDeliveryLists([row], [row], todayKey, new Set(["gone"]));
+    expect(merged).toHaveLength(0);
   });
 });
 
-describe("mergeTodaySummary", () => {
+describe("mergeTodayFromServer", () => {
   const emptyToday: TodaySummary = {
     grossTotal: 0,
     fuelCost: 0,
@@ -82,42 +79,23 @@ describe("mergeTodaySummary", () => {
     odometer: { currentKm: null, kmToday: 0, kmSource: "estimate" },
   };
 
-  it("adds only pending local-* to server summary", () => {
+  it("keeps local totals when user just added a delivery", () => {
+    const server = { ...emptyToday, deliveryCount: 1, grossTotal: 25 };
     const local: TodaySummary = {
       ...emptyToday,
-      grossTotal: 30,
-      deliveryCount: 1,
-      recentDeliveries: [
-        {
-          id: "local-1",
-          grossValue: 30,
-          source: "PARTICULAR",
-          originName: "farmacia",
-          occurredAt: `${todayKey}T16:55:00.000Z`,
-        },
-      ],
-    };
-    const merged = mergeTodaySummary(emptyToday, local, todayKey);
-    expect(merged.recentDeliveries.some((r) => r.id === "local-1")).toBe(true);
-    expect(merged.deliveryCount).toBe(1);
-    expect(merged.grossTotal).toBe(30);
-  });
-
-  it("does not duplicate real ids already on server", () => {
-    const server: TodaySummary = {
-      ...emptyToday,
-      grossTotal: 55,
       deliveryCount: 2,
+      grossTotal: 55,
+      netProfit: 55,
       recentDeliveries: [
         {
-          id: "real-1",
+          id: "b",
           grossValue: 30,
           source: "PARTICULAR",
           originName: "farm",
-          occurredAt: `${todayKey}T14:05:00.000Z`,
+          occurredAt: `${todayKey}T14:10:00.000Z`,
         },
         {
-          id: "real-2",
+          id: "a",
           grossValue: 25,
           source: "PARTICULAR",
           originName: "mercado",
@@ -125,32 +103,8 @@ describe("mergeTodaySummary", () => {
         },
       ],
     };
-    const local: TodaySummary = {
-      ...server,
-      recentDeliveries: [
-        ...server.recentDeliveries,
-        {
-          id: "real-1",
-          grossValue: 30,
-          source: "PARTICULAR",
-          originName: "farm",
-          occurredAt: `${todayKey}T14:05:00.000Z`,
-        },
-      ],
-    };
-    const merged = mergeTodaySummary(server, local, todayKey);
+    const merged = mergeTodayFromServer(server, local, new Set(), todayKey);
+    expect(merged.deliveryCount).toBe(2);
     expect(merged.grossTotal).toBe(55);
-    expect(merged.recentDeliveries).toHaveLength(2);
-  });
-});
-
-describe("dedupeRecentDeliveries", () => {
-  it("removes duplicate ids", () => {
-    const rows = [
-      { id: "a", grossValue: 25 },
-      { id: "b", grossValue: 30 },
-      { id: "a", grossValue: 25 },
-    ];
-    expect(dedupeRecentDeliveries(rows)).toHaveLength(2);
   });
 });

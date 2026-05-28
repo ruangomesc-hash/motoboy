@@ -76,7 +76,7 @@ import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 import {
   dedupeRecentDeliveries,
   mergeDeliveryLists,
-  mergeTodaySummary,
+  mergeTodayFromServer,
 } from "@/lib/merge-app-data";
 
 export type { DeliveryListItem };
@@ -125,8 +125,8 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 30_000;
-const DELIVERY_RECONCILE_MS = 500;
+const POLL_MS = 120_000;
+const MUTATION_SETTLE_MS = 8_000;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
@@ -156,8 +156,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meLoadSeq = useRef(0);
   const deliveriesFetchSeq = useRef(0);
+  const deliveryMutationGen = useRef(0);
   const ownSyncKeys = useRef(new Set<string>());
-  const deliveryReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(
+  const mutationSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const hydratedUser = useRef<string | null>(null);
@@ -205,6 +206,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const persistNow = persistCacheNow;
 
+  const bumpDeliveryMutation = useCallback(() => {
+    deliveryMutationGen.current += 1;
+    if (mutationSettleTimer.current) {
+      clearTimeout(mutationSettleTimer.current);
+    }
+    mutationSettleTimer.current = setTimeout(() => {
+      mutationSettleTimer.current = null;
+      if (pendingDeliveries.current.hasLocal()) return;
+      const gen = deliveryMutationGen.current;
+      void (async () => {
+        await Promise.all([
+          refreshTodayRef.current?.(gen),
+          refreshDeliveriesRef.current?.(gen),
+          refreshStatsRef.current?.("week"),
+          refreshStatsRef.current?.("month"),
+        ]);
+      })();
+    }, MUTATION_SETTLE_MS);
+  }, []);
+
+  const refreshTodayRef = useRef<
+    ((mutationGenAtStart?: number) => Promise<void>) | null
+  >(null);
+  const refreshDeliveriesRef = useRef<
+    ((mutationGenAtStart?: number) => Promise<void>) | null
+  >(null);
+  const refreshStatsRef = useRef<
+    ((period: "week" | "month") => Promise<void>) | null
+  >(null);
+
   const schedulePersist = useCallback(
     (uid: string) => {
       if (persistTimer.current) clearTimeout(persistTimer.current);
@@ -247,28 +278,60 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return complete;
   }, []);
 
-  const refreshToday = useCallback(async () => {
-    try {
-      const data = await api<TodaySummary>("/me/today");
-      const tomb = deletedDeliveries.current;
-      const todayKey = todayDateInputValue();
-      setToday((prev) => {
-        const fromServer = tomb.applyToTodaySummary(data);
-        const merged = mergeTodaySummary(fromServer, prev, todayKey);
-        return {
-          ...merged,
-          recentDeliveries: dedupeRecentDeliveries(merged.recentDeliveries).slice(
-            0,
-            3,
-          ),
-        };
-      });
-      tomb.pruneConfirmedAbsent(data.recentDeliveries.map((d) => d.id));
-      if (userId) schedulePersist(userId);
-    } catch {
-      /* mantém cache */
-    }
-  }, [api, schedulePersist, userId]);
+  const refreshToday = useCallback(
+    async (mutationGenAtStart?: number) => {
+      const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
+      try {
+        const data = await api<TodaySummary>("/me/today");
+        if (genAtStart !== deliveryMutationGen.current) return;
+
+        const tomb = deletedDeliveries.current;
+        const todayKey = todayDateInputValue();
+        const tombSet = new Set(tomb.toArray());
+
+        setToday((prev) => {
+          const fromServer = tomb.applyToTodaySummary(data);
+          const merged = mergeTodayFromServer(
+            fromServer,
+            prev,
+            tombSet,
+            todayKey,
+          );
+          const recentFromList = mergeDeliveryLists(
+            [],
+            stateRef.current.deliveries,
+            todayKey,
+            tombSet,
+          )
+            .slice(0, 3)
+            .map((d) => ({
+              id: d.id,
+              grossValue: Number(d.grossValue),
+              originName: d.originName,
+              source: d.source as TodaySummary["recentDeliveries"][0]["source"],
+              occurredAt: d.occurredAt,
+            }));
+
+          return {
+            ...merged,
+            recentDeliveries:
+              recentFromList.length > 0
+                ? recentFromList
+                : dedupeRecentDeliveries(merged.recentDeliveries).slice(0, 3),
+          };
+        });
+
+        if (genAtStart === deliveryMutationGen.current) {
+          tomb.pruneConfirmedAbsent(data.recentDeliveries.map((d) => d.id));
+        }
+        if (userId) schedulePersist(userId);
+      } catch {
+        /* mantém cache */
+      }
+    },
+    [api, schedulePersist, userId],
+  );
+  refreshTodayRef.current = refreshToday;
 
   const applyStatsDelta = useCallback(
     (
@@ -433,8 +496,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (userId) persistCacheNow(userId);
+      bumpDeliveryMutation();
     },
-    [userId, persistCacheNow, applyStatsDelta],
+    [userId, persistCacheNow, applyStatsDelta, bumpDeliveryMutation],
   );
 
   const applyDeliveryOptimistic = useCallback(
@@ -495,8 +559,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (userId) persistCacheNow(userId);
+      bumpDeliveryMutation();
     },
-    [userId, persistCacheNow, applyStatsDelta],
+    [userId, persistCacheNow, applyStatsDelta, bumpDeliveryMutation],
   );
 
   const patchDeliveryInList = useCallback(
@@ -513,27 +578,40 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [userId, persistNow],
   );
 
-  const refreshDeliveries = useCallback(async () => {
-    const date = deliveriesDate || todayDateInputValue();
-    const seq = ++deliveriesFetchSeq.current;
-    const q = `?date=${date}`;
-    try {
-      const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
-      if (seq !== deliveriesFetchSeq.current) return;
-      const tomb = deletedDeliveries.current;
-      const items = tomb.filter(r.items);
-      setDeliveries((prev) => mergeDeliveryLists(items, prev, date));
-      tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
-      if (userId) schedulePersist(userId);
-    } catch {
-      /* mantém cache */
-    }
-  }, [api, deliveriesDate, schedulePersist, userId]);
+  const refreshDeliveries = useCallback(
+    async (mutationGenAtStart?: number) => {
+      const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
+      const date = deliveriesDate || todayDateInputValue();
+      const seq = ++deliveriesFetchSeq.current;
+      const q = `?date=${date}`;
+      try {
+        const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
+        if (seq !== deliveriesFetchSeq.current) return;
+        if (genAtStart !== deliveryMutationGen.current) return;
+
+        const tomb = deletedDeliveries.current;
+        const tombSet = new Set(tomb.toArray());
+        const items = tomb.filter(r.items);
+        setDeliveries((prev) => mergeDeliveryLists(items, prev, date, tombSet));
+
+        if (genAtStart === deliveryMutationGen.current) {
+          tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
+        }
+        if (userId) schedulePersist(userId);
+      } catch {
+        /* mantém cache */
+      }
+    },
+    [api, deliveriesDate, schedulePersist, userId],
+  );
+  refreshDeliveriesRef.current = refreshDeliveries;
 
   const refreshStats = useCallback(
     async (period: "week" | "month") => {
+      const genAtStart = deliveryMutationGen.current;
       try {
         const data = await api<PeriodStats>(`/me/stats?period=${period}`);
+        if (genAtStart !== deliveryMutationGen.current) return;
         if (period === "week") {
           setStatsWeek(data);
         } else {
@@ -546,6 +624,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     },
     [api, schedulePersist, userId],
   );
+  refreshStatsRef.current = refreshStats;
 
   const loadMeSettings = useCallback(
     async (opts?: { force?: boolean; silent?: boolean }) => {
@@ -632,20 +711,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const scheduleDeliveryReconcile = useCallback(() => {
-    if (deliveryReconcileTimer.current) {
-      clearTimeout(deliveryReconcileTimer.current);
-    }
-    deliveryReconcileTimer.current = setTimeout(() => {
-      deliveryReconcileTimer.current = null;
-      if (pendingDeliveries.current.hasLocal()) return;
-      void Promise.all([
-        refreshToday(),
-        refreshDeliveries(),
-        refreshStats("week"),
-        refreshStats("month"),
-      ]);
-    }, DELIVERY_RECONCILE_MS);
-  }, [refreshDeliveries, refreshStats, refreshToday]);
+    bumpDeliveryMutation();
+  }, [bumpDeliveryMutation]);
+
+  const reconcileDeliveriesIfIdle = useCallback(() => {
+    if (pendingDeliveries.current.hasLocal()) return;
+    const gen = deliveryMutationGen.current;
+    void refreshToday(gen);
+    void refreshDeliveries(gen);
+  }, [refreshDeliveries, refreshToday]);
 
   const publishAppSync = useCallback(
     (
@@ -909,10 +983,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      if (pendingDeliveries.current.hasLocal()) return;
       const cached = readAppCache(userId);
       if (!cached || isCacheStale(cached.savedAt, 12_000)) {
-        scheduleDeliveryReconcile();
+        reconcileDeliveriesIfIdle();
       }
     };
 
@@ -925,8 +998,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!SOCKET_ENABLED) {
       poll = setInterval(() => {
         if (document.visibilityState !== "visible") return;
-        if (pendingDeliveries.current.hasLocal()) return;
-        scheduleDeliveryReconcile();
+        reconcileDeliveriesIfIdle();
       }, POLL_MS);
     }
 
@@ -942,7 +1014,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     applyCacheSnapshot,
     applySyncDetail,
     isBootstrapped,
-    scheduleDeliveryReconcile,
+    reconcileDeliveriesIfIdle,
     userId,
   ]);
 
