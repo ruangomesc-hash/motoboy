@@ -5,9 +5,7 @@ import type { PeriodStats } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
-import { formatHours } from "@/lib/format-hours";
 import { AppPage } from "@/components/app-page";
-import { useApi } from "@/hooks/use-api";
 import { buildPreviewPeriodStats } from "@/lib/stats-preview";
 
 function mergeDisplayStats(
@@ -32,7 +30,6 @@ function mergeDisplayStats(
 }
 
 export default function StatsPage() {
-  const api = useApi();
   const {
     statsWeek,
     statsMonth,
@@ -41,7 +38,6 @@ export default function StatsPage() {
     deliveries,
   } = useAppData();
   const [period, setPeriod] = useState<"week" | "month">("week");
-  const [shiftLoading, setShiftLoading] = useState(false);
 
   const apiStats: PeriodStats | null =
     period === "week" ? statsWeek : statsMonth;
@@ -69,20 +65,6 @@ export default function StatsPage() {
     void refreshStats("month");
   }, [refreshStats]);
 
-  async function toggleShift() {
-    setShiftLoading(true);
-    try {
-      if (stats?.activeShift) {
-        await api("/me/shifts/end", { method: "POST" });
-      } else {
-        await api("/me/shifts/start", { method: "POST" });
-      }
-      await Promise.all([refreshStats("week"), refreshStats("month")]);
-    } finally {
-      setShiftLoading(false);
-    }
-  }
-
   const max = Math.max(...(stats.series.map((s) => s.gross) ?? [1]), 1);
 
   return (
@@ -108,58 +90,9 @@ export default function StatsPage() {
         </Button>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-3 space-y-2">
-        <p className="text-xs text-muted-foreground">Controle de horas</p>
-        {stats.activeShift ? (
-          <p className="text-sm">
-            Turno em andamento desde{" "}
-            {new Date(stats.activeShift.startedAt).toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Inicie o turno para contar horas trabalhadas
-          </p>
-        )}
-        <Button
-          variant={stats.activeShift ? "outline" : "default"}
-          size="sm"
-          className="w-full"
-          disabled={shiftLoading}
-          onClick={toggleShift}
-        >
-          {shiftLoading
-            ? "..."
-            : stats.activeShift
-              ? "Encerrar turno"
-              : "Iniciar turno"}
-        </Button>
-      </div>
-
       <div className="grid grid-cols-2 gap-2">
         <StatCard label="Total bruto" value={formatBRL(stats.totalGross)} />
         <StatCard label="Entregas" value={String(stats.count)} />
-        <StatCard
-          label="Horas trabalhadas"
-          value={formatHours(stats.hoursWorked)}
-          highlight
-        />
-        <StatCard
-          label="Ganho / hora (bruto)"
-          value={
-            stats.grossPerHour != null ? formatBRL(stats.grossPerHour) : "—"
-          }
-          highlight
-        />
-        <StatCard
-          label="Ganho / hora (líquido)"
-          value={
-            stats.netPerHour != null ? formatBRL(stats.netPerHour) : "—"
-          }
-          className="col-span-2"
-        />
         <StatCard
           label="Líquido no período"
           value={formatBRL(stats.totalNet)}
@@ -194,13 +127,6 @@ export default function StatsPage() {
           </div>
         </div>
       )}
-
-      {stats.hoursWorked === 0 && (
-        <p className="text-xs text-center text-muted-foreground px-2">
-          Ganho/hora aparece quando você inicia e encerra turnos, ou registra
-          turno pelo WhatsApp (&quot;começar turno&quot;).
-        </p>
-      )}
     </AppPage>
   );
 }
@@ -208,19 +134,15 @@ export default function StatsPage() {
 function StatCard({
   label,
   value,
-  highlight,
   className,
 }: {
   label: string;
   value: string;
-  highlight?: boolean;
   className?: string;
 }) {
   return (
     <div
-      className={`p-3 rounded-lg border bg-card min-w-0 overflow-hidden ${
-        highlight ? "border-emerald-500/40" : "border-border"
-      } ${className ?? ""}`}
+      className={`p-3 rounded-lg border border-border bg-card min-w-0 overflow-hidden ${className ?? ""}`}
     >
       <p className="text-[10px] text-muted-foreground leading-tight break-words">
         {label}
