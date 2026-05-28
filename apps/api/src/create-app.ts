@@ -12,6 +12,7 @@ import { authRoutes } from "./routes/auth.js";
 import { meRoutes } from "./routes/me.js";
 import { adminRoutes } from "./routes/admin.js";
 import type { EvolutionService as EvoType } from "./services/evolution.js";
+import { collectCorsOrigins, isCorsOriginAllowed } from "./lib/cors-origins.js";
 import { mapPrismaHttpError } from "./lib/prisma-http.js";
 
 declare module "fastify" {
@@ -138,17 +139,7 @@ export async function createApp(
     }
   });
 
-  const origins = new Set<string>([
-    env.APP_URL,
-    "http://localhost:3002",
-    "http://localhost:3003",
-  ]);
-  if (process.env.VERCEL_URL) {
-    origins.add(`https://${process.env.VERCEL_URL}`);
-  }
-  if (process.env.VERCEL_BRANCH_URL) {
-    origins.add(`https://${process.env.VERCEL_BRANCH_URL}`);
-  }
+  const allowedOrigins = collectCorsOrigins(env);
 
   await app.register(cors, {
     origin(origin, callback) {
@@ -156,10 +147,11 @@ export async function createApp(
         callback(null, true);
         return;
       }
-      if (origins.has(origin)) {
+      if (isCorsOriginAllowed(origin, allowedOrigins)) {
         callback(null, true);
         return;
       }
+      app.log.warn({ origin, allowed: [...allowedOrigins] }, "CORS blocked");
       callback(new Error("CORS não permitido"), false);
     },
     credentials: true,

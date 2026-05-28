@@ -46,6 +46,9 @@ export async function handleBackendRequest(
 
   const headers: Record<string, string> = {};
   request.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    // Proxy Next → Fastify é same-origin; Origin do browser não deve disparar CORS interno.
+    if (lower === "origin" || lower === "referer") return;
     headers[key] = value;
   });
 
