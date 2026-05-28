@@ -10,6 +10,7 @@ import {
   isAdminConfigured,
   isAdminTableReady,
   isDatabaseConnected,
+  resetAdminAccountWithToken,
   setupAdminAccount,
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
@@ -60,17 +61,21 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     preHandler: strictAuthRateLimit,
   }, async (request, reply) => {
     const setupToken = process.env.ADMIN_SETUP_TOKEN?.trim();
+    const configured = await isAdminConfigured();
+    const providedToken =
+      (request.headers["x-admin-setup-token"] as string | undefined)?.trim() ??
+      (request.body as { setupToken?: string })?.setupToken?.trim();
+    const hasValidSetupToken =
+      Boolean(setupToken) && Boolean(providedToken) && providedToken === setupToken;
+
     if (isProductionRuntime() && setupToken) {
-      const provided =
-        (request.headers["x-admin-setup-token"] as string | undefined)?.trim() ??
-        (request.body as { setupToken?: string })?.setupToken?.trim();
-      if (provided !== setupToken) {
+      if (!hasValidSetupToken) {
         return reply.status(403).send({
           error: "Token de configuração do admin inválido.",
           code: "ADMIN_SETUP_FORBIDDEN",
         });
       }
-    } else if (isProductionRuntime() && !(await isAdminConfigured())) {
+    } else if (isProductionRuntime() && !configured) {
       return reply.status(503).send({
         error:
           "Defina ADMIN_SETUP_TOKEN na Vercel antes do primeiro acesso ao painel admin.",
@@ -80,10 +85,10 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
     const body = adminLoginSchema.parse(request.body);
     try {
-      const { email } = await setupAdminAccount(
-        body.email,
-        body.password,
-      );
+      const result = configured
+        ? await resetAdminAccountWithToken(body.email, body.password)
+        : await setupAdminAccount(body.email, body.password);
+      const { email } = result;
       const token = signAdminToken(env.JWT_SECRET);
       reply.setCookie("motoboy-admin-token", token, {
         httpOnly: true,

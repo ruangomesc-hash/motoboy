@@ -107,6 +107,57 @@ export async function setupAdminAccount(
   return { email: normalized };
 }
 
+export async function resetAdminAccountWithToken(
+  email: string,
+  password: string,
+): Promise<{ email: string }> {
+  if (!(await isAdminTableReady())) {
+    throw Object.assign(new Error(MIGRATIONS_REQUIRED_MESSAGE), {
+      statusCode: 503,
+      code: "MIGRATIONS_REQUIRED",
+    });
+  }
+  if (password.length < 8) {
+    throw Object.assign(new Error("Senha deve ter no mínimo 8 caracteres"), {
+      statusCode: 400,
+    });
+  }
+
+  const normalized = normalizeEmail(email);
+  const passwordHash = await hashPassword(password);
+  const byEmail = await prisma.adminAccount.findUnique({
+    where: { email: normalized },
+  });
+
+  if (byEmail) {
+    await prisma.adminAccount.update({
+      where: { id: byEmail.id },
+      data: { email: normalized, passwordHash },
+    });
+    return { email: normalized };
+  }
+
+  const primary = await prisma.adminAccount.findUnique({
+    where: { id: ADMIN_ID },
+  });
+  if (primary) {
+    await prisma.adminAccount.update({
+      where: { id: ADMIN_ID },
+      data: { email: normalized, passwordHash },
+    });
+    return { email: normalized };
+  }
+
+  await prisma.adminAccount.create({
+    data: {
+      id: ADMIN_ID,
+      email: normalized,
+      passwordHash,
+    },
+  });
+  return { email: normalized };
+}
+
 export async function verifyAdminLoginWithEnvFallback(
   email: string,
   password: string,

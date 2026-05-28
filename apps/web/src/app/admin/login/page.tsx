@@ -27,6 +27,7 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [setupToken, setSetupToken] = useState("");
+  const [resetMode, setResetMode] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -139,10 +140,11 @@ export default function AdminLoginPage() {
   const databaseConnected = status?.databaseConnected ?? true;
   const configured = status?.configured ?? false;
   const envLogin = status?.envLoginAvailable ?? false;
-  const showSetup = migrationsReady && !configured && phase === "setup";
-  const showFirst = migrationsReady && !configured && phase === "first";
+  const showSetup =
+    migrationsReady && ((resetMode && phase === "setup") || (!configured && phase === "setup"));
+  const showFirst = migrationsReady && !configured && !resetMode && phase === "first";
   const showLogin =
-    configured || envLogin || phase === "login" || statusLoading;
+    (!showSetup && (configured || envLogin || phase === "login")) || statusLoading;
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 w-full max-w-full overflow-x-hidden box-border">
@@ -208,7 +210,9 @@ export default function AdminLoginPage() {
             {showFirst
               ? "Primeiro acesso: entre sem senha e defina a senha principal."
               : showSetup
-                ? "Crie a senha que será usada daqui em diante."
+                ? resetMode
+                  ? "Redefina a senha do admin com o token de configuração."
+                  : "Crie a senha que será usada daqui em diante."
                 : !migrationsReady && envLogin
                   ? "Entre com ADMIN_EMAIL e ADMIN_PASSWORD (Vercel)."
                   : "Acesso restrito ao Motocopiloto"}
@@ -295,6 +299,39 @@ export default function AdminLoginPage() {
           {showLogin && !showFirst && !showSetup && (
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Entrando..." : "Entrar"}
+            </Button>
+          )}
+          {configured && !showSetup && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setResetMode(true);
+                setPhase("setup");
+                setError("");
+                setPassword("");
+                setConfirmPassword("");
+              }}
+            >
+              Redefinir senha com token
+            </Button>
+          )}
+          {showSetup && resetMode && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setResetMode(false);
+                setPhase("login");
+                setError("");
+                setSetupToken("");
+                setPassword("");
+                setConfirmPassword("");
+              }}
+            >
+              Voltar para login
             </Button>
           )}
         </form>
