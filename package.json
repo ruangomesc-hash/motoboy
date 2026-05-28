@@ -2,6 +2,7 @@
   "name": "motoboy",
   "private": true,
   "scripts": {
+    "preinstall": "node scripts/ensure-node20.mjs",
     "dev": "pnpm run --parallel dev",
     "dev:api": "pnpm --filter @motoboy/api dev",
     "dev:web": "pnpm --filter @motoboy/web dev",
@@ -12,7 +13,8 @@
     "db:deploy": "pnpm --filter @motoboy/db exec prisma migrate deploy",
     "vercel-build": "node scripts/vercel-build.mjs",
     "prepare:deploy": "pnpm db:generate && pnpm --filter @motoboy/types build",
-    "test": "pnpm --filter @motoboy/api test"
+    "test": "pnpm --filter @motoboy/api test",
+    "check:node": "node scripts/ensure-node20.mjs"
   },
   "engines": {
     "node": "20.x"

@@ -1,11 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { handleBackendRequest } from "@motoboy/api/vercel-handler";
 import { DEMO_USER_ID } from "./demo-data";
-
-import { loginAdminViaApi } from "./admin-auth";
-import { resolveApiBase } from "./api-base";
-
-const API_URL = resolveApiBase();
 
 const isProd =
   process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
@@ -15,6 +11,28 @@ const demoAllowed =
 
 const adminDevAllowed =
   !isProd && process.env.NEXT_PUBLIC_ALLOW_ADMIN_DEV_LOGIN === "true";
+
+async function callBackendAuth<T>(
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: true; data: T } | { ok: false; error?: string; code?: string }> {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const pathSegments = normalizedPath.split("/").filter(Boolean);
+  const request = new Request(`http://internal${normalizedPath}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const response = await handleBackendRequest(request, pathSegments);
+  const data = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    code?: string;
+  } & T;
+  if (!response.ok) {
+    return { ok: false, error: data.error, code: data.code };
+  }
+  return { ok: true, data };
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -50,19 +68,14 @@ export const authOptions: NextAuthOptions = {
         if (credentials.password?.trim()) {
           payload.password = credentials.password.trim();
         }
-        const verify = await fetch(`${API_URL}/auth/whatsapp/verify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = (await verify.json().catch(() => ({}))) as {
-          error?: string;
-          token: string;
-          userId: string;
-        };
+        const verify = await callBackendAuth<{ token: string; userId: string }>(
+          "/auth/whatsapp/verify",
+          payload,
+        );
         if (!verify.ok) {
-          throw new Error(data.error ?? "Falha ao validar WhatsApp");
+          throw new Error(verify.error ?? "Falha ao validar WhatsApp");
         }
+        const data = verify.data;
         if (!data.userId || !data.token) return null;
         return {
           id: data.userId,
@@ -81,22 +94,17 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.phone || !credentials?.password) return null;
-        const res = await fetch(`${API_URL}/auth/password/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const login = await callBackendAuth<{ token: string; userId: string }>(
+          "/auth/password/login",
+          {
             phone: credentials.phone.replace(/\D/g, ""),
             password: credentials.password,
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          token: string;
-          userId: string;
-        };
-        if (!res.ok) {
-          throw new Error(data.error ?? "WhatsApp ou senha incorretos");
+          },
+        );
+        if (!login.ok) {
+          throw new Error(login.error ?? "WhatsApp ou senha incorretos");
         }
+        const data = login.data;
         if (!data.userId || !data.token) return null;
         return {
           id: data.userId,
@@ -151,10 +159,29 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-        const token = await loginAdminViaApi(
-          credentials.email,
-          credentials.password,
+        const login = await callBackendAuth<{ token: string }>(
+          "/admin/auth/login",
+          {
+            email: credentials.email.trim(),
+            password: credentials.password,
+          },
         );
+        if (!login.ok) {
+          if (login.code === "MIGRATIONS_REQUIRED") {
+            throw new Error(
+              login.error ??
+                "Banco sem tabelas. Rode migrations ou redeploy na Vercel com DATABASE_URL em Build.",
+            );
+          }
+          if (login.code === "NEEDS_SETUP") {
+            throw new Error(
+              login.error ??
+                "Primeiro acesso: use Continuar sem senha e defina sua senha.",
+            );
+          }
+          throw new Error(login.error ?? "E-mail ou senha incorretos");
+        }
+        const token = login.data.token;
         if (!token) return null;
         return {
           id: "admin",

@@ -21,13 +21,14 @@ Detalhes: **[DEPLOY.md](./DEPLOY.md)**
 
 ## Pré-requisitos
 
-- Node.js 20+
+- Node.js 20.x (obrigatório)
 - pnpm 9+
 - Docker (Postgres 16 + Redis) — ou Supabase na nuvem
 
 ## Setup
 
 ```bash
+nvm use 20
 cp .env.example .env
 # Edite .env com suas chaves (Evolution, OpenAI, etc.)
 
