@@ -81,6 +81,13 @@ function CadastroForm() {
     digits: string,
     affiliateCode: string | undefined,
   ) {
+    savePendingRegistration({
+      name: name.trim(),
+      email: email.trim(),
+      phone: digits,
+      password: "",
+      affiliateCode,
+    });
     const result = await signIn("password", {
       phone: digits,
       password,
@@ -95,13 +102,6 @@ function CadastroForm() {
       return;
     }
     clearPersistedAffiliateCode();
-    savePendingRegistration({
-      name: name.trim(),
-      email: email.trim(),
-      phone: digits,
-      password: "",
-      affiliateCode,
-    });
     router.push("/config?setup=1");
   }
 

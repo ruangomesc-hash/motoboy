@@ -40,7 +40,9 @@ import {
   type ConfigSavePayload,
   type MeApiResponse,
   type MeSettingsSnapshot,
+  buildOptimisticMeFromPending,
   parseMeSettings,
+  readPendingRegistrationProfile,
   toCostsPutBody,
   toGoalsPutBody,
   toProfilePutBody,
@@ -512,6 +514,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (status !== "authenticated") return null;
       if (!token && !session?.demo) return meSettingsRef.current;
 
+      const pending = readPendingRegistrationProfile();
+      if (pending && !meSettingsRef.current) {
+        applyMeSnapshot(buildOptimisticMeFromPending(pending));
+      }
+
       const cached = meSettingsRef.current;
       if (!opts?.force && cached) {
         if (!opts?.silent) {
@@ -528,12 +535,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const seq = ++meLoadSeq.current;
-      if (!opts?.silent && !cached) setMeSettingsLoading(true);
+      if (!opts?.silent && !cached && !pending) setMeSettingsLoading(true);
       try {
         const data = await api<MeApiResponse>("/me");
         if (seq !== meLoadSeq.current) return null;
         const snap = parseMeSettings(data);
-        applyMeSnapshot(snap);
+        if (pending) {
+          applyMeSnapshot({
+            ...snap,
+            profile: {
+              ...snap.profile,
+              name: snap.profile.name?.trim() || pending.name,
+              email: snap.profile.email?.trim() || pending.email,
+            },
+          });
+        } else {
+          applyMeSnapshot(snap);
+        }
         if (userId) schedulePersist(userId);
         return snap;
       } catch {
@@ -727,15 +745,33 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const bootstrap = useCallback(() => {
+    const pending = readPendingRegistrationProfile();
+    if (pending && !meSettingsRef.current) {
+      applyMeSnapshot(buildOptimisticMeFromPending(pending));
+    }
+
     const cached = userId ? readAppCache(userId) : null;
     const stale = !cached || isCacheStale(cached.savedAt, 45_000);
 
-    void refreshToday();
-    void loadMeSettings({ force: stale, silent: Boolean(cached) });
-    void refreshDeliveries();
-    void refreshStats("week");
-    void refreshStats("month");
-  }, [loadMeSettings, refreshDeliveries, refreshStats, refreshToday, userId]);
+    void loadMeSettings({
+      force: stale || Boolean(pending),
+      silent: Boolean(cached || pending),
+    });
+
+    requestAnimationFrame(() => {
+      void refreshToday();
+      void refreshDeliveries();
+      void refreshStats("week");
+      void refreshStats("month");
+    });
+  }, [
+    applyMeSnapshot,
+    loadMeSettings,
+    refreshDeliveries,
+    refreshStats,
+    refreshToday,
+    userId,
+  ]);
 
   useLayoutEffect(() => {
     if (!userId) return;

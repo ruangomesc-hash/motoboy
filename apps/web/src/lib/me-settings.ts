@@ -1,7 +1,10 @@
 import type { GoalsPlan, UserProfile } from "@motoboy/types";
+import { toStoredWhatsApp } from "@motoboy/types";
 import type { ProfileFormState } from "@/components/profile-form";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 import type { MeConfigSnapshot } from "@/lib/onboarding";
+import type { PendingRegistration } from "@/lib/registration-pending";
+import { readPendingRegistration } from "@/lib/registration-pending";
 
 export type MeCostsSnapshot = {
   fuelPricePerLiter: number;
@@ -44,6 +47,64 @@ export function parseMeSettings(data: MeApiResponse): MeSettingsSnapshot {
     profile: data.profile,
     goalsPlan: data.goalsPlan,
     costs: data.costs,
+  };
+}
+
+const DEFAULT_COSTS_SNAPSHOT: MeCostsSnapshot = {
+  fuelPricePerLiter: 6,
+  kmPerLiter: 35,
+  maintenancePerKm: 0.15,
+  dailyFoodCost: 25,
+  otherDailyCost: 0,
+};
+
+/** Perfil imediato após cadastro (antes do /me responder). */
+export function buildOptimisticMeFromPending(
+  pending: PendingRegistration,
+): MeSettingsSnapshot {
+  return {
+    profile: {
+      id: "pending",
+      name: pending.name,
+      email: pending.email,
+      city: "",
+      vehiclePlate: null,
+      whatsappNumber: toStoredWhatsApp(pending.phone),
+      workApps: [],
+      subscriptionPaymentMethod: "PIX",
+      workDays: [...DEFAULT_WORK_DAYS],
+    },
+    goalsPlan: null,
+    costs: { ...DEFAULT_COSTS_SNAPSHOT },
+  };
+}
+
+export function readPendingRegistrationProfile(): PendingRegistration | null {
+  return readPendingRegistration({ requirePassword: false });
+}
+
+/** Formulário de Config já preenchido com nome/e-mail do cadastro. */
+export function buildInitialConfigForm(): ConfigFormSnapshot {
+  const pending = readPendingRegistrationProfile();
+  if (pending) {
+    return meToConfigForm(buildOptimisticMeFromPending(pending), pending);
+  }
+  return {
+    profile: {
+      name: "",
+      email: "",
+      city: "",
+      workApps: [],
+      subscriptionPaymentMethod: "PIX",
+      workDays: [...DEFAULT_WORK_DAYS],
+    },
+    monthlyGoal: "5000",
+    costs: {
+      fuelPricePerLiter: "6",
+      kmPerLiter: "35",
+      maintenancePerKm: "0.15",
+      otherDailyCost: "0",
+    },
   };
 }
 

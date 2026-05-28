@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
@@ -21,31 +21,15 @@ import {
   ProfileForm,
   type ProfileFormState,
 } from "@/components/profile-form";
-import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
+import { clearPendingRegistration } from "@/lib/registration-pending";
 import {
-  clearPendingRegistration,
-  readPendingRegistration,
-} from "@/lib/registration-pending";
-import { meToConfigForm, type ConfigFormSnapshot } from "@/lib/me-settings";
+  buildInitialConfigForm,
+  buildOptimisticMeFromPending,
+  meToConfigForm,
+  readPendingRegistrationProfile,
+  type ConfigFormSnapshot,
+} from "@/lib/me-settings";
 import { AppPage } from "@/components/app-page";
-
-const defaultForm: ConfigFormSnapshot = {
-  profile: {
-    name: "",
-    email: "",
-    city: "",
-    workApps: [],
-    subscriptionPaymentMethod: "PIX",
-    workDays: [...DEFAULT_WORK_DAYS],
-  },
-  monthlyGoal: "5000",
-  costs: {
-    fuelPricePerLiter: "6",
-    kmPerLiter: "35",
-    maintenancePerKm: "0.15",
-    otherDailyCost: "0",
-  },
-};
 
 function ConfigPageInner() {
   const api = useApi();
@@ -62,7 +46,7 @@ function ConfigPageInner() {
   const searchParams = useSearchParams();
   const isSetup = searchParams.get("setup") === "1";
 
-  const [form, setForm] = useState<ConfigFormSnapshot>(defaultForm);
+  const [form, setForm] = useState<ConfigFormSnapshot>(buildInitialConfigForm);
   const [saved, setSaved] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -70,7 +54,7 @@ function ConfigPageInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
-  const [initialCosts, setInitialCosts] = useState(defaultForm.costs);
+  const [initialCosts, setInitialCosts] = useState(() => buildInitialConfigForm().costs);
   const { profile, monthlyGoal, costs } = form;
 
   const previewPlan = useMemo(() => {
@@ -104,18 +88,31 @@ function ConfigPageInner() {
     return { dailyTarget, weeklyTarget, workDaysInMonth, workDaysInWeek };
   }, [monthlyGoal, profile.workDays]);
 
+  useLayoutEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    const pending = readPendingRegistrationProfile();
+    if (pending) {
+      const next = meToConfigForm(
+        meSettings ?? buildOptimisticMeFromPending(pending),
+        pending,
+      );
+      setForm(next);
+      setInitialCosts(next.costs);
+    }
+  }, [sessionStatus, meSettings]);
+
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     if (!pathname.startsWith("/config")) return;
     setLoadError(null);
-    void loadMeSettings({ silent: true }).catch((e: Error) => {
+    void loadMeSettings({ force: true, silent: true }).catch((e: Error) => {
       setLoadError(e.message);
     });
   }, [pathname, sessionStatus, loadMeSettings]);
 
   useEffect(() => {
     if (!meSettings || saving) return;
-    const pending = readPendingRegistration({ requirePassword: false });
+    const pending = readPendingRegistrationProfile();
     const next = meToConfigForm(meSettings, pending);
     setForm(next);
     setInitialCosts(next.costs);
@@ -197,7 +194,9 @@ function ConfigPageInner() {
     }
   }
 
-  const showLoading = meSettingsLoading && !meSettings;
+  const hasPendingProfile = Boolean(readPendingRegistrationProfile());
+  const showLoading =
+    meSettingsLoading && !meSettings && !hasPendingProfile;
 
   return (
     <AppPage className="p-4 space-y-6 pb-8">

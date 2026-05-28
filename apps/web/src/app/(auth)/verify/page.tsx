@@ -8,10 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
 import { clearPersistedAffiliateCode } from "@/lib/affiliate-ref";
-import {
-  clearPendingRegistration,
-  readPendingRegistration,
-} from "@/lib/registration-pending";
+import { readPendingRegistration } from "@/lib/registration-pending";
 
 const skipAuthCodeAllowed =
   process.env.NEXT_PUBLIC_ALLOW_SKIP_AUTH_CODE === "true";
@@ -63,7 +60,6 @@ function VerifyForm() {
       return false;
     }
 
-    clearPendingRegistration();
     clearPersistedAffiliateCode();
     router.push(isRegister ? "/config?setup=1" : "/");
     return true;
