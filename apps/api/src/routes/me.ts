@@ -283,7 +283,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).send({ error: "Entrega não encontrada" });
     }
 
-    await recordActivitySafe(
+    void recordActivitySafe(
       userId,
       {
         category: "DELIVERY",

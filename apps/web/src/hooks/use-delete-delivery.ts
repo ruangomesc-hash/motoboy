@@ -21,7 +21,7 @@ export function useDeleteDelivery() {
   } = useAppData();
 
   const deleteDelivery = useCallback(
-    async (id: string, snapshot: CreatedDelivery) => {
+    (id: string, snapshot: CreatedDelivery) => {
       if (id.startsWith("local-")) {
         markDeliveryCancelled(id);
         abortInflightCreate(id);
@@ -31,7 +31,7 @@ export function useDeleteDelivery() {
           removedDelivery: snapshot,
           skipReconcile: true,
         });
-        return { ok: true as const };
+        return Promise.resolve({ ok: true as const });
       }
 
       removeDeliveryOptimistic(id, snapshot);
@@ -41,25 +41,32 @@ export function useDeleteDelivery() {
         skipReconcile: true,
       });
 
-      try {
-        await api(
-          deliveryPath(id),
-          { method: "DELETE" },
-          { skipSync: true },
-        );
-        return { ok: true as const };
-      } catch (err) {
-        upsertDeliveryOptimistic(snapshot);
-        publishAppSync(DELIVERY_SYNC_TOPICS, {
-          delivery: snapshot,
-          skipReconcile: true,
-        });
-        const message =
-          err instanceof Error
-            ? err.message
-            : "Não foi possível apagar no servidor.";
-        return { ok: false as const, error: message };
-      }
+      void (async () => {
+        try {
+          await api(
+            deliveryPath(id),
+            { method: "DELETE" },
+            { skipSync: true },
+          );
+        } catch (err) {
+          upsertDeliveryOptimistic(snapshot);
+          publishAppSync(DELIVERY_SYNC_TOPICS, {
+            delivery: snapshot,
+            skipReconcile: true,
+          });
+          const message =
+            err instanceof Error
+              ? err.message
+              : "Não foi possível apagar no servidor.";
+          if (typeof window !== "undefined") {
+            window.alert(
+              `${message}\n\nA entrega foi recolocada na lista.`,
+            );
+          }
+        }
+      })();
+
+      return Promise.resolve({ ok: true as const });
     },
     [
       api,

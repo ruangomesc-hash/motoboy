@@ -190,24 +190,12 @@ export default function EntregaDetailPage() {
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!delivery || deleting) return;
-    setDeleting(true);
-    setDeleteError(null);
-
     const snapshot = toPayload(delivery);
     setShowDeleteConfirm(false);
+    void deleteDelivery(id, snapshot);
     router.replace("/entregas");
-
-    const result = await deleteDelivery(id, snapshot);
-    setDeleting(false);
-
-    if (!result.ok) {
-      setDeleteError(result.error);
-      if (typeof window !== "undefined") {
-        window.alert(`${result.error}\n\nA entrega foi recolocada na lista.`);
-      }
-    }
   }
 
   if (!delivery || !form) {

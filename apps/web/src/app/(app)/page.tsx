@@ -27,7 +27,10 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
-import { buildRecentDeliveriesForHome } from "@/lib/today-recent-from-deliveries";
+import {
+  buildRecentDeliveriesForHome,
+  recomputeTodayFromDeliveries,
+} from "@/lib/today-recent-from-deliveries";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
 
@@ -89,7 +92,10 @@ export default function HomePage() {
 
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
 
-  const s = today ?? emptySummary;
+  const s = useMemo(() => {
+    if (!today) return emptySummary;
+    return recomputeTodayFromDeliveries(deliveries, today);
+  }, [today, deliveries]);
   const recentDeliveries = useMemo(
     () => buildRecentDeliveriesForHome(deliveries),
     [deliveries],
@@ -348,23 +354,14 @@ export default function HomePage() {
           setDeleteTarget(null);
           setDeleteError(null);
         }}
-        onConfirm={async () => {
+        onConfirm={() => {
           if (!deleteTarget || deleting) return;
-          setDeleting(true);
-          setDeleteError(null);
           const snapshot = recentDeliveryToPayload(deleteTarget);
-          const result = await deleteDelivery(deleteTarget.id, snapshot);
-          setDeleting(false);
-          if (result.ok) {
-            setDeleteTarget(null);
-          } else {
-            setDeleteError(result.error);
-            if (typeof window !== "undefined") {
-              window.alert(
-                `${result.error}\n\nA entrega continua salva. Tente apagar de novo.`,
-              );
-            }
-          }
+          const id = deleteTarget.id;
+          setDeleteTarget(null);
+          setDeleteError(null);
+          setDeleting(true);
+          void deleteDelivery(id, snapshot).finally(() => setDeleting(false));
         }}
       />
     </AppPage>

@@ -25,12 +25,7 @@ import {
   shouldHandleSync,
   subscribeAppSync,
 } from "@/lib/app-sync";
-import {
-  applyDeliveryToToday,
-  removeDeliveryFromToday,
-  replaceDeliveryInToday,
-  type CreatedDelivery,
-} from "@/lib/app-data-cache";
+import type { CreatedDelivery } from "@/lib/app-data-cache";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import {
   isIsoOnDateInput,
@@ -78,6 +73,7 @@ import {
   mergeDeliveryLists,
   mergeTodayFromServer,
 } from "@/lib/merge-app-data";
+import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
 
 export type { DeliveryListItem };
 
@@ -415,69 +411,41 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       flushSync(() => {
-        setDeliveries((prev) => {
-          let base =
-            prevPayload && prevPayload.id !== item.id
-              ? prev.filter((d) => d.id !== prevPayload.id)
-              : prev;
-          const idx = base.findIndex((d) => d.id === item.id);
-          if (idx >= 0) {
-            const next = [...base];
-            next[idx] = item;
-            return next;
-          }
-          return [item, ...base];
-        });
+        const prevList = stateRef.current.deliveries;
+        let nextDeliveries =
+          prevPayload && prevPayload.id !== item.id
+            ? prevList.filter((d) => d.id !== prevPayload.id)
+            : prevList;
+        const idx = nextDeliveries.findIndex((d) => d.id === item.id);
+        if (idx >= 0) {
+          const next = [...nextDeliveries];
+          next[idx] = item;
+          nextDeliveries = next;
+        } else {
+          nextDeliveries = [item, ...nextDeliveries];
+        }
 
-        setDeliveriesDate((current) => {
-          const filter = isIsoOnDateInput(occurredAt, todayKey)
-            ? todayKey
-            : current || todayKey;
-          return filter;
-        });
+        const todayBase = stateRef.current.today ?? emptyTodaySummary();
+        const nextToday = recomputeTodayFromDeliveries(
+          nextDeliveries,
+          todayBase,
+          todayKey,
+          new Set(deletedDeliveries.current.toArray()),
+        );
 
-        setToday((prev) => {
-          const base = prev ?? emptyTodaySummary();
-          const nextPayload = { ...delivery, occurredAt };
-          if (prevPayload) {
-            const wasToday = isIsoOnDateInput(
-              prevPayload.occurredAt ?? "",
-              todayKey,
-            );
-            const isToday = isIsoOnDateInput(occurredAt, todayKey);
-            const idChanged = prevPayload.id !== item.id;
-            if (idChanged && wasToday && isToday) {
-              return replaceDeliveryInToday(base, prevPayload, nextPayload);
-            }
-            let working = base;
-            if (idChanged && wasToday) {
-              working = removeDeliveryFromToday(working, prevPayload);
-            }
-            if (wasToday && isToday && !idChanged) {
-              return replaceDeliveryInToday(working, prevPayload, nextPayload);
-            }
-            if (wasToday && !isToday) {
-              return idChanged ? working : removeDeliveryFromToday(base, prevPayload);
-            }
-            if (!wasToday && isToday) {
-              if (working.recentDeliveries.some((r) => r.id === item.id)) {
-                return working;
-              }
-              return applyDeliveryToToday(working, nextPayload);
-            }
-            return working;
-          }
-          if (!isIsoOnDateInput(occurredAt, todayKey)) return base;
-          if (base.recentDeliveries.some((r) => r.id === item.id)) return base;
-          const next = applyDeliveryToToday(base, nextPayload);
-          return {
-            ...next,
-            recentDeliveries: dedupeRecentDeliveries(next.recentDeliveries).slice(
-              0,
-              3,
-            ),
-          };
-        });
+        const nextDate = isIsoOnDateInput(occurredAt, todayKey)
+          ? todayKey
+          : stateRef.current.deliveriesDate || todayKey;
+
+        stateRef.current = {
+          ...stateRef.current,
+          deliveries: nextDeliveries,
+          today: nextToday,
+          deliveriesDate: nextDate,
+        };
+        setDeliveries(nextDeliveries);
+        setDeliveriesDate(nextDate);
+        setToday(nextToday);
       });
 
       const idReplaced = Boolean(
@@ -522,26 +490,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       });
 
       const nextDeliveries = s.deliveries.filter((d) => d.id !== deliveryId);
-      let nextToday = s.today;
-      if (
-        payload &&
-        nextToday &&
-        isIsoOnDateInput(payload.occurredAt ?? "", todayKey)
-      ) {
-        nextToday = removeDeliveryFromToday(nextToday, payload);
-      }
+      const base = s.today ?? emptyTodaySummary();
+      const nextToday = recomputeTodayFromDeliveries(
+        nextDeliveries,
+        base,
+        todayKey,
+        new Set(deletedDeliveries.current.toArray()),
+      );
 
-      const listChanged = nextDeliveries.length !== s.deliveries.length;
-      const todayChanged = nextToday !== s.today;
-
-      stateRef.current = {
-        ...s,
-        deliveries: nextDeliveries,
-        today: nextToday,
-      };
-
-      if (listChanged) setDeliveries(nextDeliveries);
-      if (todayChanged) setToday(nextToday);
+      flushSync(() => {
+        stateRef.current = {
+          ...s,
+          deliveries: nextDeliveries,
+          today: nextToday,
+        };
+        setDeliveries(nextDeliveries);
+        setToday(nextToday);
+      });
 
       if (
         payload &&
