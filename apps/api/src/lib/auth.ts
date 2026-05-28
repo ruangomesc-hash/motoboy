@@ -132,17 +132,19 @@ export async function requireAdmin(
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;
 
   if (!token) {
-    return reply.status(401).send({ error: "Não autenticado" });
+    await reply.status(401).send({ error: "Não autenticado" });
+    return;
   }
 
   try {
     const payload = verifyToken(token, env.JWT_SECRET);
     if (payload.role !== "admin") {
-      return reply.status(403).send({ error: "Acesso negado" });
+      await reply.status(403).send({ error: "Acesso negado" });
+      return;
     }
     request.user = payload;
   } catch {
-    return reply.status(401).send({ error: "Token inválido" });
+    await reply.status(401).send({ error: "Token inválido" });
   }
 }
 

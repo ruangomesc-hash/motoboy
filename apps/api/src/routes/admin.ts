@@ -16,6 +16,7 @@ import {
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
 import { MIGRATIONS_REQUIRED_MESSAGE } from "../lib/prisma-errors.js";
+import { sendPrismaOrServiceError } from "../lib/prisma-http.js";
 import { strictAuthRateLimit } from "../lib/rate-limit.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import {
@@ -158,6 +159,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       return;
     }
     await requireAdmin(request, reply);
+    if (reply.sent) return;
   });
 
   app.get("/admin/overview", async (_request, reply) => {
@@ -254,11 +256,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       const user = await setAdminUserPassword(userId, body.password);
       return reply.send(user);
     } catch (err) {
-      const e = err as Error & { statusCode?: number };
-      if (e.statusCode) {
-        return reply.status(e.statusCode).send({ error: e.message });
-      }
-      throw err;
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível salvar a senha do cliente.",
+      );
     }
   });
 
@@ -268,11 +270,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       await deleteAdminUser(userId);
       return reply.status(200).send({ ok: true });
     } catch (err) {
-      const e = err as Error & { statusCode?: number };
-      if (e.statusCode) {
-        return reply.status(e.statusCode).send({ error: e.message });
-      }
-      throw err;
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível excluir o cliente.",
+      );
     }
   });
 

@@ -12,10 +12,7 @@ import { authRoutes } from "./routes/auth.js";
 import { meRoutes } from "./routes/me.js";
 import { adminRoutes } from "./routes/admin.js";
 import type { EvolutionService as EvoType } from "./services/evolution.js";
-import {
-  isPrismaTableMissingError,
-  MIGRATIONS_REQUIRED_MESSAGE,
-} from "./lib/prisma-errors.js";
+import { mapPrismaHttpError } from "./lib/prisma-http.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -57,25 +54,16 @@ export async function createApp(
 
   app.setErrorHandler((error: unknown, _request, reply) => {
     const err = error as { code?: string; name?: string; message?: string };
-    if (isPrismaTableMissingError(err)) {
+    const prismaMapped = mapPrismaHttpError(error);
+    if (prismaMapped) {
       app.log.error(error);
-      return reply.status(503).send({
-        error: MIGRATIONS_REQUIRED_MESSAGE,
-        code: "MIGRATIONS_REQUIRED",
-      });
+      return reply.status(prismaMapped.status).send(prismaMapped.body);
     }
     if (err.name === "PrismaClientValidationError") {
       app.log.error(error);
       return reply.status(400).send({
         error: "Dados da entrega inválidos. Confira valor, origem e data.",
         code: "PRISMA_VALIDATION",
-      });
-    }
-    if (err.code?.startsWith("P20")) {
-      app.log.error(error);
-      return reply.status(503).send({
-        error:
-          "Banco indisponível. Verifique DATABASE_URL (Supabase) e rode as migrations.",
       });
     }
     if (

@@ -187,8 +187,22 @@ export async function deleteAdminUser(userId: string): Promise<void> {
   if (!existing) {
     throw Object.assign(new Error("Cliente não encontrado"), {
       statusCode: 404,
+      code: "NOT_FOUND",
     });
   }
+
+  // Exclusão explícita (sem $transaction interativa — incompatível com pooler 6543).
+  // Cobre FKs sem CASCADE no banco de produção.
+  await prisma.whatsAppMessage.deleteMany({ where: { userId } });
+  await prisma.activityLog.deleteMany({ where: { userId } });
+  await prisma.delivery.deleteMany({ where: { userId } });
+  await prisma.fuelRefuel.deleteMany({ where: { userId } });
+  await prisma.odometerReading.deleteMany({ where: { userId } });
+  await prisma.route.deleteMany({ where: { userId } });
+  await prisma.shift.deleteMany({ where: { userId } });
+  await prisma.goal.deleteMany({ where: { userId } });
+  await prisma.payment.deleteMany({ where: { userId } });
+  await prisma.costConfig.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } });
 }
 
