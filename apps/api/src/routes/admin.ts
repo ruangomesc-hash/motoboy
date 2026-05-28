@@ -82,7 +82,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     try {
       const { email } = await setupAdminAccount(
         body.email,
-        body.password.trim(),
+        body.password,
       );
       const token = signAdminToken(env.JWT_SECRET);
       reply.setCookie("motoboy-admin-token", token, {
@@ -106,7 +106,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const body = adminLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
-    const password = body.password.trim();
+    const password = body.password;
     const envLogin = envAdminCredentialsConfigured();
 
     const migrationsReady = await isAdminTableReady();
