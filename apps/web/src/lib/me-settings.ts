@@ -182,3 +182,32 @@ export function toCostsPutBody(form: ConfigFormSnapshot) {
     otherDailyCost: Number(form.costs.otherDailyCost),
   };
 }
+
+function costsFromForm(form: ConfigFormSnapshot): MeCostsSnapshot {
+  return {
+    fuelPricePerLiter: Number(form.costs.fuelPricePerLiter),
+    kmPerLiter: Number(form.costs.kmPerLiter),
+    maintenancePerKm: Number(form.costs.maintenancePerKm),
+    dailyFoodCost: 0,
+    otherDailyCost: Number(form.costs.otherDailyCost),
+  };
+}
+
+/** Monta snapshot local após PUTs (evita GET /me extra no salvar). */
+export function buildMeSnapshotAfterSave(
+  payload: ConfigSavePayload,
+  profile: UserProfile,
+  plan: GoalsPlan,
+  costsOverride?: MeCostsSnapshot | null,
+): MeSettingsSnapshot {
+  return {
+    profile: {
+      ...profile,
+      workApps: payload.profile.workApps,
+      workDays: payload.profile.workDays,
+      subscriptionPaymentMethod: payload.profile.subscriptionPaymentMethod,
+    },
+    goalsPlan: plan,
+    costs: costsOverride ?? costsFromForm(payload),
+  };
+}

@@ -35,11 +35,16 @@ import {
   isIsoOnDateInput,
   todayDateInputValue,
 } from "@/lib/local-date";
-import { isServerConfigComplete } from "@/lib/onboarding";
+import {
+  isServerConfigComplete,
+  markConfigSavedOnce,
+  clearConfigSavedOnce,
+} from "@/lib/onboarding";
 import {
   type ConfigSavePayload,
   type MeApiResponse,
   type MeSettingsSnapshot,
+  buildMeSnapshotAfterSave,
   buildOptimisticMeFromPending,
   parseMeSettings,
   readPendingRegistrationProfile,
@@ -47,6 +52,7 @@ import {
   toGoalsPutBody,
   toProfilePutBody,
 } from "@/lib/me-settings";
+import type { GoalsPlan, UserProfile } from "@motoboy/types";
 import {
   appCacheStorageKey,
   clearAppCache,
@@ -709,7 +715,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ),
       ];
 
-      if (payload.saveCosts) {
+      const saveCosts = payload.saveCosts !== false;
+      if (saveCosts) {
         requests.push(
           api(
             "/me/costs",
@@ -722,26 +729,28 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      await Promise.all(requests);
+      const [profileRes, planRes] = (await Promise.all(requests)) as [
+        UserProfile,
+        { plan: GoalsPlan },
+      ];
 
-      const snap = await loadMeSettings({ force: true, silent: true });
+      const snap = buildMeSnapshotAfterSave(
+        payload,
+        profileRes,
+        planRes.plan,
+        saveCosts ? undefined : current?.costs ?? null,
+      );
+      applyMeSnapshot(snap);
+      if (userId) persistNow(userId);
+      markConfigSavedOnce();
       publishAppSync(["profile", "today", "stats"], { skipReconcile: true });
-      scheduleBackgroundReconcile();
 
       return {
-        complete: snap ? isServerConfigComplete(snap) : false,
+        complete: isServerConfigComplete(snap),
         me: snap,
       };
     },
-    [
-      api,
-      applyMeSnapshot,
-      loadMeSettings,
-      persistNow,
-      publishAppSync,
-      scheduleBackgroundReconcile,
-      userId,
-    ],
+    [api, applyMeSnapshot, persistNow, publishAppSync, userId],
   );
 
   const bootstrap = useCallback(() => {
@@ -794,6 +803,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       wasAuthenticated.current = false;
       bootstrapStarted.current = false;
       hydratedUser.current = null;
+      clearConfigSavedOnce();
       deletedDeliveries.current.clear();
       pendingDeliveries.current.clear();
       setIsBootstrapped(false);

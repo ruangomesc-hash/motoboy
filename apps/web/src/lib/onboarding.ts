@@ -3,6 +3,7 @@ import type { GoalsPlan, UserProfile } from "@motoboy/types";
 /** Tour do app — só na primeira vez (localStorage). */
 const TOUR_SEEN_KEY = "motocopiloto_app_tour_seen_v1";
 const SETUP_GUIDE_HIDDEN_KEY = "motocopiloto_setup_guide_hidden_v1";
+const CONFIG_SAVED_ONCE_KEY = "motocopiloto_config_saved_once_v1";
 
 export function isSetupGuideHidden(): boolean {
   if (typeof window === "undefined") return false;
@@ -17,6 +18,22 @@ export function hideSetupGuide(): void {
 export function clearSetupGuideHidden(): void {
   if (typeof window === "undefined") return;
   sessionStorage.removeItem(SETUP_GUIDE_HIDDEN_KEY);
+}
+
+/** Após salvar config uma vez, o app deixa de forçar voltar para /config. */
+export function markConfigSavedOnce(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(CONFIG_SAVED_ONCE_KEY, "1");
+}
+
+export function hasConfigSavedOnce(): boolean {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(CONFIG_SAVED_ONCE_KEY) === "1";
+}
+
+export function clearConfigSavedOnce(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(CONFIG_SAVED_ONCE_KEY);
 }
 
 export type MeConfigSnapshot = {

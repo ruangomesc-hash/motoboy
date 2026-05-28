@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { useAppData } from "@/components/app-data-provider";
 import {
   clearSetupGuideHidden,
+  hasConfigSavedOnce,
   hideSetupGuide,
   isAppTourSeen,
   isSetupGuideHidden,
@@ -28,11 +29,12 @@ function OnboardingManagerInner() {
 
   useEffect(() => {
     if (status !== "authenticated" || configComplete !== false) return;
+    if (hasConfigSavedOnce() || isSetupGuideHidden() || guideDismissed) return;
     const allowed = ALLOW_WITHOUT_CONFIG.some((p) => pathname.startsWith(p));
     if (!allowed) {
       router.replace("/config?setup=1");
     }
-  }, [status, configComplete, pathname, router]);
+  }, [status, configComplete, pathname, router, guideDismissed]);
 
   useEffect(() => {
     if (configComplete === true) {

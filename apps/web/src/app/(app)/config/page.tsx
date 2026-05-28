@@ -154,12 +154,10 @@ function ConfigPageInner() {
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      const saveCosts =
-        costs.fuelPricePerLiter.trim() !== initialCosts.fuelPricePerLiter.trim() ||
-        costs.kmPerLiter.trim() !== initialCosts.kmPerLiter.trim() ||
-        costs.maintenancePerKm.trim() !== initialCosts.maintenancePerKm.trim() ||
-        costs.otherDailyCost.trim() !== initialCosts.otherDailyCost.trim();
-      const { complete, me } = await saveMeSettings({ ...form, saveCosts });
+      const { complete, me } = await saveMeSettings({
+        ...form,
+        saveCosts: true,
+      });
       clearPendingRegistration();
       clearSetupGuideHidden();
 
