@@ -165,6 +165,7 @@ export const demoClients: AdminUserRow[] = [
     isDelinquent: false,
     delinquencyReason: null,
     daysOverdue: null,
+    hasPassword: true,
   }),
   withUsage({
     id: "c2",
@@ -184,6 +185,7 @@ export const demoClients: AdminUserRow[] = [
     isDelinquent: true,
     delinquencyReason: "trial_expired",
     daysOverdue: 6,
+    hasPassword: false,
   }),
   withUsage({
     id: "c3",
@@ -203,6 +205,7 @@ export const demoClients: AdminUserRow[] = [
     isDelinquent: true,
     delinquencyReason: "payment_pending",
     daysOverdue: null,
+    hasPassword: true,
   }),
   withUsage({
     id: "c4",
@@ -222,6 +225,7 @@ export const demoClients: AdminUserRow[] = [
     isDelinquent: false,
     delinquencyReason: null,
     daysOverdue: null,
+    hasPassword: true,
   }),
   withUsage({
     id: "c5",
@@ -241,6 +245,7 @@ export const demoClients: AdminUserRow[] = [
     isDelinquent: false,
     delinquencyReason: null,
     daysOverdue: null,
+    hasPassword: false,
   }),
 ];
 
@@ -327,6 +332,46 @@ export function adminDemoFetch<T>(
     return Promise.resolve(demoPaymentLink(client) as T);
   }
 
+  const passwordMatch = path.match(/^\/admin\/users\/([^/]+)\/password$/);
+  if (passwordMatch && options.method === "PUT") {
+    const client = demoClients.find((c) => c.id === passwordMatch[1]);
+    if (!client) return Promise.reject(new Error("Cliente não encontrado"));
+    const body = JSON.parse(String(options.body ?? "{}")) as { password?: string };
+    if (!body.password || body.password.length < 8) {
+      return Promise.reject(new Error("Senha deve ter no mínimo 8 caracteres"));
+    }
+    client.hasPassword = true;
+    return Promise.resolve(client as T);
+  }
+
+  const deleteMatch = path.match(/^\/admin\/users\/([^/]+)$/);
+  if (deleteMatch && options.method === "DELETE") {
+    const idx = demoClients.findIndex((c) => c.id === deleteMatch[1]);
+    if (idx < 0) return Promise.reject(new Error("Cliente não encontrado"));
+    const removed = demoClients.splice(idx, 1)[0];
+    if (!removed) return Promise.reject(new Error("Cliente não encontrado"));
+    demoAdminOverview.users.total = Math.max(0, demoAdminOverview.users.total - 1);
+    if (removed.status === "ACTIVE") {
+      demoAdminOverview.users.active = Math.max(
+        0,
+        demoAdminOverview.users.active - 1,
+      );
+    }
+    if (removed.status === "TRIAL") {
+      demoAdminOverview.users.trial = Math.max(
+        0,
+        demoAdminOverview.users.trial - 1,
+      );
+    }
+    if (removed.isDelinquent) {
+      demoAdminOverview.growth.delinquentTotal = Math.max(
+        0,
+        demoAdminOverview.growth.delinquentTotal - 1,
+      );
+    }
+    return Promise.resolve({ ok: true } as T);
+  }
+
   const activateMatch = path.match(/^\/admin\/users\/([^/]+)\/activate$/);
   if (activateMatch && options.method === "POST") {
     const client = demoClients.find((c) => c.id === activateMatch[1]);
@@ -388,6 +433,7 @@ export function adminDemoFetch<T>(
       isDelinquent: false,
       delinquencyReason: null,
       daysOverdue: null,
+      hasPassword: false,
     });
     demoClients.unshift(row);
     if (affiliate) {

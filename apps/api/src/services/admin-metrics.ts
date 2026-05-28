@@ -1,4 +1,5 @@
 import { prisma } from "@motoboy/db";
+import { setUserPassword } from "./user-password.js";
 import type {
   AdminCreateUserInput,
   AdminOverview,
@@ -119,6 +120,7 @@ function mapUserRow(
     id: string;
     name: string | null;
     email: string | null;
+    passwordHash: string | null;
     whatsappNumber: string;
     city: string | null;
     status: "TRIAL" | "ACTIVE" | "PAUSED" | "CANCELED";
@@ -150,9 +152,44 @@ function mapUserRow(
     createdAt: u.createdAt.toISOString(),
     deliveryCount: u._count.deliveries,
     lastPaymentStatus: lastPayment?.status ?? null,
+    hasPassword: Boolean(u.passwordHash),
     ...del,
     ...computeAppUsage(u.createdAt),
   };
+}
+
+export async function setAdminUserPassword(
+  userId: string,
+  password: string,
+): Promise<AdminUserRow> {
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!existing) {
+    throw Object.assign(new Error("Cliente não encontrado"), {
+      statusCode: 404,
+    });
+  }
+  await setUserPassword(userId, password);
+  const refreshed = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    include: userInclude,
+  });
+  return mapUserRow(refreshed, new Date());
+}
+
+export async function deleteAdminUser(userId: string): Promise<void> {
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!existing) {
+    throw Object.assign(new Error("Cliente não encontrado"), {
+      statusCode: 404,
+    });
+  }
+  await prisma.user.delete({ where: { id: userId } });
 }
 
 export async function createAdminUser(

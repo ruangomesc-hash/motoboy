@@ -627,7 +627,16 @@ export const adminUserRowSchema = z.object({
   usageDays: z.number(),
   usageMonths: z.number(),
   usageRemainderDays: z.number(),
+  hasPassword: z.boolean(),
 });
+
+export const adminSetUserPasswordSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
+export type AdminSetUserPasswordInput = z.infer<
+  typeof adminSetUserPasswordSchema
+>;
 
 export const adminCreateUserSchema = z.object({
   whatsappNumber: z.string().min(10).max(20),

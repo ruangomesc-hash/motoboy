@@ -3,6 +3,7 @@ import {
   adminCreateAffiliateSchema,
   adminCreateUserSchema,
   adminLoginSchema,
+  adminSetUserPasswordSchema,
 } from "@motoboy/types";
 import { requireAdmin, signAdminToken } from "../lib/auth.js";
 import {
@@ -28,11 +29,13 @@ import {
 } from "../services/affiliate.js";
 import {
   createAdminUser,
+  deleteAdminUser,
   exportAllAdminUsersCsv,
   getAdminDelinquentList,
   getAdminOverview,
   getAdminUsageLogs,
   getAdminUsersList,
+  setAdminUserPassword,
 } from "../services/admin-metrics.js";
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
@@ -235,6 +238,35 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = request.params as { userId: string };
     try {
       return await activateAdminUser(userId);
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      if (e.statusCode) {
+        return reply.status(e.statusCode).send({ error: e.message });
+      }
+      throw err;
+    }
+  });
+
+  app.put("/admin/users/:userId/password", async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const body = adminSetUserPasswordSchema.parse(request.body);
+    try {
+      const user = await setAdminUserPassword(userId, body.password);
+      return reply.send(user);
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      if (e.statusCode) {
+        return reply.status(e.statusCode).send({ error: e.message });
+      }
+      throw err;
+    }
+  });
+
+  app.delete("/admin/users/:userId", async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    try {
+      await deleteAdminUser(userId);
+      return reply.status(200).send({ ok: true });
     } catch (err) {
       const e = err as Error & { statusCode?: number };
       if (e.statusCode) {
