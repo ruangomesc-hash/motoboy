@@ -102,11 +102,19 @@ export async function createApp(
     ) {
       return reply.status(400).send({ error: "Corpo da requisição inválido" });
     }
+    if (err.message === "CORS não permitido") {
+      return reply.status(403).send({
+        error:
+          "Origem do navegador não autorizada. Confira APP_URL e NEXTAUTH_URL na Vercel.",
+        code: "CORS_FORBIDDEN",
+      });
+    }
     app.log.error(error);
     const path = request.url.split("?")[0] ?? "";
     const isAdminMutation =
-      path.includes("/admin/users/") &&
-      (request.method === "DELETE" || request.method === "PUT");
+      (path === "/admin/users" && request.method === "POST") ||
+      (path.includes("/admin/users/") &&
+        (request.method === "DELETE" || request.method === "PUT"));
     const message =
       err instanceof Error ? err.message : "Erro interno do servidor";
     return reply.status(500).send({
@@ -139,21 +147,26 @@ export async function createApp(
     }
   });
 
+  // Na Vercel a API só é chamada via /api/backend no mesmo domínio; CORS estrito quebra POST/PUT.
+  const relaxCors =
+    process.env.VERCEL === "1" || process.env.CORS_RELAXED === "true";
   const allowedOrigins = collectCorsOrigins(env);
 
   await app.register(cors, {
-    origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      if (isCorsOriginAllowed(origin, allowedOrigins)) {
-        callback(null, true);
-        return;
-      }
-      app.log.warn({ origin, allowed: [...allowedOrigins] }, "CORS blocked");
-      callback(new Error("CORS não permitido"), false);
-    },
+    origin: relaxCors
+      ? true
+      : (origin, callback) => {
+          if (!origin) {
+            callback(null, true);
+            return;
+          }
+          if (isCorsOriginAllowed(origin, allowedOrigins)) {
+            callback(null, true);
+            return;
+          }
+          app.log.warn({ origin, allowed: [...allowedOrigins] }, "CORS blocked");
+          callback(new Error("CORS não permitido"), false);
+        },
     credentials: true,
   });
   await app.register(cookie);
