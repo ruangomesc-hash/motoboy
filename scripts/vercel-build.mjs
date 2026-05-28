@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webDir = resolve(root, "apps/web");
 
-console.log("\n[vercel-build] v6 — Prisma + migrations + Next\n");
+console.log("\n[vercel-build] v7 — Prisma + migrations + Next (sync entregas)\n");
 
 function hasRealDatabase() {
   const url = process.env.DATABASE_URL ?? "";
