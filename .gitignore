@@ -3,6 +3,8 @@ dist
 .next
 .env
 .env.local
+.env.vercel-pull
+railway.env
 whatsapp-qrcode.html
 *.log
 .DS_Store
@@ -12,3 +14,4 @@ apps/web/public/sw.js
 apps/web/public/workbox-*.js
 *.tsbuildinfo
 packages/db/generated
+.vercel
