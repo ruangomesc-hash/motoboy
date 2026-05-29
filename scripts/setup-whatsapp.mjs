@@ -22,6 +22,22 @@ const qrOnly = args.has("--qr-only");
 const APP_URL =
   process.env.APP_URL?.trim() || "https://app.motocopiloto.com.br";
 const INSTANCE = process.env.EVOLUTION_INSTANCE?.trim() || "motoboy";
+
+const PLACEHOLDER_EVOLUTION_HOSTS = [
+  "evolution.seuservidor.com",
+  "evolution-example",
+  "seudominio.com",
+];
+
+function isPlaceholderEvolutionUrl(url) {
+  if (!url?.trim()) return true;
+  const lower = url.toLowerCase();
+  return PLACEHOLDER_EVOLUTION_HOSTS.some((h) => lower.includes(h));
+}
+
+function defaultLocalEvolutionUrl() {
+  return "http://localhost:8080";
+}
 const WEBHOOK_PATH = "/api/backend/webhooks/whatsapp";
 
 function log(msg) {
@@ -59,34 +75,69 @@ function writeEnvFile(env) {
   fs.writeFileSync(env.path, env.text);
 }
 
-function dockerAvailable() {
+function resolveComposeCommand() {
+  const pathEnv = process.env.PATH ?? "";
+  const composeBin =
+    process.env.DOCKER_COMPOSE?.trim() ||
+    (() => {
+      for (const dir of pathEnv.split(":")) {
+        const p = path.join(dir, "docker-compose");
+        if (fs.existsSync(p)) return p;
+      }
+      return "docker-compose";
+    })();
+
   try {
-    execSync("docker compose version", { stdio: "ignore" });
-    return true;
+    execSync(`${composeBin} version`, { stdio: "ignore", shell: true });
+    return {
+      bin: composeBin,
+      args: [
+        "up",
+        "-d",
+        "evolution-postgres",
+        "evolution-api",
+        "redis",
+      ],
+    };
   } catch {
-    try {
-      execSync("docker-compose version", { stdio: "ignore" });
-      return true;
-    } catch {
-      return false;
-    }
+    /* fall through */
+  }
+
+  try {
+    execSync("docker compose version", { stdio: "ignore", shell: true });
+    return {
+      bin: "docker",
+      args: [
+        "compose",
+        "up",
+        "-d",
+        "evolution-postgres",
+        "evolution-api",
+        "redis",
+      ],
+    };
+  } catch {
+    return null;
   }
 }
 
 function composeUpEvolution() {
-  if (!dockerAvailable()) {
-    die("Docker não encontrado. Instale Docker Desktop ou use Evolution em uma VPS.");
+  const compose = resolveComposeCommand();
+  if (!compose) {
+    die(
+      "Docker Compose não encontrado. Instale: brew install docker-compose colima",
+    );
   }
   log("🐳 Subindo Evolution API (porta 8080)...");
-  const r = spawnSync(
-    "docker",
-    ["compose", "up", "-d", "evolution-api", "redis"],
-    { cwd: root, stdio: "inherit" },
-  );
+  const r = spawnSync(compose.bin, compose.args, {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+  });
   if (r.status !== 0) die("Falha ao subir docker compose.");
 }
 
-async function waitEvolution(baseUrl, apiKey, maxSec = 90) {
+async function waitEvolution(baseUrl, apiKey, maxSec = 180) {
   const start = Date.now();
   while (Date.now() - start < maxSec * 1000) {
     try {
@@ -244,13 +295,18 @@ async function main() {
   let evolutionUrl =
     process.env.EVOLUTION_API_URL?.trim() ||
     env.map.get("EVOLUTION_API_URL")?.trim() ||
-    "http://localhost:8080";
+    defaultLocalEvolutionUrl();
 
   if (!qrOnly) {
+    composeUpEvolution();
+    evolutionUrl = defaultLocalEvolutionUrl();
     env = ensureEnvKey(env, "EVOLUTION_API_URL", evolutionUrl);
     writeEnvFile(env);
-    composeUpEvolution();
-    evolutionUrl = "http://localhost:8080";
+  } else if (isPlaceholderEvolutionUrl(evolutionUrl)) {
+    log("ℹ️  EVOLUTION_API_URL era placeholder → usando http://localhost:8080");
+    evolutionUrl = defaultLocalEvolutionUrl();
+    env = ensureEnvKey(env, "EVOLUTION_API_URL", evolutionUrl);
+    writeEnvFile(env);
   } else {
     writeEnvFile(env);
   }
