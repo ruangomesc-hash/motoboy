@@ -75,5 +75,9 @@ describe("recomputeTodayFromDeliveries", () => {
     expect(next.deliveryCount).toBe(1);
     expect(next.totalExpenses).toBe(20);
     expect(next.netProfit).toBe(80);
+    expect(next.manualExpensesTotal).toBe(20);
+    expect(next.manualExpenseItems).toEqual([
+      { id: "b", label: "Almoço", amount: 20 },
+    ]);
   });
 });

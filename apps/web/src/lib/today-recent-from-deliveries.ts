@@ -59,6 +59,8 @@ export function recomputeTodayFromDeliveries(
     netProfit,
     profitPerKm: totalKm > 0 ? netProfit / totalKm : 0,
     recentDeliveries,
+    manualExpensesTotal: split.manualExpenses,
+    manualExpenseItems: split.manualExpenseItems,
   };
 }
 

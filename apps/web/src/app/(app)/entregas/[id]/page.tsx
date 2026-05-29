@@ -21,7 +21,13 @@ import {
 import { AppPage } from "@/components/app-page";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import type { CreatedDelivery } from "@/lib/app-data-cache";
-import { isExpenseEntry } from "@motoboy/types";
+import {
+  expenseLabelFromTag,
+  guessExpenseTagId,
+  isExpenseEntry,
+  type ExpenseTagId,
+} from "@motoboy/types";
+import { ExpenseTagPicker } from "@/components/expense-tag-picker";
 
 interface DeliveryDetail extends DeliveryListItem {
   destinationAddr?: string | null;
@@ -89,11 +95,24 @@ export default function EntregaDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expenseTagId, setExpenseTagId] = useState<ExpenseTagId>("almoco");
+  const [expenseCustom, setExpenseCustom] = useState("");
+
+  function syncExpenseTagsFromDetail(d: DeliveryDetail) {
+    if (!isExpenseEntry(d.grossValue)) return;
+    const tag = guessExpenseTagId(d.originName);
+    setExpenseTagId(tag);
+    setExpenseCustom(
+      tag === "outro" ? (d.originName?.trim() ?? "") : "",
+    );
+  }
 
   useEffect(() => {
     if (!cached || delivery) return;
-    setDelivery(cached as DeliveryDetail);
-    setForm(toForm(cached as DeliveryDetail));
+    const detail = cached as DeliveryDetail;
+    setDelivery(detail);
+    setForm(toForm(detail));
+    syncExpenseTagsFromDetail(detail);
     setLoadingExtra(false);
   }, [cached, delivery]);
 
@@ -104,6 +123,7 @@ export default function EntregaDetailPage() {
         if (cancelled) return;
         setDelivery(d);
         setForm(toForm(d));
+        syncExpenseTagsFromDetail(d);
       })
       .catch(() => {
         if (!cancelled && !cached) setDelivery(null);
@@ -133,16 +153,26 @@ export default function EntregaDetailPage() {
       return;
     }
 
+    const expense = isExpenseEntry(delivery.grossValue);
+    if (expense && expenseTagId === "outro" && !expenseCustom.trim()) {
+      setError("Descreva a despesa em Outro");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     const previous = delivery;
     const previousPayload = toPayload(previous);
-    const expense = isExpenseEntry(delivery.grossValue);
+    const expenseOrigin = expense
+      ? expenseLabelFromTag(expenseTagId, expenseCustom)
+      : null;
     const storedGross = expense ? -Math.abs(grossValue) : grossValue;
     const optimistic: DeliveryDetail = {
       ...delivery,
       grossValue: storedGross,
-      originName: form.originName.trim() || (expense ? "Despesa" : null),
+      originName: expense
+        ? expenseOrigin
+        : form.originName.trim() || null,
       source: expense ? "OTHER" : form.source,
       distanceKm: expense ? null : distanceKm,
       occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
@@ -164,7 +194,7 @@ export default function EntregaDetailPage() {
             expense
               ? {
                   grossValue,
-                  originName: form.originName.trim() || "Despesa",
+                  originName: expenseOrigin ?? "Despesa",
                   occurredAt: optimistic.occurredAt,
                 }
               : {
@@ -256,17 +286,26 @@ export default function EntregaDetailPage() {
             />
           </Field>
 
-          <Field label={expense ? "Descrição" : "Nome / local"}>
-            <Input
-              value={form.originName}
-              onChange={(e) =>
-                setForm((f) => (f ? { ...f, originName: e.target.value } : f))
-              }
-              placeholder={
-                expense ? "Almoço, estacionamento..." : "Farmácia, mercado..."
-              }
+          {expense ? (
+            <ExpenseTagPicker
+              tagId={expenseTagId}
+              custom={expenseCustom}
+              onTagId={setExpenseTagId}
+              onCustom={setExpenseCustom}
             />
-          </Field>
+          ) : (
+            <Field label="Nome / local">
+              <Input
+                value={form.originName}
+                onChange={(e) =>
+                  setForm((f) =>
+                    f ? { ...f, originName: e.target.value } : f,
+                  )
+                }
+                placeholder="Farmácia, mercado..."
+              />
+            </Field>
+          )}
 
           {!expense && (
             <>

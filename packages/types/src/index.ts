@@ -6,6 +6,7 @@ import {
 
 export * from "./phone";
 export * from "./delivery-entry";
+export * from "./expense-tags";
 
 /** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
 export const brazilWhatsAppFieldSchema = z
@@ -240,6 +241,17 @@ export const todaySummarySchema = z.object({
   fuelCost: z.number(),
   maintenanceCost: z.number(),
   otherCost: z.number(),
+  /** Soma das despesas manuais do dia (tags: almoço, gasolina, etc.). */
+  manualExpensesTotal: z.number().optional(),
+  manualExpenseItems: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        label: z.string(),
+        amount: z.number(),
+      }),
+    )
+    .optional(),
   totalExpenses: z.number(),
   netProfit: z.number(),
   /** false = custos diários/estimados ainda não foram salvos em Config */

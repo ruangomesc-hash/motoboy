@@ -7,7 +7,7 @@ import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
 import { AddExpenseForm } from "@/components/add-expense-form";
-import { isExpenseEntry } from "@motoboy/types";
+import { formatExpenseDisplayLabel, isExpenseEntry } from "@motoboy/types";
 import { formatSignedBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
@@ -105,7 +105,7 @@ export default function EntregasPage() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 break-words">
                   {expense
-                    ? `Despesa · ${d.originName ?? "Outro"}`
+                    ? formatExpenseDisplayLabel(d.originName)
                     : (d.originName ?? sourceLabel(d.source))}
                   {!expense && d.distanceKm
                     ? ` · ${Number(d.distanceKm)} km`

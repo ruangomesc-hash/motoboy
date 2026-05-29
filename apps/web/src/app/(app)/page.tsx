@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatSignedBRL, formatTime } from "@/lib/utils";
-import { isExpenseEntry } from "@motoboy/types";
+import { formatExpenseDisplayLabel, isExpenseEntry } from "@motoboy/types";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
 import { AppPage } from "@/components/app-page";
@@ -95,6 +95,9 @@ export default function HomePage() {
     return recomputeTodayFromDeliveries(deliveries, today);
   }, [today, deliveries]);
   const recentDeliveries = s.recentDeliveries;
+  const manualExpensesTotal = s.manualExpensesTotal ?? 0;
+  const outrosTotal = s.otherCost + manualExpensesTotal;
+  const manualItems = s.manualExpenseItems ?? [];
   const kmSourceLabel =
     s.odometer.kmSource === "odometer"
       ? "Hodômetro (painel)"
@@ -227,25 +230,36 @@ export default function HomePage() {
           <CollapsibleSummaryRow
             Icon={Wallet}
             label="Outros custos"
-            value={`−${formatBRL(s.otherCost)}`}
+            value={`−${formatBRL(outrosTotal)}`}
             valueTone="negative"
             details={
-              s.otherCost > 0 ? (
+              manualItems.length > 0 || s.otherCost > 0 ? (
                 <>
-                  <p>Alimentação, bebidas, lanche, água</p>
-                  <p>Estacionamento, pedágio, ferramentas</p>
-                  <p>Valor diário em Config</p>
+                  {manualItems.map((item) => (
+                    <p key={item.id ?? `${item.label}-${item.amount}`}>
+                      {item.label}: −{formatBRL(item.amount)}
+                    </p>
+                  ))}
+                  {s.otherCost > 0 && (
+                    <p>Config (diário): −{formatBRL(s.otherCost)}</p>
+                  )}
+                  {manualItems.length === 0 && s.otherCost > 0 && (
+                    <>
+                      <p>Alimentação, bebidas, lanche, água</p>
+                      <p>Estacionamento, pedágio, ferramentas</p>
+                    </>
+                  )}
                 </>
               ) : s.costsConfigured === false ? (
                 <p>
-                  Salve seus custos em{" "}
+                  Registre despesas acima ou salve custos em{" "}
                   <Link href="/config" className="text-primary underline-offset-2 hover:underline">
                     Config
                   </Link>{" "}
-                  para incluir alimentação e outros no dia
+                  para estimar outros gastos do dia
                 </p>
               ) : (
-                <p>Sem entregas hoje ou valor zerado em Config</p>
+                <p>Nenhuma despesa manual nem valor diário em Config</p>
               )
             }
           />
@@ -323,7 +337,7 @@ export default function HomePage() {
                   </span>
                   {" · "}
                   {expense
-                    ? `Despesa · ${d.originName ?? "Outro"}`
+                    ? formatExpenseDisplayLabel(d.originName)
                     : (d.originName ?? sourceLabel(d.source))}
                 </span>
                 <span className="text-muted-foreground shrink-0 tabular-nums">

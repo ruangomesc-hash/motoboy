@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ExpenseTagPicker } from "@/components/expense-tag-picker";
 import { useCreateExpense } from "@/hooks/use-create-expense";
 import {
   datetimeLocalFromIso,
@@ -10,6 +11,10 @@ import {
   isoFromDatetimeLocal,
 } from "@/lib/local-date";
 import { sanitizeDecimalInput } from "@/lib/decimal-input";
+import {
+  expenseLabelFromTag,
+  type ExpenseTagId,
+} from "@motoboy/types";
 import { Minus, X } from "lucide-react";
 
 export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
@@ -21,13 +26,14 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
   const [occurredAtLocal, setOccurredAtLocal] = useState(() =>
     datetimeLocalFromIso(new Date().toISOString()),
   );
-  const [form, setForm] = useState({
-    grossValue: "",
-    originName: "",
-  });
+  const [tagId, setTagId] = useState<ExpenseTagId>("almoco");
+  const [customLabel, setCustomLabel] = useState("");
+  const [grossValue, setGrossValue] = useState("");
 
   function resetForm() {
-    setForm({ grossValue: "", originName: "" });
+    setGrossValue("");
+    setTagId("almoco");
+    setCustomLabel("");
     setEditDateTime(false);
     setOccurredAtLocal(datetimeLocalFromIso(new Date().toISOString()));
     setError("");
@@ -39,9 +45,13 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const value = Number(form.grossValue.replace(",", "."));
+    const value = Number(grossValue.replace(",", "."));
     if (!value || value <= 0) {
       setError("Informe o valor da despesa");
+      return;
+    }
+    if (tagId === "outro" && !customLabel.trim()) {
+      setError("Descreva a despesa em Outro");
       return;
     }
 
@@ -49,9 +59,11 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
       ? isoFromDatetimeLocal(occurredAtLocal)
       : new Date().toISOString();
 
+    const originName = expenseLabelFromTag(tagId, customLabel);
+
     const payload = {
       grossValue: value,
-      originName: form.originName.trim() || "Despesa",
+      originName,
       occurredAt,
     };
 
@@ -70,10 +82,9 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
     }
 
     setError(result.error);
-    setForm({
-      grossValue: String(payload.grossValue).replace(".", ","),
-      originName: payload.originName,
-    });
+    setGrossValue(String(payload.grossValue).replace(".", ","));
+    setTagId(tagId);
+    setCustomLabel(customLabel);
     setOccurredAtLocal(datetimeLocalFromIso(payload.occurredAt));
     setEditDateTime(true);
     setOpen(true);
@@ -146,35 +157,25 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
         )}
       </div>
 
+      <ExpenseTagPicker
+        tagId={tagId}
+        custom={customLabel}
+        onTagId={setTagId}
+        onCustom={setCustomLabel}
+      />
+
       <div>
         <label className="text-xs text-muted-foreground">Valor (R$)</label>
         <Input
           inputMode="decimal"
           placeholder="15,00"
-          value={form.grossValue}
+          value={grossValue}
           onChange={(e) =>
-            setForm((f) => ({
-              ...f,
-              grossValue: sanitizeDecimalInput(e.target.value),
-            }))
+            setGrossValue(sanitizeDecimalInput(e.target.value))
           }
-          className="mt-1"
+          className="mt-1 text-base"
           required
           autoFocus
-        />
-      </div>
-
-      <div>
-        <label className="text-xs text-muted-foreground">
-          O que foi (opcional)
-        </label>
-        <Input
-          placeholder="Almoço, pneu, estacionamento..."
-          value={form.originName}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, originName: e.target.value }))
-          }
-          className="mt-1"
         />
       </div>
 

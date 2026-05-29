@@ -10,11 +10,14 @@ describe("delivery-entry", () => {
   it("splits deliveries and manual expenses", () => {
     const split = splitDeliveryEntries([
       { grossValue: 50, distanceKm: 2 },
-      { grossValue: -15 },
+      { grossValue: -15, originName: "Lanche" },
       { grossValue: 30, distanceKm: 1 },
     ]);
     expect(split.grossTotal).toBe(80);
     expect(split.manualExpenses).toBe(15);
+    expect(split.manualExpenseItems).toEqual([
+      { label: "Lanche", amount: 15 },
+    ]);
     expect(split.deliveryCount).toBe(2);
     expect(split.totalKm).toBe(3);
   });
