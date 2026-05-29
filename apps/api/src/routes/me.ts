@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { prisma } from "@motoboy/db";
+import { prisma, type DeliverySource } from "@motoboy/db";
 import {
   TRIAL_DAYS,
   costUpdateSchema,
@@ -370,30 +370,34 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     if (!existing) return reply.status(404).send({ error: "Não encontrado" });
 
     const isExpense = isExpenseEntry(Number(existing.grossValue));
-    const body = isExpense
-      ? expensePatchSchema.parse(request.body)
-      : deliveryPatchSchema.parse(request.body);
 
     const data: {
       grossValue?: number;
       originName?: string | null;
       distanceKm?: number | null;
-      source?: string;
+      source?: DeliverySource;
       occurredAt?: Date;
     } = {};
-    if (body.grossValue !== undefined) {
-      data.grossValue = isExpense
-        ? -Number(Math.abs(body.grossValue).toFixed(2))
-        : body.grossValue;
+
+    if (isExpense) {
+      const body = expensePatchSchema.parse(request.body);
+      if (body.grossValue !== undefined) {
+        data.grossValue = -Number(Math.abs(body.grossValue).toFixed(2));
+      }
+      if (body.originName !== undefined) data.originName = body.originName;
+      if (body.occurredAt !== undefined) {
+        data.occurredAt = new Date(body.occurredAt);
+      }
+    } else {
+      const body = deliveryPatchSchema.parse(request.body);
+      if (body.grossValue !== undefined) data.grossValue = body.grossValue;
+      if (body.originName !== undefined) data.originName = body.originName;
+      if (body.distanceKm !== undefined) data.distanceKm = body.distanceKm;
+      if (body.source !== undefined) data.source = body.source;
+      if (body.occurredAt !== undefined) {
+        data.occurredAt = new Date(body.occurredAt);
+      }
     }
-    if (body.originName !== undefined) data.originName = body.originName;
-    if (!isExpense && "distanceKm" in body && body.distanceKm !== undefined) {
-      data.distanceKm = body.distanceKm;
-    }
-    if (!isExpense && "source" in body && body.source !== undefined) {
-      data.source = body.source;
-    }
-    if (body.occurredAt !== undefined) data.occurredAt = new Date(body.occurredAt);
 
     const updated = await prisma.delivery.updateMany({
       where: { id, userId },
@@ -408,37 +412,41 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     if (!delivery) return reply.status(404).send({ error: "Não encontrado" });
     const changes = diffValues(
       [
-        body.grossValue !== undefined && {
+        data.grossValue !== undefined && {
           field: "grossValue",
           label: "Valor",
           before: existing.grossValue,
           after: delivery.grossValue,
           format: formatMoney,
         },
-        !isExpense &&
-          "source" in body &&
-          body.source !== undefined && {
-            field: "source",
-            label: "App",
-            before: existing.source,
-            after: delivery.source,
-            format: formatDeliverySource,
-          },
-        body.originName !== undefined && {
+        data.source !== undefined && {
+          field: "source",
+          label: "App",
+          before: existing.source,
+          after: delivery.source,
+          format: formatDeliverySource,
+        },
+        data.originName !== undefined && {
           field: "originName",
           label: isExpense ? "Descrição" : "Estabelecimento",
           before: existing.originName,
           after: delivery.originName,
         },
-        !isExpense &&
-          "distanceKm" in body &&
-          body.distanceKm !== undefined && {
-            field: "distanceKm",
-            label: "Distância",
-            before: existing.distanceKm,
-            after: delivery.distanceKm,
-            format: (v: unknown) => (v == null ? "—" : `${Number(v)} km`),
-          },
+        data.distanceKm !== undefined && {
+          field: "distanceKm",
+          label: "Distância",
+          before: existing.distanceKm,
+          after: delivery.distanceKm,
+          format: (v: unknown) => (v == null ? "—" : `${Number(v)} km`),
+        },
+        data.occurredAt !== undefined && {
+          field: "occurredAt",
+          label: "Data/hora",
+          before: existing.occurredAt,
+          after: delivery.occurredAt,
+          format: (v: unknown) =>
+            v instanceof Date ? v.toISOString() : String(v),
+        },
       ].filter(Boolean) as Parameters<typeof diffValues>[0],
     );
     if (changes.length > 0) {

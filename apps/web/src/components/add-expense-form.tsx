@@ -182,8 +182,7 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
 
       <Button
         type="submit"
-        variant="destructive"
-        className="w-full"
+        className="w-full bg-red-600 hover:bg-red-700 text-white"
         disabled={loading}
       >
         {loading ? "Salvando..." : "Salvar despesa"}

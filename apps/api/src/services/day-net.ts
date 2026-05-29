@@ -35,7 +35,7 @@ export async function getDayNetProfit(
   const split = splitDeliveryEntries(
     deliveries.map((d) => ({
       grossValue: toNumber(d.grossValue),
-      distanceKm: d.distanceKm,
+      distanceKm: d.distanceKm != null ? toNumber(d.distanceKm) : null,
     })),
   );
   const grossTotal = split.grossTotal;
