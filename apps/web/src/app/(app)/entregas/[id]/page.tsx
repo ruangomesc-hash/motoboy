@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
-import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
+import { publishDeliverySync } from "@/lib/publish-delivery-sync";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -180,10 +180,9 @@ export default function EntregaDetailPage() {
     const optimisticPayload = toPayload(optimistic);
     setDelivery(optimistic);
     upsertDeliveryOptimistic(optimisticPayload, previousPayload);
-    publishAppSync(DELIVERY_SYNC_TOPICS, {
+    publishDeliverySync(publishAppSync, "optimistic", {
       delivery: optimisticPayload,
       previousDelivery: previousPayload,
-      skipReconcile: true,
     });
     try {
       const updated = await api<DeliveryDetail>(
@@ -213,18 +212,16 @@ export default function EntregaDetailPage() {
       setForm(toForm(updated));
       const serverPayload = toPayload(updated);
       upsertDeliveryOptimistic(serverPayload, previousPayload);
-      publishAppSync(DELIVERY_SYNC_TOPICS, {
+      publishDeliverySync(publishAppSync, "confirmed", {
         delivery: serverPayload,
         previousDelivery: previousPayload,
-        skipReconcile: true,
       });
     } catch (err) {
       setDelivery(previous);
       upsertDeliveryOptimistic(previousPayload, optimisticPayload);
-      publishAppSync(DELIVERY_SYNC_TOPICS, {
+      publishDeliverySync(publishAppSync, "optimistic", {
         delivery: previousPayload,
         previousDelivery: optimisticPayload,
-        skipReconcile: true,
       });
       setError(
         err instanceof Error ? err.message : "Não foi possível salvar.",

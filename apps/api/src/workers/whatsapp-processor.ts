@@ -23,6 +23,10 @@ import {
   formatFuelConfirmation,
 } from "../services/fuel.js";
 import {
+  emitDeliveryCreated,
+  emitDeliveryDeleted,
+} from "../lib/delivery-events.js";
+import {
   registerOdometerReading,
   getOdometerDayStats,
   formatOdometerConfirmation,
@@ -168,7 +172,7 @@ export function startWhatsAppWorker(
               rawInput: rawContent as object,
             },
           });
-          io?.to(`user:${user.id}`).emit("delivery:created", { id: delivery.id });
+          emitDeliveryCreated(user.id, delivery);
           const msg = await buildDeliveryConfirmation(user.id);
           await evolution.sendText(phone, msg);
           return;
@@ -275,9 +279,7 @@ export function startWhatsAppWorker(
             },
           ],
         });
-        io?.to(`user:${user.id}`).emit("delivery:created", {
-          id: delivery.id,
-        });
+        emitDeliveryCreated(user.id, delivery);
         const msg = await buildDeliveryConfirmation(user.id);
         await evolution.sendText(phone, msg);
         return;
@@ -371,7 +373,7 @@ export function startWhatsAppWorker(
           if (last) {
             await prisma.delivery.delete({ where: { id: last.id } });
             await evolution.sendText(phone, "🗑️ Última entrega removida.");
-            io?.to(`user:${user.id}`).emit("delivery:deleted", { id: last.id });
+            emitDeliveryDeleted(user.id, last.id);
           }
           return;
         }

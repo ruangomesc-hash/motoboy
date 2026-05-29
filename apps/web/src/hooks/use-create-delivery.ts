@@ -7,7 +7,7 @@ import {
   extractDeliveryMutation,
   type CreatedDelivery,
 } from "@/lib/app-data-cache";
-import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
+import { publishDeliverySync } from "@/lib/publish-delivery-sync";
 import {
   finishInflightCreate,
   registerInflightCreate,
@@ -49,9 +49,8 @@ export function useCreateDelivery() {
 
       applyDeliveryOptimistic(tempDelivery);
       setDeliveriesDate(todayDateInputValue(new Date(input.occurredAt)));
-      publishAppSync(DELIVERY_SYNC_TOPICS, {
+      publishDeliverySync(publishAppSync, "optimistic", {
         delivery: tempDelivery,
-        skipReconcile: true,
       });
 
       try {
@@ -96,10 +95,9 @@ export function useCreateDelivery() {
             }
           }
           removeDeliveryOptimistic(tempId, tempDelivery);
-          publishAppSync(DELIVERY_SYNC_TOPICS, {
+          publishDeliverySync(publishAppSync, "optimistic", {
             removedDeliveryId: tempId,
             removedDelivery: tempDelivery,
-            skipReconcile: true,
           });
           return { ok: true as const, cancelled: true as const };
         }
@@ -121,20 +119,18 @@ export function useCreateDelivery() {
         };
 
         upsertDeliveryOptimistic(realDelivery, tempDelivery);
-        publishAppSync(DELIVERY_SYNC_TOPICS, {
+        publishDeliverySync(publishAppSync, "confirmed", {
           delivery: realDelivery,
           previousDelivery: tempDelivery,
-          skipReconcile: true,
         });
 
         return { ok: true as const, delivery: realDelivery };
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
           removeDeliveryOptimistic(tempId, tempDelivery);
-          publishAppSync(DELIVERY_SYNC_TOPICS, {
+          publishDeliverySync(publishAppSync, "optimistic", {
             removedDeliveryId: tempId,
             removedDelivery: tempDelivery,
-            skipReconcile: true,
           });
           return { ok: true as const, cancelled: true as const };
         }
@@ -145,10 +141,9 @@ export function useCreateDelivery() {
         }
 
         removeDeliveryOptimistic(tempId, tempDelivery);
-        publishAppSync(DELIVERY_SYNC_TOPICS, {
+        publishDeliverySync(publishAppSync, "optimistic", {
           removedDeliveryId: tempId,
           removedDelivery: tempDelivery,
-          skipReconcile: true,
         });
         const message =
           err instanceof Error

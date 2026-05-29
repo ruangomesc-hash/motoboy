@@ -51,8 +51,10 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
 
   const split = splitDeliveryEntries(
     deliveries.map((d) => ({
+      id: d.id,
       grossValue: toNumber(d.grossValue),
       distanceKm: d.distanceKm != null ? toNumber(d.distanceKm) : null,
+      originName: d.originName,
     })),
   );
   const grossTotal = split.grossTotal;
@@ -126,6 +128,8 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     fuelCost,
     maintenanceCost,
     otherCost,
+    manualExpensesTotal: split.manualExpenses,
+    manualExpenseItems: split.manualExpenseItems,
     totalExpenses,
     netProfit,
     costsConfigured: expenses.costsConfigured,

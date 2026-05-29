@@ -158,7 +158,7 @@ export function subscribeAppSync(
 export function syncTopicsForPath(path: string, method: string): AppSyncTopic[] {
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD") return [];
-  if (path.includes("/deliveries")) {
+  if (path.includes("/deliveries") || path.includes("/expenses")) {
     return ["deliveries", "today", "stats", "history"];
   }
   if (path.includes("/shifts")) return ["stats", "today"];

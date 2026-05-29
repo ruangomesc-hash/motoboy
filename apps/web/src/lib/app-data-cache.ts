@@ -9,6 +9,12 @@ export type CreatedDelivery = {
   distanceKm?: number | string | null;
 };
 
+export function deliveryFromApiRow(
+  row: Record<string, unknown>,
+): CreatedDelivery | undefined {
+  return rowToDelivery(row);
+}
+
 function rowToDelivery(row: Record<string, unknown>): CreatedDelivery | undefined {
   if (typeof row.id !== "string" || typeof row.source !== "string") {
     return undefined;

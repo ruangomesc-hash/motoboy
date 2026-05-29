@@ -29,7 +29,11 @@ import {
 } from "../services/activity-log.js";
 import { createDeliveryManual, createExpenseManual } from "../services/delivery.js";
 import { getPeriodStats } from "../services/stats.js";
-import { emitToUser } from "../lib/socket.js";
+import {
+  emitDeliveryCreated,
+  emitDeliveryDeleted,
+  emitDeliveryUpdated,
+} from "../lib/delivery-events.js";
 import {
   requireAppAccess,
   requireAuth,
@@ -243,7 +247,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         },
         request.log,
       );
-      emitToUser(userId, "delivery:created", { id: delivery.id });
+      emitDeliveryCreated(userId, delivery);
     } catch (err) {
       request.log.warn(
         { err, userId, deliveryId: delivery.id },
@@ -295,7 +299,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         },
         request.log,
       );
-      emitToUser(userId, "delivery:created", { id: expense.id });
+      emitDeliveryCreated(userId, expense);
     } catch (err) {
       request.log.warn(
         { err, userId, expenseId: expense.id },
@@ -357,7 +361,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       request.log,
     );
 
-    emitToUser(userId, "delivery:deleted", { id });
+    emitDeliveryDeleted(userId, id);
     return reply.status(200).send({ ok: true });
   });
 
@@ -458,7 +462,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         changes,
       });
     }
-    emitToUser(userId, "delivery:created", { id });
+    emitDeliveryUpdated(userId, delivery);
     return toPublicDelivery(delivery);
   });
 

@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { useApi } from "@/hooks/use-api";
 import { useAppData } from "@/components/app-data-provider";
 import type { CreatedDelivery } from "@/lib/app-data-cache";
-import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
+import { publishDeliverySync } from "@/lib/publish-delivery-sync";
 import { abortInflightCreate } from "@/lib/inflight-delivery-create";
 
 function deliveryPath(id: string): string {
@@ -26,19 +26,17 @@ export function useDeleteDelivery() {
         markDeliveryCancelled(id);
         abortInflightCreate(id);
         removeDeliveryOptimistic(id, snapshot);
-        publishAppSync(DELIVERY_SYNC_TOPICS, {
+        publishDeliverySync(publishAppSync, "optimistic", {
           removedDeliveryId: id,
           removedDelivery: snapshot,
-          skipReconcile: true,
         });
         return Promise.resolve({ ok: true as const });
       }
 
       removeDeliveryOptimistic(id, snapshot);
-      publishAppSync(DELIVERY_SYNC_TOPICS, {
+      publishDeliverySync(publishAppSync, "optimistic", {
         removedDeliveryId: id,
         removedDelivery: snapshot,
-        skipReconcile: true,
       });
 
       void (async () => {
@@ -48,11 +46,14 @@ export function useDeleteDelivery() {
             { method: "DELETE" },
             { skipSync: true },
           );
+          publishDeliverySync(publishAppSync, "confirmed", {
+            removedDeliveryId: id,
+            removedDelivery: snapshot,
+          });
         } catch (err) {
           upsertDeliveryOptimistic(snapshot);
-          publishAppSync(DELIVERY_SYNC_TOPICS, {
+          publishDeliverySync(publishAppSync, "optimistic", {
             delivery: snapshot,
-            skipReconcile: true,
           });
           const message =
             err instanceof Error
