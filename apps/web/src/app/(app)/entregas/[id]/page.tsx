@@ -356,14 +356,18 @@ export default function EntregaDetailPage() {
             setShowDeleteConfirm(true);
           }}
         >
-          Apagar entrega
+          {expense ? "Apagar despesa" : "Apagar entrega"}
         </Button>
       </AppPage>
 
       <ConfirmDialog
         open={showDeleteConfirm}
-        title="Apagar entrega?"
-        description="Essa ação remove a entrega do dia, da lista e do histórico. Não dá para desfazer."
+        title={expense ? "Apagar despesa?" : "Apagar entrega?"}
+        description={
+          expense
+            ? "Essa ação remove a despesa do dia, da lista e do histórico. Não dá para desfazer."
+            : "Essa ação remove a entrega do dia, da lista e do histórico. Não dá para desfazer."
+        }
         confirmLabel="Apagar"
         loading={deleting}
         error={deleteError}

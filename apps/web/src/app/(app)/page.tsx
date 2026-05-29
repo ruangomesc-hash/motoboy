@@ -332,7 +332,9 @@ export default function HomePage() {
               </Link>
               <button
                 type="button"
-                aria-label="Apagar entrega"
+                aria-label={
+                  expense ? "Apagar despesa" : "Apagar entrega"
+                }
                 className="shrink-0 p-1.5 text-muted-foreground hover:text-destructive"
                 onClick={() => {
                   setDeleteError(null);
@@ -349,8 +351,16 @@ export default function HomePage() {
 
       <ConfirmDialog
         open={deleteTarget != null}
-        title="Apagar entrega?"
-        description="O registro será removido da Home, Entregas e Estatísticas."
+        title={
+          deleteTarget && isExpenseEntry(deleteTarget.grossValue)
+            ? "Apagar despesa?"
+            : "Apagar entrega?"
+        }
+        description={
+          deleteTarget && isExpenseEntry(deleteTarget.grossValue)
+            ? "A despesa será removida da Home, Entregas e Estatísticas."
+            : "A entrega será removida da Home, Entregas e Estatísticas."
+        }
         confirmLabel="Apagar"
         error={deleteError}
         loading={deleting}
