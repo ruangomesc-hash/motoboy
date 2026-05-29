@@ -3,6 +3,7 @@ dist
 .next
 .env
 .env.local
+whatsapp-qrcode.html
 *.log
 .DS_Store
 coverage

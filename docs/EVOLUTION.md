@@ -2,6 +2,28 @@
 
 Guia para conectar o Motocopiloto à Evolution: receber mensagens, gravar no Supabase e responder só confirmação ok/erro.
 
+## Ativar em 2 passos (local)
+
+**O que o script faz por você:** sobe Evolution no Docker, cria instância `motoboy`, configura webhook para `app.motocopiloto.com.br`, gera chaves no `.env`.
+
+**O que só você faz:** escanear o QR no celular.
+
+```bash
+# 1 — Docker Desktop aberto
+pnpm whatsapp:setup
+
+# 2 — Abra o link que aparecer (manager ou whatsapp-qrcode.html) e escaneie o QR
+```
+
+Depois, para mensagens processarem localmente:
+
+```bash
+pnpm dev:api   # .env com RUN_WHATSAPP_WORKER=true
+pnpm dev:web
+```
+
+**Produção:** Evolution não roda na Vercel. Suba o mesmo `evolution-api` do `docker-compose.yml` numa VPS/Railway, aponte `EVOLUTION_API_URL` para essa URL, rode `pnpm whatsapp:qr`, e cole as variáveis que o script imprimir na Vercel + worker.
+
 ## Arquitetura
 
 ```text

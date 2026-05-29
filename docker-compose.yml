@@ -1,4 +1,18 @@
 services:
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: motoboy_evolution
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-motoboy-dev-change-me}
+      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8080}
+      CONFIG_SESSION_PHONE_VERSION: ""
+      LOG_LEVEL: ERROR
+    volumes:
+      - evolution_instances:/evolution/instances
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -20,3 +34,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  evolution_instances:
