@@ -5,6 +5,7 @@ import {
 } from "./phone";
 
 export * from "./phone";
+export * from "./delivery-entry";
 
 /** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
 export const brazilWhatsAppFieldSchema = z
@@ -445,6 +446,35 @@ export const deliveryCreateSchema = z.object({
 });
 
 export type DeliveryCreateInput = z.infer<typeof deliveryCreateSchema>;
+
+/** Despesa manual — usuário informa valor positivo; API grava negativo. */
+export const expenseCreateSchema = z.object({
+  grossValue: z.coerce.number().finite().positive(),
+  originName: z.string().max(200).nullable().optional(),
+  occurredAt: z
+    .string()
+    .optional()
+    .refine(
+      (v) => v === undefined || !Number.isNaN(new Date(v).getTime()),
+      { message: "Data/hora inválida" },
+    ),
+});
+
+export type ExpenseCreateInput = z.infer<typeof expenseCreateSchema>;
+
+export const expensePatchSchema = z.object({
+  grossValue: z.coerce.number().finite().positive().optional(),
+  originName: z.string().max(200).nullable().optional(),
+  occurredAt: z
+    .string()
+    .optional()
+    .refine(
+      (v) => v === undefined || !Number.isNaN(new Date(v).getTime()),
+      { message: "Data/hora inválida" },
+    ),
+});
+
+export type ExpensePatchInput = z.infer<typeof expensePatchSchema>;
 
 export const periodStatsSchema = z.object({
   period: z.enum(["week", "month"]),

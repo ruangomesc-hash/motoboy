@@ -1,4 +1,5 @@
 import { prisma } from "@motoboy/db";
+import { splitDeliveryEntries } from "@motoboy/types";
 import { computeDayExpenses } from "./day-expenses.js";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
@@ -31,14 +32,14 @@ export async function getDayNetProfit(
     toNumber(costs?.otherDailyCost ?? 0) +
     toNumber(costs?.dailyFoodCost ?? 0);
 
-  const grossTotal = deliveries.reduce(
-    (sum, d) => sum + toNumber(d.grossValue),
-    0,
+  const split = splitDeliveryEntries(
+    deliveries.map((d) => ({
+      grossValue: toNumber(d.grossValue),
+      distanceKm: d.distanceKm,
+    })),
   );
-  const deliveryKmSum = deliveries.reduce(
-    (sum, d) => sum + toNumber(d.distanceKm),
-    0,
-  );
+  const grossTotal = split.grossTotal;
+  const deliveryKmSum = split.totalKm;
 
   const odometer = await getOdometerDayStats(
     userId,
@@ -58,7 +59,7 @@ export async function getDayNetProfit(
   );
 
   const hasActivity = deliveries.length > 0;
-  const { totalExpenses } = computeDayExpenses({
+  const { totalExpenses: configExpenses } = computeDayExpenses({
     costsConfigured: Boolean(costs?.costsConfiguredAt),
     fuel,
     totalKm,
@@ -67,7 +68,7 @@ export async function getDayNetProfit(
     maintenancePerKm,
   });
 
-  return grossTotal - totalExpenses;
+  return grossTotal - configExpenses - split.manualExpenses;
 }
 
 export async function getRangeNetProfit(

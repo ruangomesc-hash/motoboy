@@ -1,5 +1,5 @@
 import { prisma } from "@motoboy/db";
-import type { TodaySummary } from "@motoboy/types";
+import { splitDeliveryEntries, type TodaySummary } from "@motoboy/types";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
 import {
@@ -49,14 +49,14 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     toNumber(costs?.otherDailyCost ?? 0) +
     toNumber(costs?.dailyFoodCost ?? 0);
 
-  const grossTotal = deliveries.reduce(
-    (sum, d) => sum + toNumber(d.grossValue),
-    0,
+  const split = splitDeliveryEntries(
+    deliveries.map((d) => ({
+      grossValue: toNumber(d.grossValue),
+      distanceKm: d.distanceKm,
+    })),
   );
-  const deliveryKmSum = deliveries.reduce(
-    (sum, d) => sum + toNumber(d.distanceKm),
-    0,
-  );
+  const grossTotal = split.grossTotal;
+  const deliveryKmSum = split.totalKm;
 
   const odometer = await getOdometerDayStats(
     userId,
@@ -84,7 +84,9 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     dailyOther,
     maintenancePerKm,
   });
-  const { fuelCost, maintenanceCost, otherCost, totalExpenses } = expenses;
+  const { fuelCost, maintenanceCost, otherCost, totalExpenses: configExpenses } =
+    expenses;
+  const totalExpenses = configExpenses + split.manualExpenses;
   const netProfit = grossTotal - totalExpenses;
   const profitPerKm = totalKm > 0 ? netProfit / totalKm : 0;
 
@@ -129,7 +131,7 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     costsConfigured: expenses.costsConfigured,
     totalKm,
     profitPerKm,
-    deliveryCount: deliveries.length,
+    deliveryCount: split.deliveryCount,
     fuel,
     odometer,
     goalTarget,

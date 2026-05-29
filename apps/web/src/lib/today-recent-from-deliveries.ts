@@ -1,4 +1,4 @@
-import type { TodaySummary } from "@motoboy/types";
+import { splitDeliveryEntries, type TodaySummary } from "@motoboy/types";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
 import { dedupeRecentDeliveries } from "@/lib/merge-app-data";
@@ -22,19 +22,16 @@ export function recomputeTodayFromDeliveries(
   tombstoneIds: ReadonlySet<string> = new Set(),
 ): TodaySummary {
   const todays = deliveriesForToday(deliveries, todayKey, tombstoneIds);
-  let grossTotal = 0;
-  let totalKm = 0;
-  for (const d of todays) {
-    grossTotal += Number(d.grossValue);
-    const km = d.distanceKm != null ? Number(d.distanceKm) : 0;
-    if (Number.isFinite(km)) totalKm += km;
-  }
-  const deliveryCount = todays.length;
-  const totalExpenses = today.costsConfigured
+  const split = splitDeliveryEntries(todays);
+  const grossTotal = split.grossTotal;
+  const totalKm = split.totalKm;
+  const deliveryCount = split.deliveryCount;
+  const configExpenses = today.costsConfigured
     ? today.totalExpenses
     : today.fuel.isActual
       ? today.fuelCost
       : 0;
+  const totalExpenses = configExpenses + split.manualExpenses;
   const netProfit = grossTotal - totalExpenses;
 
   const recentDeliveries = dedupeRecentDeliveries(

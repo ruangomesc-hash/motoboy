@@ -14,7 +14,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useSession } from "next-auth/react";
-import type { PeriodStats, TodaySummary } from "@motoboy/types";
+import { isExpenseEntry, type PeriodStats, type TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
   buildAppSyncKey,
@@ -457,10 +457,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         delivery.distanceKm != null ? Number(delivery.distanceKm) : 0;
       const oldKm =
         prevPayload?.distanceKm != null ? Number(prevPayload.distanceKm) : 0;
+      const affectsDeliveryCount =
+        !isExpenseEntry(newGross) &&
+        !(prevPayload && isExpenseEntry(prevPayload.grossValue));
       applyStatsDelta(occurredAt, {
         gross: newGross - oldGross,
         km: newKm - oldKm,
-        count: prevPayload && !idReplaced ? 0 : 1,
+        count:
+          affectsDeliveryCount && !(prevPayload && !idReplaced) ? 1 : 0,
       });
 
       if (userId) persistCacheNow(userId);
@@ -519,7 +523,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         applyStatsDelta(payload.occurredAt ?? new Date().toISOString(), {
           gross: -gross,
           km: -km,
-          count: -1,
+          count: isExpenseEntry(payload.grossValue) ? 0 : -1,
         });
       }
 

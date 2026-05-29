@@ -21,6 +21,7 @@ import {
 import { AppPage } from "@/components/app-page";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import type { CreatedDelivery } from "@/lib/app-data-cache";
+import { isExpenseEntry } from "@motoboy/types";
 
 interface DeliveryDetail extends DeliveryListItem {
   destinationAddr?: string | null;
@@ -38,8 +39,11 @@ const SOURCES = [
 ] as const;
 
 function toForm(d: DeliveryDetail) {
+  const expense = isExpenseEntry(d.grossValue);
   return {
-    grossValue: String(d.grossValue).replace(".", ","),
+    grossValue: String(
+      expense ? Math.abs(Number(d.grossValue)) : d.grossValue,
+    ).replace(".", ","),
     originName: d.originName ?? "",
     source: d.source,
     distanceKm:
@@ -133,12 +137,14 @@ export default function EntregaDetailPage() {
     setError(null);
     const previous = delivery;
     const previousPayload = toPayload(previous);
+    const expense = isExpenseEntry(delivery.grossValue);
+    const storedGross = expense ? -Math.abs(grossValue) : grossValue;
     const optimistic: DeliveryDetail = {
       ...delivery,
-      grossValue,
-      originName: form.originName.trim() || null,
-      source: form.source,
-      distanceKm,
+      grossValue: storedGross,
+      originName: form.originName.trim() || (expense ? "Despesa" : null),
+      source: expense ? "OTHER" : form.source,
+      distanceKm: expense ? null : distanceKm,
       occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
     };
     const optimisticPayload = toPayload(optimistic);
@@ -154,13 +160,21 @@ export default function EntregaDetailPage() {
         `/me/deliveries/${id}`,
         {
           method: "PATCH",
-          body: JSON.stringify({
-            grossValue,
-            originName: form.originName.trim() || null,
-            source: form.source,
-            distanceKm,
-            occurredAt: optimistic.occurredAt,
-          }),
+          body: JSON.stringify(
+            expense
+              ? {
+                  grossValue,
+                  originName: form.originName.trim() || "Despesa",
+                  occurredAt: optimistic.occurredAt,
+                }
+              : {
+                  grossValue,
+                  originName: form.originName.trim() || null,
+                  source: form.source,
+                  distanceKm,
+                  occurredAt: optimistic.occurredAt,
+                },
+          ),
         },
         { skipSync: true },
       );
@@ -206,6 +220,8 @@ export default function EntregaDetailPage() {
     );
   }
 
+  const expense = isExpenseEntry(delivery.grossValue);
+
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const staticMap =
     delivery.proofLat &&
@@ -217,7 +233,9 @@ export default function EntregaDetailPage() {
   return (
     <>
       <AppPage className="p-4 space-y-4 pb-8">
-        <h1 className="text-xl font-bold">Editar entrega</h1>
+        <h1 className="text-xl font-bold">
+          {expense ? "Editar despesa" : "Editar entrega"}
+        </h1>
 
         <form onSubmit={handleSave} className="space-y-3">
           <Field label="Valor (R$)">
@@ -238,49 +256,55 @@ export default function EntregaDetailPage() {
             />
           </Field>
 
-          <Field label="Nome / local">
+          <Field label={expense ? "Descrição" : "Nome / local"}>
             <Input
               value={form.originName}
               onChange={(e) =>
                 setForm((f) => (f ? { ...f, originName: e.target.value } : f))
               }
-              placeholder="Farmácia, mercado..."
-            />
-          </Field>
-
-          <Field label="Km (opcional)">
-            <Input
-              inputMode="decimal"
-              placeholder="3,5"
-              value={form.distanceKm}
-              onChange={(e) =>
-                setForm((f) =>
-                  f
-                    ? {
-                        ...f,
-                        distanceKm: sanitizeDecimalInput(e.target.value),
-                      }
-                    : f,
-                )
+              placeholder={
+                expense ? "Almoço, estacionamento..." : "Farmácia, mercado..."
               }
             />
           </Field>
 
-          <Field label="Origem (app)">
-            <select
-              value={form.source}
-              onChange={(e) =>
-                setForm((f) => (f ? { ...f, source: e.target.value } : f))
-              }
-              className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
-            >
-              {SOURCES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {!expense && (
+            <>
+              <Field label="Km (opcional)">
+                <Input
+                  inputMode="decimal"
+                  placeholder="3,5"
+                  value={form.distanceKm}
+                  onChange={(e) =>
+                    setForm((f) =>
+                      f
+                        ? {
+                            ...f,
+                            distanceKm: sanitizeDecimalInput(e.target.value),
+                          }
+                        : f,
+                    )
+                  }
+                />
+              </Field>
+
+              <Field label="Origem (app)">
+                <select
+                  value={form.source}
+                  onChange={(e) =>
+                    setForm((f) => (f ? { ...f, source: e.target.value } : f))
+                  }
+                  className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                >
+                  {SOURCES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          )}
 
           <Field label="Data e hora">
             <p className="text-xs text-muted-foreground mb-1">

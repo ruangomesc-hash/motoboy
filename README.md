@@ -50,6 +50,8 @@ No desktop, o app aparece dentro de um frame de celular com tema verde. No mobil
 
 ## Fluxo WhatsApp
 
+**Guia completo:** [docs/EVOLUTION.md](./docs/EVOLUTION.md)
+
 1. Configure webhook da Evolution API → `POST http://seu-servidor:3001/webhooks/whatsapp`
 2. Motoboy manda áudio/texto/foto
 3. Worker processa (Whisper/GPT), salva entrega, responde no WhatsApp

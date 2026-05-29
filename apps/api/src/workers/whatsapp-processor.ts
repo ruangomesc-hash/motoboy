@@ -4,7 +4,7 @@ import { AiService } from "@motoboy/ai";
 import type { Env } from "@motoboy/types";
 import type { Server as SocketServer } from "socket.io";
 import type { FastifyBaseLogger } from "fastify";
-import { findOrCreateUser, isTrialExpired } from "../services/user.js";
+import { findUserByPhone, isTrialExpired } from "../services/user.js";
 import { EvolutionService } from "../services/evolution.js";
 import {
   createDeliveryFromExtraction,
@@ -63,7 +63,15 @@ export function startWhatsAppWorker(
     async (job: Job<WhatsAppJobData>) => {
       const { fromNumber, messageType, rawContent } = job.data;
       const phone = normalizePhone(fromNumber);
-      const user = await findOrCreateUser(phone);
+      const user = await findUserByPhone(phone);
+
+      if (!user) {
+        await evolution.sendText(
+          phone,
+          "❌ WhatsApp não cadastrado. Entre no app e use o mesmo número em Configurações.",
+        );
+        return;
+      }
 
       await prisma.whatsAppMessage.create({
         data: {

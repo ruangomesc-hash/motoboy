@@ -12,6 +12,12 @@ export function formatBRL(value: number): string {
   });
 }
 
+/** Valores negativos (despesa) com sinal de menos. */
+export function formatSignedBRL(value: number): string {
+  if (value < 0) return `−${formatBRL(Math.abs(value))}`;
+  return formatBRL(value);
+}
+
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", {
     hour: "2-digit",

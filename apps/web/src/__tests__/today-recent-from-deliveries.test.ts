@@ -50,4 +50,30 @@ describe("recomputeTodayFromDeliveries", () => {
     expect(next.deliveryCount).toBe(1);
     expect(next.netProfit).toBe(50);
   });
+
+  it("manual expense increases totalExpenses and lowers net", () => {
+    const deliveries: DeliveryListItem[] = [
+      {
+        id: "a",
+        grossValue: 100,
+        source: "PARTICULAR",
+        originName: "loja",
+        occurredAt: `${todayKey}T10:00:00.000Z`,
+        distanceKm: null,
+      },
+      {
+        id: "b",
+        grossValue: -20,
+        source: "OTHER",
+        originName: "Almoço",
+        occurredAt: `${todayKey}T12:00:00.000Z`,
+        distanceKm: null,
+      },
+    ];
+    const next = recomputeTodayFromDeliveries(deliveries, baseToday, todayKey);
+    expect(next.grossTotal).toBe(100);
+    expect(next.deliveryCount).toBe(1);
+    expect(next.totalExpenses).toBe(20);
+    expect(next.netProfit).toBe(80);
+  });
 });

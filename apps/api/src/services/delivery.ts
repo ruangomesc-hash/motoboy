@@ -1,6 +1,7 @@
 import { prisma, type DeliverySource } from "@motoboy/db";
 import type {
   DeliveryCreateInput,
+  ExpenseCreateInput,
   ExtractionResult,
 } from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
@@ -22,6 +23,11 @@ function safePayload(input: DeliveryCreateInput): object {
 function normalizeMoney(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   return Number(value.toFixed(2));
+}
+
+function normalizeExpenseMoney(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Number((-value).toFixed(2));
 }
 
 function normalizeDistance(value: number | null | undefined): number | null {
@@ -49,6 +55,33 @@ export async function createDeliveryManual(
       rawInput: {
         channel: "app_manual",
         payload: safePayload(input),
+      },
+    },
+  });
+}
+
+export async function createExpenseManual(
+  userId: string,
+  input: ExpenseCreateInput,
+) {
+  const grossValue = normalizeExpenseMoney(input.grossValue);
+
+  return prisma.delivery.create({
+    data: {
+      userId,
+      source: "OTHER",
+      grossValue,
+      originName: input.originName ?? null,
+      distanceKm: null,
+      occurredAt: parseOccurredAt(input.occurredAt),
+      rawInput: {
+        channel: "app_manual",
+        kind: "expense",
+        payload: safePayload({
+          grossValue: input.grossValue,
+          originName: input.originName,
+          occurredAt: input.occurredAt,
+        } as DeliveryCreateInput),
       },
     },
   });

@@ -6,6 +6,9 @@ import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
+import { AddExpenseForm } from "@/components/add-expense-form";
+import { isExpenseEntry } from "@motoboy/types";
+import { formatSignedBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
 
@@ -40,7 +43,10 @@ export default function EntregasPage() {
     <AppPage className="p-3 space-y-3">
       <h1 className="text-lg font-bold px-1">Entregas</h1>
 
-      <AddDeliveryForm />
+      <div className="space-y-2">
+        <AddDeliveryForm />
+        <AddExpenseForm />
+      </div>
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground px-1">
@@ -60,27 +66,40 @@ export default function EntregasPage() {
         </p>
       ) : (
         <ul className="space-y-2">
-          {visibleDeliveries.map((d) => (
+          {visibleDeliveries.map((d) => {
+            const expense = isExpenseEntry(d.grossValue);
+            return (
             <li key={d.id}>
               <Link
                 href={`/entregas/${d.id}`}
-                className="block p-3 rounded-lg border border-border bg-card active:bg-muted/50"
+                className={`block p-3 rounded-lg border bg-card active:bg-muted/50 ${
+                  expense ? "border-red-500/30" : "border-border"
+                }`}
               >
                 <div className="flex justify-between gap-2 min-w-0">
-                  <span className="font-semibold text-sm shrink-0 tabular-nums">
-                    {formatBRL(Number(d.grossValue))}
+                  <span
+                    className={`font-semibold text-sm shrink-0 tabular-nums ${
+                      expense ? "text-red-400" : ""
+                    }`}
+                  >
+                    {formatSignedBRL(Number(d.grossValue))}
                   </span>
                   <span className="text-muted-foreground text-xs shrink-0">
                     {formatTime(d.occurredAt)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 break-words">
-                  {d.originName ?? sourceLabel(d.source)}
-                  {d.distanceKm ? ` · ${Number(d.distanceKm)} km` : ""}
+                  {expense
+                    ? `Despesa · ${d.originName ?? "Outro"}`
+                    : (d.originName ?? sourceLabel(d.source))}
+                  {!expense && d.distanceKm
+                    ? ` · ${Number(d.distanceKm)} km`
+                    : ""}
                 </p>
               </Link>
             </li>
-          ))}
+          );
+          })}
           {visibleDeliveries.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-6">
               Nenhuma entrega neste dia. Registre acima ou pelo WhatsApp.

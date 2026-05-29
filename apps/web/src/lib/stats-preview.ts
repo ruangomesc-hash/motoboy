@@ -1,4 +1,4 @@
-import type { PeriodStats, TodaySummary } from "@motoboy/types";
+import { isExpenseEntry, type PeriodStats, type TodaySummary } from "@motoboy/types";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import { todayDateInputValue } from "@/lib/local-date";
 
@@ -45,6 +45,7 @@ export function buildPreviewPeriodStats(
     const km = d.distanceKm != null ? Number(d.distanceKm) : 0;
     const key = d.occurredAt.slice(0, 10);
     series.set(key, (series.get(key) ?? 0) + gross);
+    if (isExpenseEntry(gross)) continue;
     totalGross += gross;
     totalKm += Number.isFinite(km) ? km : 0;
     count += 1;

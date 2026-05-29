@@ -9,7 +9,8 @@ import {
 } from "@/components/collapsible-summary-row";
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/components/app-data-provider";
-import { formatBRL, formatTime } from "@/lib/utils";
+import { formatBRL, formatSignedBRL, formatTime } from "@/lib/utils";
+import { isExpenseEntry } from "@motoboy/types";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
 import { AppPage } from "@/components/app-page";
@@ -306,16 +307,24 @@ export default function HomePage() {
               Nenhuma entrega hoje. Manda no WhatsApp!
             </li>
           )}
-          {recentDeliveries.map((d) => (
+          {recentDeliveries.map((d) => {
+            const expense = isExpenseEntry(d.grossValue);
+            return (
             <li key={d.id} className="flex items-center gap-0.5 border-b border-border/40">
               <Link
                 href={`/entregas/${d.id}`}
                 className="flex flex-1 justify-between items-center gap-2 py-1.5 text-[10px] min-w-0"
               >
                 <span className="min-w-0 truncate">
-                  <span className="font-medium">{formatBRL(d.grossValue)}</span>
+                  <span
+                    className={`font-medium ${expense ? "text-red-400" : ""}`}
+                  >
+                    {formatSignedBRL(d.grossValue)}
+                  </span>
                   {" · "}
-                  {d.originName ?? sourceLabel(d.source)}
+                  {expense
+                    ? `Despesa · ${d.originName ?? "Outro"}`
+                    : (d.originName ?? sourceLabel(d.source))}
                 </span>
                 <span className="text-muted-foreground shrink-0 tabular-nums">
                   {formatTime(d.occurredAt)}
@@ -333,14 +342,15 @@ export default function HomePage() {
                 <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
               </button>
             </li>
-          ))}
+          );
+          })}
         </ul>
       </section>
 
       <ConfirmDialog
         open={deleteTarget != null}
         title="Apagar entrega?"
-        description="A entrega será removida da Home, Entregas e Estatísticas."
+        description="O registro será removido da Home, Entregas e Estatísticas."
         confirmLabel="Apagar"
         error={deleteError}
         loading={deleting}

@@ -1,5 +1,5 @@
 import { prisma } from "@motoboy/db";
-import type { PeriodStats } from "@motoboy/types";
+import { isExpenseEntry, type PeriodStats } from "@motoboy/types";
 import { getRangeNetProfit } from "./day-net.js";
 
 function toNumber(d: { toString(): string } | number): number {
@@ -50,19 +50,18 @@ export async function getPeriodStats(
   ]);
 
   const byDay = new Map<string, number>();
+  let totalGross = 0;
+  let count = 0;
+  let totalKm = 0;
   for (const d of deliveries) {
+    const gross = toNumber(d.grossValue);
     const key = d.occurredAt.toISOString().slice(0, 10);
-    byDay.set(key, (byDay.get(key) ?? 0) + toNumber(d.grossValue));
+    byDay.set(key, (byDay.get(key) ?? 0) + gross);
+    if (isExpenseEntry(gross)) continue;
+    totalGross += gross;
+    count += 1;
+    totalKm += d.distanceKm != null ? toNumber(d.distanceKm) : 0;
   }
-
-  const totalGross = deliveries.reduce(
-    (s, d) => s + toNumber(d.grossValue),
-    0,
-  );
-  const totalKm = deliveries.reduce(
-    (s, d) => s + (d.distanceKm != null ? toNumber(d.distanceKm) : 0),
-    0,
-  );
 
   let hoursWorked = 0;
   for (const shift of shifts) {
@@ -88,7 +87,7 @@ export async function getPeriodStats(
     })),
     totalGross,
     totalNet,
-    count: deliveries.length,
+    count,
     totalKm,
     hoursWorked,
     grossPerHour,

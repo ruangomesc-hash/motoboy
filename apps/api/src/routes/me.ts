@@ -6,6 +6,9 @@ import {
   goalUpdateSchema,
   deliveryPatchSchema,
   deliveryCreateSchema,
+  expenseCreateSchema,
+  expensePatchSchema,
+  isExpenseEntry,
   profileUpdateSchema,
   goalsPlanUpdateSchema,
 } from "@motoboy/types";
@@ -24,7 +27,7 @@ import {
   recordActivity,
   recordActivitySafe,
 } from "../services/activity-log.js";
-import { createDeliveryManual } from "../services/delivery.js";
+import { createDeliveryManual, createExpenseManual } from "../services/delivery.js";
 import { getPeriodStats } from "../services/stats.js";
 import { emitToUser } from "../lib/socket.js";
 import {
@@ -250,6 +253,58 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send(toPublicDelivery(delivery));
   });
 
+  app.post("/me/expenses", async (request, reply) => {
+    const body = expenseCreateSchema.parse(request.body);
+    const userId = request.sessionUser!.id;
+    let expense: Awaited<ReturnType<typeof createExpenseManual>>;
+    try {
+      expense = await createExpenseManual(userId, body);
+    } catch (err) {
+      request.log.error(
+        { err, userId, body },
+        "Falha ao criar despesa manual",
+      );
+      return reply.status(503).send({
+        error:
+          "Nao foi possivel salvar a despesa agora. Verifique a conexao com o banco e tente novamente.",
+        code: "EXPENSE_SAVE_FAILED",
+      });
+    }
+    try {
+      await recordActivitySafe(
+        userId,
+        {
+          category: "DELIVERY",
+          action: "CREATED",
+          title: "Despesa registrada",
+          entityId: expense.id,
+          changes: [
+            {
+              field: "grossValue",
+              label: "Valor",
+              from: null,
+              to: formatMoney(expense.grossValue),
+            },
+            {
+              field: "originName",
+              label: "Descrição",
+              from: null,
+              to: expense.originName ?? "Despesa",
+            },
+          ],
+        },
+        request.log,
+      );
+      emitToUser(userId, "delivery:created", { id: expense.id });
+    } catch (err) {
+      request.log.warn(
+        { err, userId, expenseId: expense.id },
+        "Falha em side-effects de criação de despesa",
+      );
+    }
+    return reply.status(201).send(toPublicDelivery(expense));
+  });
+
   app.get("/me/deliveries/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const delivery = await prisma.delivery.findFirst({
@@ -308,23 +363,36 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch("/me/deliveries/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = deliveryPatchSchema.parse(request.body);
     const userId = request.sessionUser!.id;
     const existing = await prisma.delivery.findFirst({
       where: { id, userId },
     });
     if (!existing) return reply.status(404).send({ error: "Não encontrado" });
+
+    const isExpense = isExpenseEntry(Number(existing.grossValue));
+    const body = isExpense
+      ? expensePatchSchema.parse(request.body)
+      : deliveryPatchSchema.parse(request.body);
+
     const data: {
       grossValue?: number;
       originName?: string | null;
       distanceKm?: number | null;
-      source?: (typeof body)["source"];
+      source?: string;
       occurredAt?: Date;
     } = {};
-    if (body.grossValue !== undefined) data.grossValue = body.grossValue;
+    if (body.grossValue !== undefined) {
+      data.grossValue = isExpense
+        ? -Number(Math.abs(body.grossValue).toFixed(2))
+        : body.grossValue;
+    }
     if (body.originName !== undefined) data.originName = body.originName;
-    if (body.distanceKm !== undefined) data.distanceKm = body.distanceKm;
-    if (body.source !== undefined) data.source = body.source;
+    if (!isExpense && "distanceKm" in body && body.distanceKm !== undefined) {
+      data.distanceKm = body.distanceKm;
+    }
+    if (!isExpense && "source" in body && body.source !== undefined) {
+      data.source = body.source;
+    }
     if (body.occurredAt !== undefined) data.occurredAt = new Date(body.occurredAt);
 
     const updated = await prisma.delivery.updateMany({
@@ -347,37 +415,42 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
           after: delivery.grossValue,
           format: formatMoney,
         },
-        body.source !== undefined && {
-          field: "source",
-          label: "App",
-          before: existing.source,
-          after: delivery.source,
-          format: formatDeliverySource,
-        },
+        !isExpense &&
+          "source" in body &&
+          body.source !== undefined && {
+            field: "source",
+            label: "App",
+            before: existing.source,
+            after: delivery.source,
+            format: formatDeliverySource,
+          },
         body.originName !== undefined && {
           field: "originName",
-          label: "Estabelecimento",
+          label: isExpense ? "Descrição" : "Estabelecimento",
           before: existing.originName,
           after: delivery.originName,
         },
-        body.distanceKm !== undefined && {
-          field: "distanceKm",
-          label: "Distância",
-          before: existing.distanceKm,
-          after: delivery.distanceKm,
-          format: (v: unknown) => (v == null ? "—" : `${Number(v)} km`),
-        },
+        !isExpense &&
+          "distanceKm" in body &&
+          body.distanceKm !== undefined && {
+            field: "distanceKm",
+            label: "Distância",
+            before: existing.distanceKm,
+            after: delivery.distanceKm,
+            format: (v: unknown) => (v == null ? "—" : `${Number(v)} km`),
+          },
       ].filter(Boolean) as Parameters<typeof diffValues>[0],
     );
     if (changes.length > 0) {
       await recordActivity(userId, {
         category: "DELIVERY",
         action: "UPDATED",
-        title: "Entrega alterada",
+        title: isExpense ? "Despesa alterada" : "Entrega alterada",
         entityId: id,
         changes,
       });
     }
+    emitToUser(userId, "delivery:created", { id });
     return toPublicDelivery(delivery);
   });
 

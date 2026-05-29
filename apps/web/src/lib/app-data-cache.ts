@@ -53,7 +53,10 @@ export function extractDeliveryMutation(
     const match = path.match(/\/me\/deliveries\/([^/]+)$/);
     return { removedId: match?.[1] };
   }
-  if ((m === "POST" || m === "PATCH") && path.includes("/deliveries")) {
+  if (
+    (m === "POST" || m === "PATCH") &&
+    (path.includes("/deliveries") || path.includes("/expenses"))
+  ) {
     if (!result || typeof result !== "object") return {};
     const delivery = rowToDelivery(result as Record<string, unknown>);
     return delivery ? { delivery } : {};
