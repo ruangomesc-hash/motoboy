@@ -159,7 +159,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
               type="datetime-local"
               value={occurredAtLocal}
               onChange={(e) => setOccurredAtLocal(e.target.value)}
-              className="h-10 text-sm"
+              className="text-base"
             />
             <button
               type="button"
@@ -198,7 +198,7 @@ export function AddDeliveryForm({ onSuccess }: { onSuccess?: () => void }) {
         <select
           value={form.source}
           onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
-          className="mt-1 flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+          className="mt-1 flex h-12 w-full rounded-lg border border-border bg-background px-3 text-base"
         >
           {SOURCES.map((s) => (
             <option key={s.value} value={s.value}>

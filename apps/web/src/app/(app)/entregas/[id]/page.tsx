@@ -318,7 +318,7 @@ export default function EntregaDetailPage() {
                   f ? { ...f, occurredAtLocal: e.target.value } : f,
                 )
               }
-              className="h-10 text-sm"
+              className="text-base"
             />
           </Field>
 

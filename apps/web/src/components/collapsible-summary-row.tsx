@@ -32,7 +32,7 @@ export function CollapsibleSummarySection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full max-w-full min-w-0 flex items-center gap-1 py-2 px-1.5 text-left active:opacity-80"
+        className="w-full max-w-full min-w-0 flex items-center gap-1 min-h-[44px] py-2 px-1.5 text-left active:opacity-80"
       >
         <ChevronDown
           className={cn(
@@ -102,7 +102,7 @@ export function CollapsibleSummaryRow({
         disabled={!expandable}
         onClick={() => expandable && setOpen((o) => !o)}
         className={cn(
-          "w-full max-w-full min-w-0 flex items-center gap-2 py-2 px-0.5 text-left text-sm",
+          "w-full max-w-full min-w-0 flex items-center gap-2 min-h-[44px] py-2 px-0.5 text-left text-sm",
           expandable && "active:opacity-80",
           !expandable && "cursor-default",
         )}

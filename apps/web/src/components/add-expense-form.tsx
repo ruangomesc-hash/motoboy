@@ -130,7 +130,7 @@ export function AddExpenseForm({ onSuccess }: { onSuccess?: () => void }) {
               type="datetime-local"
               value={occurredAtLocal}
               onChange={(e) => setOccurredAtLocal(e.target.value)}
-              className="h-10 text-sm"
+              className="text-base"
             />
             <button
               type="button"

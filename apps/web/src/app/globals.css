@@ -39,3 +39,12 @@
 .safe-area-pb {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+
+/* iOS/Android: inputs < 16px disparam zoom — manter leitura igual ao desktop */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

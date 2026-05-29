@@ -25,7 +25,7 @@ export function BottomNav() {
 
   return (
     <nav className="shrink-0 border-t border-border bg-card/95 backdrop-blur safe-area-pb">
-      <ul className="flex justify-around items-center h-14 px-1">
+      <ul className="flex justify-around items-center min-h-14 h-14 px-1">
         {items.map(({ href, label, Icon }) => {
           const active =
             href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -34,7 +34,7 @@ export function BottomNav() {
               <Link
                 href={href}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 min-w-[56px] py-1.5 rounded-lg transition-colors",
+                  "flex flex-col items-center justify-center gap-1 min-w-[56px] min-h-[44px] py-2 rounded-lg transition-colors active:opacity-70",
                   active
                     ? "text-primary"
                     : "text-muted-foreground hover:text-foreground",

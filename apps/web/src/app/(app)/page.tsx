@@ -103,7 +103,7 @@ export default function HomePage() {
         : "Estimativa";
 
   return (
-    <AppPage className="p-3 pb-3 space-y-2">
+    <AppPage className="p-3 pb-4 space-y-2">
       <header className="space-y-1">
         <MotocopilotoLogo size="sm" centered />
         <h1 className="text-sm font-medium text-muted-foreground text-center">
@@ -335,7 +335,7 @@ export default function HomePage() {
                 aria-label={
                   expense ? "Apagar despesa" : "Apagar entrega"
                 }
-                className="shrink-0 p-1.5 text-muted-foreground hover:text-destructive"
+                className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive active:opacity-70"
                 onClick={() => {
                   setDeleteError(null);
                   setDeleteTarget(d);

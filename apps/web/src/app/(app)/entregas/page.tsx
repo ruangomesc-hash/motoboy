@@ -46,7 +46,7 @@ export default function EntregasPage() {
   );
 
   return (
-    <AppPage className="p-3 space-y-3">
+    <AppPage className="p-3 pb-4 space-y-3">
       <h1 className="text-lg font-bold px-1">Entregas</h1>
 
       <div className="space-y-2">
@@ -56,14 +56,13 @@ export default function EntregasPage() {
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground px-1">
-          {isToday ? "Entregas de hoje" : "Entregas do dia"}
+          {isToday ? "Registros de hoje" : "Registros do dia"}
         </label>
         <Input
           type="date"
           value={filterDate}
           max={deviceToday}
           onChange={(e) => setDeliveriesDate(e.target.value)}
-          className="h-10 text-sm"
         />
         {!isToday && (
           <button
@@ -118,7 +117,7 @@ export default function EntregasPage() {
           })}
           {visibleDeliveries.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-6">
-              Nenhuma entrega neste dia. Registre acima ou pelo WhatsApp.
+              Nenhum registro neste dia. Registre entrega ou despesa acima.
             </p>
           )}
         </ul>
