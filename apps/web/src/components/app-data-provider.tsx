@@ -29,6 +29,7 @@ import type { CreatedDelivery } from "@/lib/app-data-cache";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import {
   isIsoOnDateInput,
+  resolveDeliveriesFilterDate,
   todayDateInputValue,
 } from "@/lib/local-date";
 import {
@@ -83,6 +84,8 @@ type AppDataContextValue = {
   deliveries: DeliveryListItem[];
   deliveriesDate: string;
   setDeliveriesDate: (date: string) => void;
+  /** Alinha o filtro de Entregas ao dia atual do celular (após meia-noite). */
+  syncDeliveriesFilterDate: () => void;
   statsWeek: PeriodStats | null;
   statsMonth: PeriodStats | null;
   isBootstrapped: boolean;
@@ -243,6 +246,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [persistNow],
   );
 
+  const syncDeliveriesFilterDate = useCallback(() => {
+    const resolved = resolveDeliveriesFilterDate(
+      stateRef.current.deliveriesDate,
+    );
+    if (resolved === stateRef.current.deliveriesDate) return;
+    setDeliveriesDate(resolved);
+  }, []);
+
   const applyCacheSnapshot = useCallback((cached: PersistedAppCache) => {
     if (cached.deletedDeliveryIds?.length) {
       deletedDeliveries.current.hydrate(cached.deletedDeliveryIds);
@@ -258,7 +269,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       );
     }
     setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
-    setDeliveriesDate(cached.deliveriesDate || todayDateInputValue());
+    setDeliveriesDate(resolveDeliveriesFilterDate(cached.deliveriesDate));
     if (cached.statsWeek) setStatsWeek(cached.statsWeek);
     if (cached.statsMonth) setStatsMonth(cached.statsMonth);
     if (cached.profileName) setProfileName(cached.profileName);
@@ -952,6 +963,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
+      syncDeliveriesFilterDate();
       const cached = readAppCache(userId);
       if (!cached || isCacheStale(cached.savedAt, 12_000)) {
         reconcileDeliveriesIfIdle();
@@ -984,8 +996,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     applySyncDetail,
     isBootstrapped,
     reconcileDeliveriesIfIdle,
+    syncDeliveriesFilterDate,
     userId,
   ]);
+
+  useEffect(() => {
+    if (!isBootstrapped) return;
+    syncDeliveriesFilterDate();
+    const tick = setInterval(syncDeliveriesFilterDate, 60_000);
+    return () => clearInterval(tick);
+  }, [isBootstrapped, syncDeliveriesFilterDate]);
 
   const value = useMemo(
     () => ({
@@ -994,6 +1014,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       deliveries,
       deliveriesDate,
       setDeliveriesDate,
+      syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,
       isBootstrapped,
@@ -1020,6 +1041,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       profileName,
       deliveries,
       deliveriesDate,
+      syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,
       isBootstrapped,

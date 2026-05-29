@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
@@ -28,11 +28,17 @@ export default function EntregasPage() {
     deliveries,
     deliveriesDate,
     setDeliveriesDate,
+    syncDeliveriesFilterDate,
     isBootstrapped,
   } = useAppData();
 
-  const filterDate = deliveriesDate || todayDateInputValue();
-  const isToday = filterDate === todayDateInputValue();
+  const deviceToday = todayDateInputValue();
+  const filterDate = deliveriesDate || deviceToday;
+  const isToday = filterDate === deviceToday;
+
+  useEffect(() => {
+    syncDeliveriesFilterDate();
+  }, [syncDeliveriesFilterDate]);
   const visibleDeliveries = useMemo(
     () =>
       deliveries.filter((d) => isIsoOnDateInput(d.occurredAt, filterDate)),
@@ -55,9 +61,19 @@ export default function EntregasPage() {
         <Input
           type="date"
           value={filterDate}
+          max={deviceToday}
           onChange={(e) => setDeliveriesDate(e.target.value)}
           className="h-10 text-sm"
         />
+        {!isToday && (
+          <button
+            type="button"
+            className="text-xs text-primary underline px-1"
+            onClick={() => setDeliveriesDate(deviceToday)}
+          >
+            Voltar para hoje ({deviceToday.split("-").reverse().join("/")})
+          </button>
+        )}
       </div>
 
       {!isBootstrapped && visibleDeliveries.length === 0 ? (

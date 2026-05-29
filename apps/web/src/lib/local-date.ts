@@ -6,6 +6,29 @@ export function todayDateInputValue(date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+export function yesterdayDateInputValue(date = new Date()): string {
+  const d = new Date(date);
+  d.setDate(d.getDate() - 1);
+  return todayDateInputValue(d);
+}
+
+/**
+ * Mantém o filtro de Entregas no dia atual do celular (fuso local do sistema —
+ * o mesmo que o calendário do aparelho / Google Calendar usa para "hoje").
+ * Se o cache ficou em "ontem" (app aberto após meia-noite), avança para hoje.
+ * Datas mais antigas são preservadas (consulta de dias anteriores).
+ */
+export function resolveDeliveriesFilterDate(
+  cached: string | undefined,
+  now = new Date(),
+): string {
+  const today = todayDateInputValue(now);
+  if (!cached?.trim()) return today;
+  if (cached === today) return today;
+  if (cached === yesterdayDateInputValue(now)) return today;
+  return cached;
+}
+
 /** ISO a partir do valor de input datetime-local (YYYY-MM-DDTHH:mm). */
 export function isoFromDatetimeLocal(value: string): string {
   return new Date(value).toISOString();
