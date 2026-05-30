@@ -32,6 +32,7 @@ import {
   formatOdometerConfirmation,
 } from "../services/odometer.js";
 import { normalizePhone } from "../lib/phone.js";
+import { getBullMQConnection } from "../lib/bullmq-connection.js";
 
 function dayBounds() {
   const start = new Date();
@@ -58,7 +59,7 @@ export function startWhatsAppWorker(
   log: FastifyBaseLogger,
   io: SocketServer | null,
 ): Worker<WhatsAppJobData> {
-  const connection = { url: env.REDIS_URL };
+  const connection = getBullMQConnection(env.REDIS_URL);
   const ai = new AiService(env.OPENAI_API_KEY);
   const evolution = new EvolutionService(env, log);
 

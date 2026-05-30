@@ -10,6 +10,7 @@ import {
 } from "../lib/webhook-auth.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
+import { getBullMQConnection } from "../lib/bullmq-connection.js";
 
 const evolutionPayloadSchema = z.object({
   event: z.string().optional(),
@@ -62,7 +63,7 @@ function extractPhone(remoteJid?: string): string | null {
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
   const queue = new Queue<WhatsAppJobData>("whatsapp-process", {
-    connection: { url: env.REDIS_URL },
+    connection: getBullMQConnection(env.REDIS_URL),
   });
   const asaas = new AsaasService(env);
 
@@ -134,10 +135,20 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    await queue.add("process", jobData, {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 2000 },
-    });
+    try {
+      await queue.add("process", jobData, {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 2000 },
+      });
+    } catch (err) {
+      request.log.error({ err }, "Falha ao enfileirar job WhatsApp (Redis)");
+      return reply.status(503).send({
+        error: "Fila indisponível. Confira REDIS_URL (Upstash TCP rediss://).",
+        code: "REDIS_QUEUE_ERROR",
+      });
+    } finally {
+      await queue.close();
+    }
 
     return reply.send({ ok: true, queued: true });
   });

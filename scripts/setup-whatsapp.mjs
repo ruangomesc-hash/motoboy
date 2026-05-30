@@ -201,12 +201,14 @@ async function ensureInstance(baseUrl, apiKey) {
 async function setWebhook(baseUrl, apiKey, webhookUrl, secret) {
   log(`🔗 Webhook → ${webhookUrl}`);
   const body = {
-    enabled: true,
-    url: webhookUrl,
-    webhookByEvents: false,
-    webhookBase64: false,
-    headers: { apikey: secret },
-    events: ["MESSAGES_UPSERT"],
+    webhook: {
+      enabled: true,
+      url: webhookUrl,
+      webhookByEvents: false,
+      webhookBase64: false,
+      headers: { apikey: secret },
+      events: ["MESSAGES_UPSERT"],
+    },
   };
   const res = await api(
     baseUrl,
