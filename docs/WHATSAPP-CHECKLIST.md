@@ -55,13 +55,16 @@ Zap → Evolution (VPS) → POST webhook → Vercel enfileira (Redis)
 
 ---
 
-## Railway — build falhou?
+## Railway — build ou healthcheck
 
 1. Variável no serviço: `NIXPACKS_NODE_VERSION` = `20`
-2. Build command (Settings ou `railway.toml`):
-   `corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install && pnpm prepare:deploy && pnpm --filter @motoboy/api build`
-3. Start: `pnpm --filter @motoboy/api start`
-4. Logs: se aparecer `[node-version] Projeto exige Node 20`, o Node do Railway está errado.
+2. Build/start: `railway.toml` usa `pnpm --filter @motoboy/api... build` (compila **types**, **db**, **ai** e **api** — Node não roda `.ts` dos pacotes workspace).
+3. Healthcheck: `GET /health/live` (só liveness). Depois do deploy, confira `GET /health` no domínio público do worker (se exposto) ou nos logs.
+4. **Travou em “Performing healthchecks…”**: abra **View logs** (runtime). Causas comuns:
+   - boot falhou (`JWT_SECRET`, `DATABASE_URL`, `EVOLUTION_WEBHOOK_SECRET` ausentes);
+   - worker não sobe — log `Worker WhatsApp NÃO iniciado` + lista `missing`;
+   - `/health` com DB errado (deploy pode passar com `/health/live`, mas Zap não funciona até corrigir `DATABASE_URL`).
+5. Logs: se aparecer `[node-version] Projeto exige Node 20`, o Node do Railway está errado.
 
 ## Testes
 

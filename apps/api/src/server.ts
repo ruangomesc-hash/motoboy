@@ -56,20 +56,22 @@ if (runWorker) {
     );
   }
   if (missing.length > 0) {
-    throw new Error(
-      `Worker WhatsApp: faltam variáveis obrigatórias: ${missing.join(", ")}`,
+    app.log.error(
+      { missing },
+      "Worker WhatsApp NÃO iniciado — configure as variáveis no Railway e redeploy",
     );
-  }
-  const worker = startWhatsAppWorker(env, app.log, io);
-  worker.on("failed", (job, err) => {
-    app.log.error({ jobId: job?.id, err }, "Worker job failed");
-  });
+  } else {
+    const worker = startWhatsAppWorker(env, app.log, io);
+    worker.on("failed", (job, err) => {
+      app.log.error({ jobId: job?.id, err }, "Worker job failed");
+    });
 
-  process.on("SIGTERM", async () => {
-    await worker.close();
-    await app.close();
-    process.exit(0);
-  });
+    process.on("SIGTERM", async () => {
+      await worker.close();
+      await app.close();
+      process.exit(0);
+    });
+  }
 } else {
   app.log.warn(
     "WhatsApp worker desligado (defina RUN_WHATSAPP_WORKER=true e REDIS_URL para filas)",

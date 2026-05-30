@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "pnpm --filter @motoboy/api... build && tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run"

@@ -176,6 +176,9 @@ export async function createApp(
   await app.register(meRoutes);
   await app.register(adminRoutes);
 
+  /** Liveness — Railway healthcheck (sem DB). */
+  app.get("/health/live", async () => ({ ok: true }));
+
   app.get("/health", async (_request, reply) => {
     const { prisma } = await import("@motoboy/db");
     const { isAsaasConfigured } = await import("./lib/asaas-client.js");

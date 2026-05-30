@@ -2,7 +2,10 @@ import { config } from "dotenv";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { envSchema, type Env } from "@motoboy/types";
-import { assertProductionSecurity } from "./runtime-env.js";
+import {
+  assertProductionSecurity,
+  isProductionRuntime,
+} from "./runtime-env.js";
 
 const envCandidates = [
   resolve(process.cwd(), ".env"),
@@ -22,8 +25,7 @@ if (!process.env.DIRECT_URL?.trim() && process.env.DATABASE_URL?.trim()) {
 }
 
 export function loadEnv(): Env {
-  const isProd =
-    process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+  const isProd = isProductionRuntime();
   const isNextBuild = process.env.NEXT_PHASE === "phase-production-build";
 
   const parsed = envSchema.safeParse(process.env);

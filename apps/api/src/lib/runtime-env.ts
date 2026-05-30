@@ -10,7 +10,9 @@ function isEvolutionConfigured(env: Env): boolean {
 
 export function isProductionRuntime(): boolean {
   return (
-    process.env.NODE_ENV === "production" || process.env.VERCEL === "1"
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL === "1" ||
+    Boolean(process.env.RAILWAY_ENVIRONMENT)
   );
 }
 
