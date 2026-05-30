@@ -5,6 +5,7 @@ dist
 .env.local
 .env.vercel-pull
 railway.env
+railway.env.local
 whatsapp-qrcode.html
 *.log
 .DS_Store

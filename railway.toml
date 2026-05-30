@@ -1,0 +1,13 @@
+# Railway — worker WhatsApp (apps/api)
+# https://docs.railway.com/guides/config-as-code
+
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm install && pnpm db:generate && pnpm --filter @motoboy/api build"
+
+[deploy]
+startCommand = "pnpm --filter @motoboy/api start"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

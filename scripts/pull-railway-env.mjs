@@ -27,9 +27,16 @@ const RAILWAY_KEYS = [
   "EVOLUTION_INSTANCE",
   "EVOLUTION_WEBHOOK_SECRET",
   "EVOLUTION_BOT_NUMBER",
-  "OPENAI_API_KEY",
   "JWT_SECRET",
+  "OPENAI_API_KEY",
 ];
+
+const RAILWAY_DEFAULTS = {
+  APP_URL: "https://app.motocopiloto.com.br",
+  EVOLUTION_API_URL: "https://evo.motocopiloto.com.br",
+  EVOLUTION_INSTANCE: "motoboy",
+  RUN_WHATSAPP_WORKER: "true",
+};
 
 function log(msg) {
   console.log(msg);
@@ -104,11 +111,25 @@ function main() {
   }
 
   for (const opt of ["OPENAI_API_KEY", "JWT_SECRET"]) {
-    const v = map.get(opt)?.trim();
-    if (v && !v.includes("VALUE or")) lines.push(`${opt}=${v}`);
+    let v =
+      process.env[opt]?.trim() ||
+      map.get(opt)?.trim() ||
+      "";
+    if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+    if (v && !v.includes("VALUE or")) {
+      lines.push(`${opt}=${v}`);
+    } else {
+      lines.push(`${opt}=`);
+      missing.push(opt);
+    }
   }
 
-  lines.push("RUN_WHATSAPP_WORKER=true");
+  for (const [k, def] of Object.entries(RAILWAY_DEFAULTS)) {
+    let v = map.get(k)?.trim() ?? "";
+    if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+    lines.push(`${k}=${v && !v.includes("seu-app") ? v : def}`);
+  }
+
   lines.push("");
 
   fs.writeFileSync(outFile, lines.join("\n"));
@@ -130,9 +151,9 @@ function main() {
   }
 
   log("\nPróximo passo:");
-  log("  1. Abra railway.env — confira se todos os valores estão preenchidos");
-  log("  2. Railway → Variables → Raw Editor → cole → Save → Deploy");
-  log("  3. rm railway.env .env.vercel-pull  (não commitar)\n");
+  log("  1. Abra railway.env — preencha linhas vazias (Vercel → olho + OPENAI_API_KEY)");
+  log("  2. pnpm railway:push   (ou cole no Railway Raw Editor)");
+  log("  3. Teste: R$ 30 entrega teste\n");
 
   if (missing.length) {
     log(`⚠️  Ainda vazias no pull: ${missing.join(", ")}`);
