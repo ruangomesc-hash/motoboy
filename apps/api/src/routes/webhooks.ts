@@ -56,8 +56,13 @@ const evolutionPayloadSchema = z.object({
 
 function extractPhone(remoteJid?: string): string | null {
   if (!remoteJid) return null;
-  const digits = remoteJid.replace("@s.whatsapp.net", "").replace(/\D/g, "");
-  return normalizePhone(digits);
+  const jidUser = remoteJid.split("@")[0] ?? remoteJid;
+  const digits = jidUser.replace(/\D/g, "");
+  try {
+    return normalizePhone(digits);
+  } catch {
+    return null;
+  }
 }
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
@@ -87,7 +92,15 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
     const fromNumber = extractPhone(data.key.remoteJid);
     if (!fromNumber) {
-      return reply.status(400).send({ error: "No phone" });
+      request.log.warn(
+        { remoteJid: data.key.remoteJid },
+        "Webhook WhatsApp: JID/telefone inválido (use 11 dígitos BR com 9 após DDD)",
+      );
+      return reply.status(400).send({
+        error:
+          "Telefone do remetente inválido. Cadastre no app com DDD + 9 dígitos (ex.: 31999998888).",
+        code: "INVALID_PHONE",
+      });
     }
 
     const msg = data.message;

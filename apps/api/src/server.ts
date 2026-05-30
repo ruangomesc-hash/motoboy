@@ -46,6 +46,20 @@ const runWorker =
   process.env.RUN_WHATSAPP_WORKER === "true" && isRedisEnabled(env);
 
 if (runWorker) {
+  const missing: string[] = [];
+  if (!env.EVOLUTION_API_URL?.trim()) missing.push("EVOLUTION_API_URL");
+  if (!env.EVOLUTION_API_KEY?.trim()) missing.push("EVOLUTION_API_KEY");
+  if (!env.EVOLUTION_INSTANCE?.trim()) missing.push("EVOLUTION_INSTANCE");
+  if (!env.OPENAI_API_KEY?.trim()) {
+    app.log.warn(
+      "OPENAI_API_KEY ausente — extração de texto usa fallback simplificado (valores podem sair errados).",
+    );
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Worker WhatsApp: faltam variáveis obrigatórias: ${missing.join(", ")}`,
+    );
+  }
   const worker = startWhatsAppWorker(env, app.log, io);
   worker.on("failed", (job, err) => {
     app.log.error({ jobId: job?.id, err }, "Worker job failed");
