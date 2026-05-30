@@ -17,6 +17,7 @@
     "whatsapp:setup": "node scripts/setup-whatsapp.mjs",
     "whatsapp:qr": "node scripts/setup-whatsapp.mjs --qr-only",
     "railway:env": "node scripts/pull-railway-env.mjs",
+    "vercel:sync-env": "bash scripts/sync-vercel-env.sh railway.env",
     "check:node": "node scripts/ensure-node20.mjs"
   },
   "engines": {
