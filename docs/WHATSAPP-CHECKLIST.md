@@ -55,6 +55,14 @@ Zap → Evolution (VPS) → POST webhook → Vercel enfileira (Redis)
 
 ---
 
+## Railway — build falhou?
+
+1. Variável no serviço: `NIXPACKS_NODE_VERSION` = `20`
+2. Build command (Settings ou `railway.toml`):
+   `corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install && pnpm prepare:deploy && pnpm --filter @motoboy/api build`
+3. Start: `pnpm --filter @motoboy/api start`
+4. Logs: se aparecer `[node-version] Projeto exige Node 20`, o Node do Railway está errado.
+
 ## Testes
 
 ```bash

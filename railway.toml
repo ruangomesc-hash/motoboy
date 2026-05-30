@@ -3,7 +3,11 @@
 
 [build]
 builder = "RAILPACK"
-buildCommand = "pnpm install && pnpm db:generate && pnpm --filter @motoboy/api build"
+buildCommand = "corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install && pnpm prepare:deploy && pnpm --filter @motoboy/api build"
+
+[build.env]
+NODE_VERSION = "20"
+NIXPACKS_NODE_VERSION = "20"
 
 [deploy]
 startCommand = "pnpm --filter @motoboy/api start"
