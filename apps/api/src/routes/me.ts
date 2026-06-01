@@ -166,13 +166,34 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/me/deliveries", async (request, reply) => {
-    const query = request.query as { page?: string; limit?: string; date?: string };
+    const query = request.query as {
+      page?: string;
+      limit?: string;
+      date?: string;
+      from?: string;
+      to?: string;
+    };
     const page = Math.max(1, Number(query.page ?? 1) || 1);
-    const limit = Math.min(Math.max(1, Number(query.limit ?? 20) || 20), 50);
+    let limit = Math.min(Math.max(1, Number(query.limit ?? 20) || 20), 50);
     const skip = (page - 1) * limit;
 
     let dateFilter = {};
-    if (query.date) {
+    if (query.from && query.to) {
+      const fromParsed = z.string().date().safeParse(query.from);
+      const toParsed = z.string().date().safeParse(query.to);
+      if (!fromParsed.success || !toParsed.success) {
+        return reply.status(400).send({ error: "Período inválido (from/to)" });
+      }
+      const start = new Date(fromParsed.data);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(toParsed.data);
+      end.setHours(23, 59, 59, 999);
+      if (end < start) {
+        return reply.status(400).send({ error: "Data final anterior à inicial" });
+      }
+      dateFilter = { occurredAt: { gte: start, lte: end } };
+      limit = Math.min(Math.max(1, Number(query.limit ?? 500) || 500), 500);
+    } else if (query.date) {
       const parsedDate = z.string().date().safeParse(query.date);
       if (!parsedDate.success) {
         return reply.status(400).send({ error: "Data inválida" });
@@ -188,7 +209,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       prisma.delivery.findMany({
         where: { userId: request.sessionUser!.id, ...dateFilter },
         orderBy: { occurredAt: "desc" },
-        skip,
+        skip: query.from && query.to ? 0 : skip,
         take: limit,
       }),
       prisma.delivery.count({
@@ -199,7 +220,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     return {
       items: toPublicDeliveries(items),
       total,
-      page,
+      page: query.from && query.to ? 1 : page,
       limit,
     };
   });

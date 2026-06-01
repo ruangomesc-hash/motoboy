@@ -72,10 +72,10 @@ export async function getPeriodStats(
 
   for (const d of deliveries) {
     const gross = toNumber(d.grossValue);
-    const key = d.occurredAt.toISOString().slice(0, 10);
-    byDay.set(key, (byDay.get(key) ?? 0) + gross);
     if (isExpenseEntry(gross)) continue;
 
+    const key = d.occurredAt.toISOString().slice(0, 10);
+    byDay.set(key, (byDay.get(key) ?? 0) + gross);
     totalGross += gross;
     count += 1;
     const km = d.distanceKm != null ? toNumber(d.distanceKm) : 0;

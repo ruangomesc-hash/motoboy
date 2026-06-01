@@ -16,6 +16,7 @@ export type PersistedAppCache = {
   today: TodaySummary | null;
   meSettings: MeSettingsSnapshot | null;
   deliveries: DeliveryListItem[];
+  periodDeliveries?: DeliveryListItem[];
   deliveriesDate: string;
   statsWeek: PeriodStats | null;
   statsMonth: PeriodStats | null;

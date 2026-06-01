@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DeliverySource, PeriodStats } from "@motoboy/types";
+import type { DeliverySource } from "@motoboy/types";
 import { resolvePeriodRange } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
-import { buildPreviewPeriodStats, normalizePeriodStats } from "@/lib/stats-preview";
 import { todayDateInputValue } from "@/lib/local-date";
 
 const SOURCE_LABELS: Record<DeliverySource, string> = {
@@ -19,38 +18,11 @@ const SOURCE_LABELS: Record<DeliverySource, string> = {
   OTHER: "Outro",
 };
 
-function mergeDisplayStats(
-  api: PeriodStats | null,
-  preview: PeriodStats,
-): PeriodStats {
-  if (!api) return preview;
-
-  const safeApi = normalizePeriodStats(api, preview.period, preview.anchorDate)!;
-  const usePreviewGross = preview.totalGross > safeApi.totalGross + 0.001;
-  const mergedBySource =
-    safeApi.bySource.length > 0 ? safeApi.bySource : preview.bySource;
-  const mergedExpenses =
-    safeApi.expenses.length > 0 ? safeApi.expenses : preview.expenses;
-
-  return {
-    ...safeApi,
-    count: Math.max(safeApi.count, preview.count),
-    totalGross: usePreviewGross
-      ? Math.max(safeApi.totalGross, preview.totalGross)
-      : safeApi.totalGross,
-    totalNet: usePreviewGross
-      ? Math.max(safeApi.totalNet, preview.totalNet)
-      : safeApi.totalNet,
-    totalKm: Math.max(safeApi.totalKm, preview.totalKm),
-    totalExpenses: Math.max(
-      safeApi.totalExpenses ?? 0,
-      preview.totalExpenses ?? 0,
-    ),
-    series: preview.series.length > 0 ? preview.series : safeApi.series,
-    bySource: mergedBySource,
-    expenses: mergedExpenses,
-  };
-}
+const EXPENSE_LABELS: Record<string, string> = {
+  fuel: "Combustível",
+  maintenance: "Manutenção (km)",
+  other: "Alimentação e outros",
+};
 
 function formatChartDay(date: string): string {
   const [, m, d] = date.split("-");
@@ -59,11 +31,9 @@ function formatChartDay(date: string): string {
 
 export default function StatsPage() {
   const {
-    statsWeek,
-    statsMonth,
+    liveStatsWeek,
+    liveStatsMonth,
     refreshStats,
-    today,
-    deliveries,
     deliveriesDate,
     setDeliveriesDate,
     syncDeliveriesFilterDate,
@@ -78,32 +48,7 @@ export default function StatsPage() {
     syncDeliveriesFilterDate();
   }, [syncDeliveriesFilterDate]);
 
-  const apiStats = useMemo(
-    () =>
-      normalizePeriodStats(
-        period === "week" ? statsWeek : statsMonth,
-        period,
-        filterDate,
-      ),
-    [period, statsWeek, statsMonth, filterDate],
-  );
-
-  const preview = useMemo(
-    () =>
-      buildPreviewPeriodStats(
-        period,
-        deliveries,
-        today,
-        apiStats,
-        filterDate,
-      ),
-    [period, deliveries, today, apiStats, filterDate],
-  );
-
-  const stats = useMemo(
-    () => mergeDisplayStats(apiStats, preview),
-    [apiStats, preview],
-  );
+  const stats = period === "week" ? liveStatsWeek : liveStatsMonth;
 
   const rangeMeta = useMemo(
     () => resolvePeriodRange(period, filterDate),
@@ -124,6 +69,9 @@ export default function StatsPage() {
     ...(stats.expenses?.map((e) => e.amount) ?? [1]),
     1,
   );
+
+  const configExpenses = stats.expenses.filter((e) => !e.key.startsWith("manual:"));
+  const manualExpenses = stats.expenses.filter((e) => e.key.startsWith("manual:"));
 
   return (
     <AppPage className="p-3 space-y-3 pb-4">
@@ -175,15 +123,22 @@ export default function StatsPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <StatCard label="Total bruto" value={formatBRL(stats.totalGross)} />
-        <StatCard label="Entregas" value={String(stats.count)} />
+        <StatCard label="Receita bruta" value={formatBRL(stats.totalGross)} />
         <StatCard
-          label="Líquido no período"
+          label="Receita líquida"
           value={formatBRL(stats.totalNet)}
+          highlight
         />
         <StatCard
+          label="Total de custos"
+          value={formatBRL(stats.totalExpenses)}
+          negative
+        />
+        <StatCard label="Entregas" value={String(stats.count)} />
+        <StatCard
           label="Km rodados"
-          value={`${stats.totalKm.toFixed(0)} km`}
+          value={`${stats.totalKm.toFixed(1)} km`}
+          className="col-span-2"
         />
       </div>
 
@@ -197,10 +152,13 @@ export default function StatsPage() {
                   <span className="text-muted-foreground">
                     {SOURCE_LABELS[row.source]}
                   </span>
-                  <span className="tabular-nums shrink-0">
-                    {formatBRL(row.gross)} · {row.count} entrega
-                    {row.count !== 1 ? "s" : ""}
-                    {row.km > 0 ? ` · ${row.km.toFixed(0)} km` : ""}
+                  <span className="tabular-nums shrink-0 text-right">
+                    {formatBRL(row.gross)}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {row.count} entrega{row.count !== 1 ? "s" : ""}
+                      {row.km > 0 ? ` · ${row.km.toFixed(1)} km` : ""}
+                    </span>
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -216,31 +174,45 @@ export default function StatsPage() {
       )}
 
       {stats.expenses.length > 0 && (
-        <section className="rounded-xl border border-border bg-card p-3 space-y-2">
+        <section className="rounded-xl border border-border bg-card p-3 space-y-3">
           <div className="flex justify-between items-baseline gap-2">
-            <p className="text-xs font-medium">Principais despesas</p>
-            <p className="text-[11px] text-red-400 tabular-nums">
+            <p className="text-xs font-medium">Custos por tipo</p>
+            <p className="text-[11px] text-red-400 tabular-nums font-semibold">
               −{formatBRL(stats.totalExpenses)}
             </p>
           </div>
-          <ul className="space-y-2">
-            {stats.expenses.slice(0, 6).map((row) => (
-              <li key={row.key} className="space-y-1">
-                <div className="flex justify-between text-[11px] gap-2">
-                  <span className="text-muted-foreground">{row.label}</span>
-                  <span className="text-red-400 tabular-nums shrink-0">
-                    −{formatBRL(row.amount)}
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-red-500/70 rounded-full"
-                    style={{ width: `${(row.amount / maxExpense) * 100}%` }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
+
+          {configExpenses.length > 0 && (
+            <ul className="space-y-2">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Operacionais
+              </p>
+              {configExpenses.map((row) => (
+                <ExpenseRow
+                  key={row.key}
+                  label={EXPENSE_LABELS[row.key] ?? row.label}
+                  amount={row.amount}
+                  max={maxExpense}
+                />
+              ))}
+            </ul>
+          )}
+
+          {manualExpenses.length > 0 && (
+            <ul className="space-y-2">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Despesas registradas
+              </p>
+              {manualExpenses.map((row) => (
+                <ExpenseRow
+                  key={row.key}
+                  label={row.label}
+                  amount={row.amount}
+                  max={maxExpense}
+                />
+              ))}
+            </ul>
+          )}
         </section>
       )}
 
@@ -281,14 +253,45 @@ export default function StatsPage() {
   );
 }
 
+function ExpenseRow({
+  label,
+  amount,
+  max,
+}: {
+  label: string;
+  amount: number;
+  max: number;
+}) {
+  return (
+    <li className="space-y-1 list-none">
+      <div className="flex justify-between text-[11px] gap-2">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="text-red-400 tabular-nums shrink-0">
+          −{formatBRL(amount)}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full bg-red-500/70 rounded-full"
+          style={{ width: `${(amount / max) * 100}%` }}
+        />
+      </div>
+    </li>
+  );
+}
+
 function StatCard({
   label,
   value,
   className,
+  highlight,
+  negative,
 }: {
   label: string;
   value: string;
   className?: string;
+  highlight?: boolean;
+  negative?: boolean;
 }) {
   return (
     <div
@@ -297,7 +300,11 @@ function StatCard({
       <p className="text-[10px] text-muted-foreground leading-tight break-words">
         {label}
       </p>
-      <p className="text-sm sm:text-base font-bold tabular-nums mt-0.5 truncate">
+      <p
+        className={`text-sm sm:text-base font-bold tabular-nums mt-0.5 truncate ${
+          highlight ? "text-emerald-400" : negative ? "text-red-400" : ""
+        }`}
+      >
         {value}
       </p>
     </div>

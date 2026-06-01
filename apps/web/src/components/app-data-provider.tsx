@@ -9,12 +9,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
-  type SetStateAction,
 } from "react";
 import { flushSync } from "react-dom";
 import { useSession } from "next-auth/react";
-import { isExpenseEntry, type PeriodStats, type TodaySummary } from "@motoboy/types";
+import { resolvePeriodRange, type PeriodStats, type TodaySummary } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
   buildAppSyncKey,
@@ -60,16 +58,11 @@ import {
   type PersistedAppCache,
 } from "@/lib/app-persist-cache";
 import { DEMO_USER_ID } from "@/lib/demo-data";
-import {
-  buildPreviewPeriodStats,
-  isInStatsPeriod,
-  normalizePeriodStats,
-  patchPeriodStatsDelivery,
-} from "@/lib/stats-preview";
+import { normalizePeriodStats } from "@/lib/stats-preview";
+import { mergeLivePeriodStats } from "@/lib/period-stats-compute";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
 import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
 import { clearInflightCreates } from "@/lib/inflight-delivery-create";
-import { resolveDeliveryPayload } from "@/lib/resolve-delivery-payload";
 import {
   dedupeRecentDeliveries,
   mergeDeliveryLists,
@@ -89,6 +82,10 @@ type AppDataContextValue = {
   syncDeliveriesFilterDate: () => void;
   statsWeek: PeriodStats | null;
   statsMonth: PeriodStats | null;
+  /** Entregas do mês da data âncora — base ao vivo das estatísticas. */
+  periodDeliveries: DeliveryListItem[];
+  liveStatsWeek: PeriodStats | null;
+  liveStatsMonth: PeriodStats | null;
   isBootstrapped: boolean;
   configComplete: boolean | null;
   meSettings: MeSettingsSnapshot | null;
@@ -127,7 +124,23 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
 const POLL_MS = 120_000;
 const MUTATION_SETTLE_MS = 8_000;
+const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
+
+function upsertDeliveryItem(
+  list: DeliveryListItem[],
+  item: DeliveryListItem,
+  removeId?: string,
+): DeliveryListItem[] {
+  let next = removeId ? list.filter((d) => d.id !== removeId) : list;
+  const idx = next.findIndex((d) => d.id === item.id);
+  if (idx >= 0) {
+    const copy = [...next];
+    copy[idx] = item;
+    return copy;
+  }
+  return [item, ...next];
+}
 
 function topicsMatch(subscribed: AppSyncTopic[], incoming: AppSyncTopic[]): boolean {
   return shouldHandleSync(subscribed, incoming);
@@ -146,6 +159,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [deliveriesDate, setDeliveriesDate] = useState(todayDateInputValue);
   const [statsWeek, setStatsWeek] = useState<PeriodStats | null>(null);
   const [statsMonth, setStatsMonth] = useState<PeriodStats | null>(null);
+  const [periodDeliveries, setPeriodDeliveries] = useState<DeliveryListItem[]>(
+    [],
+  );
   const [isBootstrapped, setIsBootstrapped] = useState(false);
   const [configComplete, setConfigComplete] = useState<boolean | null>(null);
   const [meSettings, setMeSettings] = useState<MeSettingsSnapshot | null>(null);
@@ -156,23 +172,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meLoadSeq = useRef(0);
   const deliveriesFetchSeq = useRef(0);
+  const periodFetchSeq = useRef(0);
   const deliveryMutationGen = useRef(0);
   const ownSyncKeys = useRef(new Set<string>());
   const mutationSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const statsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
   const pendingDeliveries = useRef(createPendingDeliveryRegistry());
-  /** Evita aplicar delta de stats duas vezes (ação local + evento sync na mesma aba). */
-  const statsRemoveAdjusted = useRef(new Set<string>());
 
   const stateRef = useRef({
     today,
     profileName,
     deliveries,
     deliveriesDate,
+    periodDeliveries,
     statsWeek,
     statsMonth,
     configComplete,
@@ -183,6 +200,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     profileName,
     deliveries,
     deliveriesDate,
+    periodDeliveries,
     statsWeek,
     statsMonth,
     configComplete,
@@ -195,6 +213,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       today: s.today,
       meSettings: s.meSettings,
       deliveries: deletedDeliveries.current.filter(s.deliveries),
+      periodDeliveries: deletedDeliveries.current.filter(s.periodDeliveries),
       deliveriesDate: s.deliveriesDate,
       statsWeek: s.statsWeek,
       statsMonth: s.statsMonth,
@@ -205,6 +224,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persistNow = persistCacheNow;
+
+  const scheduleStatsRefresh = useCallback(() => {
+    if (statsRefreshTimer.current) clearTimeout(statsRefreshTimer.current);
+    statsRefreshTimer.current = setTimeout(() => {
+      statsRefreshTimer.current = null;
+      void refreshStatsRef.current?.("week");
+      void refreshStatsRef.current?.("month");
+    }, STATS_REFRESH_MS);
+  }, []);
 
   const bumpDeliveryMutation = useCallback(() => {
     deliveryMutationGen.current += 1;
@@ -219,6 +247,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         await Promise.all([
           refreshTodayRef.current?.(gen),
           refreshDeliveriesRef.current?.(gen),
+          refreshPeriodDeliveriesRef.current?.(gen),
           refreshStatsRef.current?.("week"),
           refreshStatsRef.current?.("month"),
         ]);
@@ -234,6 +263,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   >(null);
   const refreshStatsRef = useRef<
     ((period: "week" | "month") => Promise<void>) | null
+  >(null);
+  const refreshPeriodDeliveriesRef = useRef<
+    ((mutationGenAtStart?: number) => Promise<void>) | null
   >(null);
 
   const schedulePersist = useCallback(
@@ -270,6 +302,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       );
     }
     setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
+    setPeriodDeliveries(
+      deletedDeliveries.current.filter(cached.periodDeliveries ?? []),
+    );
     setDeliveriesDate(resolveDeliveriesFilterDate(cached.deliveriesDate));
     if (cached.statsWeek) {
       setStatsWeek(
@@ -357,47 +392,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
   refreshTodayRef.current = refreshToday;
 
-  const applyStatsDelta = useCallback(
-    (
-      occurredAt: string,
-      delta: { gross: number; km: number; count: number },
-    ) => {
-      const costsConfigured =
-        stateRef.current.today?.costsConfigured ?? false;
-      const anchorDate =
-        stateRef.current.deliveriesDate || todayDateInputValue();
-
-      const bump = (
-        period: "week" | "month",
-        setter: Dispatch<SetStateAction<PeriodStats | null>>,
-      ) => {
-        if (!isInStatsPeriod(occurredAt, period, anchorDate)) return;
-        setter((prev) => {
-          const fallback = buildPreviewPeriodStats(
-            period,
-            stateRef.current.deliveries,
-            stateRef.current.today,
-            prev ? normalizePeriodStats(prev, period, anchorDate) : null,
-            anchorDate,
-          );
-          const base = prev
-            ? normalizePeriodStats(prev, period, anchorDate)!
-            : fallback;
-          return patchPeriodStatsDelivery(base, delta, costsConfigured);
-        });
-      };
-
-      bump("week", setStatsWeek);
-      bump("month", setStatsMonth);
-      if (userId) schedulePersist(userId);
-    },
-    [schedulePersist, userId],
-  );
-
   const upsertDeliveryOptimistic = useCallback(
     (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
       deletedDeliveries.current.unmark(delivery.id);
-      statsRemoveAdjusted.current.delete(delivery.id);
       const occurredAt = delivery.occurredAt ?? new Date().toISOString();
       const todayKey = todayDateInputValue();
       const item: DeliveryListItem = {
@@ -443,20 +440,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         pendingDeliveries.current.unmark(prevPayload.id);
       }
 
+      const removeId =
+        prevPayload && prevPayload.id !== item.id ? prevPayload.id : undefined;
+
       flushSync(() => {
-        const prevList = stateRef.current.deliveries;
-        let nextDeliveries =
-          prevPayload && prevPayload.id !== item.id
-            ? prevList.filter((d) => d.id !== prevPayload.id)
-            : prevList;
-        const idx = nextDeliveries.findIndex((d) => d.id === item.id);
-        if (idx >= 0) {
-          const next = [...nextDeliveries];
-          next[idx] = item;
-          nextDeliveries = next;
-        } else {
-          nextDeliveries = [item, ...nextDeliveries];
-        }
+        const nextDeliveries = upsertDeliveryItem(
+          stateRef.current.deliveries,
+          item,
+          removeId,
+        );
+        const nextPeriodDeliveries = upsertDeliveryItem(
+          stateRef.current.periodDeliveries,
+          item,
+          removeId,
+        );
 
         const todayBase = stateRef.current.today ?? emptyTodaySummary();
         const nextToday = recomputeTodayFromDeliveries(
@@ -473,37 +470,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         stateRef.current = {
           ...stateRef.current,
           deliveries: nextDeliveries,
+          periodDeliveries: nextPeriodDeliveries,
           today: nextToday,
           deliveriesDate: nextDate,
         };
         setDeliveries(nextDeliveries);
+        setPeriodDeliveries(nextPeriodDeliveries);
         setDeliveriesDate(nextDate);
         setToday(nextToday);
       });
 
-      const idReplaced = Boolean(
-        prevPayload && prevPayload.id !== item.id,
-      );
-      const newGross = Number(delivery.grossValue);
-      const oldGross = prevPayload ? Number(prevPayload.grossValue) : 0;
-      const newKm =
-        delivery.distanceKm != null ? Number(delivery.distanceKm) : 0;
-      const oldKm =
-        prevPayload?.distanceKm != null ? Number(prevPayload.distanceKm) : 0;
-      const affectsDeliveryCount =
-        !isExpenseEntry(newGross) &&
-        !(prevPayload && isExpenseEntry(prevPayload.grossValue));
-      applyStatsDelta(occurredAt, {
-        gross: newGross - oldGross,
-        km: newKm - oldKm,
-        count:
-          affectsDeliveryCount && !(prevPayload && !idReplaced) ? 1 : 0,
-      });
-
       if (userId) persistCacheNow(userId);
+      scheduleStatsRefresh();
       bumpDeliveryMutation();
     },
-    [userId, persistCacheNow, applyStatsDelta, bumpDeliveryMutation],
+    [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
   );
 
   const applyDeliveryOptimistic = useCallback(
@@ -520,13 +501,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const s = stateRef.current;
       const todayKey = todayDateInputValue();
 
-      const payload = resolveDeliveryPayload(deliveryId, {
-        deliveries: s.deliveries,
-        today: s.today,
-        fallback,
-      });
-
       const nextDeliveries = s.deliveries.filter((d) => d.id !== deliveryId);
+      const nextPeriodDeliveries = s.periodDeliveries.filter(
+        (d) => d.id !== deliveryId,
+      );
       const base = s.today ?? emptyTodaySummary();
       const nextToday = recomputeTodayFromDeliveries(
         nextDeliveries,
@@ -539,31 +517,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         stateRef.current = {
           ...s,
           deliveries: nextDeliveries,
+          periodDeliveries: nextPeriodDeliveries,
           today: nextToday,
         };
         setDeliveries(nextDeliveries);
+        setPeriodDeliveries(nextPeriodDeliveries);
         setToday(nextToday);
       });
 
-      if (
-        payload &&
-        !statsRemoveAdjusted.current.has(deliveryId)
-      ) {
-        statsRemoveAdjusted.current.add(deliveryId);
-        const gross = Number(payload.grossValue);
-        const km =
-          payload.distanceKm != null ? Number(payload.distanceKm) : 0;
-        applyStatsDelta(payload.occurredAt ?? new Date().toISOString(), {
-          gross: -gross,
-          km: -km,
-          count: isExpenseEntry(payload.grossValue) ? 0 : -1,
-        });
-      }
-
       if (userId) persistCacheNow(userId);
+      scheduleStatsRefresh();
       bumpDeliveryMutation();
     },
-    [userId, persistCacheNow, applyStatsDelta, bumpDeliveryMutation],
+    [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
   );
 
   const patchDeliveryInList = useCallback(
@@ -607,6 +573,46 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [api, deliveriesDate, schedulePersist, userId],
   );
   refreshDeliveriesRef.current = refreshDeliveries;
+
+  const refreshPeriodDeliveries = useCallback(
+    async (mutationGenAtStart?: number) => {
+      const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
+      const anchorDate =
+        stateRef.current.deliveriesDate || todayDateInputValue();
+      const range = resolvePeriodRange("month", anchorDate);
+      const seq = ++periodFetchSeq.current;
+      try {
+        const r = await api<{ items: DeliveryListItem[] }>(
+          `/me/deliveries?from=${range.periodStart}&to=${range.periodEnd}&limit=500`,
+        );
+        if (seq !== periodFetchSeq.current) return;
+        if (genAtStart !== deliveryMutationGen.current) return;
+
+        const tomb = deletedDeliveries.current;
+        const tombSet = new Set(tomb.toArray());
+        const items = tomb.filter(r.items);
+        setPeriodDeliveries((prev) => {
+          const serverIds = new Set(items.map((d) => d.id));
+          const pendingLocal = prev.filter(
+            (d) =>
+              d.id.startsWith("local-") &&
+              !tombSet.has(d.id) &&
+              !serverIds.has(d.id),
+          );
+          return [...pendingLocal, ...items];
+        });
+
+        if (genAtStart === deliveryMutationGen.current) {
+          tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
+        }
+        if (userId) schedulePersist(userId);
+      } catch {
+        /* mantém cache */
+      }
+    },
+    [api, schedulePersist, userId],
+  );
+  refreshPeriodDeliveriesRef.current = refreshPeriodDeliveries;
 
   const refreshStats = useCallback(
     async (period: "week" | "month") => {
@@ -729,7 +735,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const gen = deliveryMutationGen.current;
     void refreshToday(gen);
     void refreshDeliveries(gen);
-  }, [refreshDeliveries, refreshToday]);
+    void refreshPeriodDeliveries(gen);
+  }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
 
   const publishAppSync = useCallback(
     (
@@ -898,6 +905,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     requestAnimationFrame(() => {
       void refreshToday();
       void refreshDeliveries();
+      void refreshPeriodDeliveries();
       void refreshStats("week");
       void refreshStats("month");
     });
@@ -905,6 +913,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     applyMeSnapshot,
     loadMeSettings,
     refreshDeliveries,
+    refreshPeriodDeliveries,
     refreshStats,
     refreshToday,
     userId,
@@ -958,6 +967,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     meSettings,
     deliveries,
     deliveriesDate,
+    periodDeliveries,
     statsWeek,
     statsMonth,
     profileName,
@@ -970,7 +980,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isBootstrapped) return;
     void refreshDeliveries();
-  }, [deliveriesDate, isBootstrapped, refreshDeliveries]);
+    void refreshPeriodDeliveries();
+  }, [deliveriesDate, isBootstrapped, refreshDeliveries, refreshPeriodDeliveries]);
 
   useEffect(() => {
     if (!isBootstrapped) return;
@@ -1043,6 +1054,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(tick);
   }, [isBootstrapped, syncDeliveriesFilterDate]);
 
+  const anchorDate = deliveriesDate || todayDateInputValue();
+  const tombSet = useMemo(
+    () => new Set(deletedDeliveries.current.toArray()),
+    [deliveries, periodDeliveries],
+  );
+
+  const liveStatsWeek = useMemo(
+    () =>
+      mergeLivePeriodStats(
+        normalizePeriodStats(statsWeek, "week", anchorDate),
+        periodDeliveries,
+        "week",
+        anchorDate,
+        tombSet,
+      ),
+    [statsWeek, periodDeliveries, anchorDate, tombSet],
+  );
+
+  const liveStatsMonth = useMemo(
+    () =>
+      mergeLivePeriodStats(
+        normalizePeriodStats(statsMonth, "month", anchorDate),
+        periodDeliveries,
+        "month",
+        anchorDate,
+        tombSet,
+      ),
+    [statsMonth, periodDeliveries, anchorDate, tombSet],
+  );
+
   const value = useMemo(
     () => ({
       today,
@@ -1053,6 +1094,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,
+      periodDeliveries,
+      liveStatsWeek,
+      liveStatsMonth,
       isBootstrapped,
       configComplete,
       meSettings,
@@ -1080,6 +1124,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,
+      periodDeliveries,
+      liveStatsWeek,
+      liveStatsMonth,
       isBootstrapped,
       configComplete,
       meSettings,
