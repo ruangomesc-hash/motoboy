@@ -1,16 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { IntegrationsHealthReport } from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/stat-card";
+import { useAdminApi } from "@/hooks/use-admin-api";
 import {
   fetchSystemHealth,
   isSystemHealthy,
   type SystemHealthSnapshot,
 } from "@/lib/system-health";
+import {
+  formatTokenBudget,
+  integrationStatusLabel,
+  tokenBudgetPercent,
+} from "@/lib/integrations-health";
 import { cn } from "@/lib/utils";
 import {
   Activity,
+  Bot,
   CheckCircle2,
   Database,
   RefreshCw,
@@ -69,17 +77,43 @@ function DetailRow({
   );
 }
 
+function statusBadgeClass(
+  status: IntegrationsHealthReport["integrations"][number]["status"],
+): string {
+  if (status === "ok") return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+  if (status === "degraded") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  if (status === "rate_limited") return "bg-red-500/15 text-red-400 border-red-500/30";
+  if (status === "error") return "bg-red-500/15 text-red-400 border-red-500/30";
+  return "bg-white/5 text-muted-foreground border-white/10";
+}
+
 export default function AdminStatusPage() {
+  const api = useAdminApi();
   const [snapshot, setSnapshot] = useState<SystemHealthSnapshot | null>(null);
+  const [integrations, setIntegrations] =
+    useState<IntegrationsHealthReport | null>(null);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await fetchSystemHealth();
-    setSnapshot(data);
+    setIntegrationsError(null);
+    const [healthData, integrationsResult] = await Promise.all([
+      fetchSystemHealth(),
+      api<IntegrationsHealthReport>("/admin/integrations/health").catch(
+        (err: Error) => {
+          setIntegrationsError(err.message);
+          return null;
+        },
+      ),
+    ]);
+    setSnapshot(healthData);
+    setIntegrations(integrationsResult);
     setLoading(false);
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     void load();
@@ -96,6 +130,14 @@ export default function AdminStatusPage() {
   const healthy = snapshot ? isSystemHealthy(snapshot) : false;
   const h = snapshot?.health;
 
+  const aiRows = integrations?.integrations.filter((r) =>
+    r.id.startsWith("openai-"),
+  );
+  const aiOk =
+    aiRows?.every((r) => r.status === "ok" || r.status === "not_configured") ??
+    false;
+  const aiLimited = aiRows?.some((r) => r.status === "rate_limited") ?? false;
+
   return (
     <div className="p-4 md:p-8 pb-24 md:pb-8 space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -105,7 +147,7 @@ export default function AdminStatusPage() {
             Status do sistema
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Saúde da API, banco, Redis e integrações — mesmo check do deploy
+            Infra, integrações e IAs — tokens e conectividade em tempo real
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -134,19 +176,21 @@ export default function AdminStatusPage() {
         <div
           className={cn(
             "rounded-xl border p-4 flex items-start gap-3",
-            healthy
+            healthy && !aiLimited
               ? "border-emerald-500/30 bg-emerald-500/10"
-              : "border-red-500/30 bg-red-500/10",
+              : "border-amber-500/30 bg-amber-500/10",
           )}
         >
-          {healthy ? (
+          {healthy && !aiLimited ? (
             <CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
           ) : (
-            <XCircle className="h-6 w-6 text-red-400 shrink-0" />
+            <XCircle className="h-6 w-6 text-amber-400 shrink-0" />
           )}
           <div className="min-w-0">
             <p className="font-semibold">
-              {healthy ? "Sistema operacional" : "Atenção — algo precisa de revisão"}
+              {healthy && aiOk && !aiLimited
+                ? "Sistema operacional"
+                : "Atenção — revise infra ou IAs"}
             </p>
             <p className="text-sm text-muted-foreground mt-0.5">
               Última verificação: {formatCheckedAt(snapshot.checkedAt)}
@@ -160,6 +204,11 @@ export default function AdminStatusPage() {
             {snapshot.fetchError && (
               <p className="text-sm text-destructive mt-2">{snapshot.fetchError}</p>
             )}
+            {integrationsError && (
+              <p className="text-sm text-destructive mt-2">
+                IAs: {integrationsError}
+              </p>
+            )}
             {h?.migrationsHint && (
               <p className="text-sm text-amber-400 mt-2">{h.migrationsHint}</p>
             )}
@@ -169,7 +218,7 @@ export default function AdminStatusPage() {
 
       {!snapshot && loading && (
         <p className="text-sm text-muted-foreground animate-pulse">
-          Consultando /api/backend/health…
+          Consultando serviços…
         </p>
       )}
 
@@ -207,13 +256,112 @@ export default function AdminStatusPage() {
           tone={statusTone(h?.database === "connected")}
         />
         <StatCard
-          label="Redis"
-          value={boolLabel(h?.redis)}
-          hint="Fila WhatsApp / cache"
-          icon={Activity}
-          tone={statusTone(h?.redis)}
+          label="IAs (OpenAI)"
+          value={
+            aiLimited
+              ? "Limite"
+              : aiRows?.every((r) => r.status === "ok")
+                ? "OK"
+                : aiRows?.some((r) => r.status === "error")
+                  ? "Erro"
+                  : "—"
+          }
+          hint={
+            integrations
+              ? formatCheckedAt(integrations.checkedAt)
+              : "Aguardando probe"
+          }
+          icon={Bot}
+          tone={
+            aiLimited
+              ? "danger"
+              : aiRows?.every((r) => r.status === "ok")
+                ? "success"
+                : "warning"
+          }
         />
       </section>
+
+      {integrations && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2 px-1">
+            <Bot className="h-4 w-4 text-emerald-400" />
+            IAs e integrações conectadas
+          </h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {integrations.integrations.map((row) => {
+              const tokenPct = tokenBudgetPercent(row);
+              const tokenLabel = formatTokenBudget(row);
+              return (
+                <div
+                  key={row.id}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">{row.label}</p>
+                      {row.model && (
+                        <p className="text-[11px] text-muted-foreground font-mono">
+                          {row.model}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {row.role}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border",
+                        statusBadgeClass(row.status),
+                      )}
+                    >
+                      {integrationStatusLabel(row.status)}
+                    </span>
+                  </div>
+                  {row.message && (
+                    <p className="text-xs text-muted-foreground">{row.message}</p>
+                  )}
+                  {row.latencyMs != null && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                      Latência: {row.latencyMs} ms
+                    </p>
+                  )}
+                  {tokenLabel && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between text-[10px] text-muted-foreground">
+                        <span>Tokens (janela RPM)</span>
+                        <span className="tabular-nums">{tokenLabel}</span>
+                      </div>
+                      {tokenPct != null && (
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all",
+                              tokenPct < 10
+                                ? "bg-red-500"
+                                : tokenPct < 25
+                                  ? "bg-amber-500"
+                                  : "bg-emerald-500",
+                            )}
+                            style={{ width: `${tokenPct}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {row.rateLimit?.remainingRequests != null &&
+                    row.rateLimit.limitRequests != null && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        Requisições: {row.rateLimit.remainingRequests} /{" "}
+                        {row.rateLimit.limitRequests}
+                      </p>
+                    )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="grid md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -221,14 +369,8 @@ export default function AdminStatusPage() {
             <Table2 className="h-4 w-4 text-emerald-400" />
             Banco e migrations
           </h2>
-          <DetailRow
-            label="Database"
-            value={h?.database ?? "—"}
-          />
-          <DetailRow
-            label="Tabela admin"
-            value={boolLabel(h?.adminTable)}
-          />
+          <DetailRow label="Database" value={h?.database ?? "—"} />
+          <DetailRow label="Tabela admin" value={boolLabel(h?.adminTable)} />
           <DetailRow
             label="Coluna senha (User.passwordHash)"
             value={boolLabel(h?.userPasswordColumn)}
@@ -237,6 +379,7 @@ export default function AdminStatusPage() {
             label="Migrations pendentes"
             value={h?.migrationsHint ?? "Nenhuma"}
           />
+          <DetailRow label="Redis (fila WhatsApp)" value={boolLabel(h?.redis)} />
         </div>
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -248,15 +391,8 @@ export default function AdminStatusPage() {
             label="Integração configurada"
             value={boolLabel(h?.asaas?.configured)}
           />
-          <DetailRow
-            label="Sandbox"
-            value={boolLabel(h?.asaas?.sandbox)}
-          />
-          <DetailRow
-            label="Webhook"
-            value={h?.asaas?.webhook ?? "—"}
-            mono
-          />
+          <DetailRow label="Sandbox" value={boolLabel(h?.asaas?.sandbox)} />
+          <DetailRow label="Webhook" value={h?.asaas?.webhook ?? "—"} mono />
         </div>
       </section>
 
@@ -265,9 +401,10 @@ export default function AdminStatusPage() {
           <KeyRound className="h-4 w-4 text-emerald-400" />
           Endpoints monitorados
         </h2>
+        <DetailRow label="Health completo" value="/api/backend/health" mono />
         <DetailRow
-          label="Health completo"
-          value="/api/backend/health"
+          label="IAs (admin)"
+          value="/api/backend/admin/integrations/health"
           mono
         />
         <DetailRow
@@ -275,26 +412,17 @@ export default function AdminStatusPage() {
           value="/api/backend/health/live"
           mono
         />
-        <DetailRow
-          label="Origem desta página"
-          value={
-            typeof window !== "undefined"
-              ? window.location.origin
-              : "—"
-          }
-          mono
-        />
       </section>
 
-      {h && (
+      {(h || integrations) && (
         <section className="rounded-xl border border-white/10 overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10 bg-white/[0.02]">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Resposta bruta (JSON)
             </p>
           </div>
-          <pre className="p-4 text-xs font-mono overflow-x-auto text-emerald-200/90">
-            {JSON.stringify(h, null, 2)}
+          <pre className="p-4 text-xs font-mono overflow-x-auto text-emerald-200/90 max-h-96">
+            {JSON.stringify({ health: h, integrations }, null, 2)}
           </pre>
         </section>
       )}
