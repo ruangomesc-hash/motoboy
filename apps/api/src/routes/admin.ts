@@ -29,6 +29,7 @@ import {
   getAdminAffiliateReferrals,
   getAdminAffiliatesRanking,
 } from "../services/affiliate.js";
+import { getIntegrationsHealth } from "../services/integration-health.js";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -318,5 +319,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(100, Math.max(10, Number(q.limit ?? 30)));
     return getAdminUsageLogs(page, limit, q.category);
+  });
+
+  app.get("/admin/integrations/health", async () => {
+    return getIntegrationsHealth(env);
   });
 }

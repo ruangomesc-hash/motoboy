@@ -559,6 +559,84 @@ export function adminDemoFetch<T>(
     } as T);
   }
 
+  if (path.startsWith("/admin/integrations/health")) {
+    return Promise.resolve({
+      checkedAt: new Date().toISOString(),
+      integrations: [
+        {
+          id: "openai-whisper-1",
+          label: "OpenAI Whisper",
+          model: "whisper-1",
+          role: "Transcrição de áudio (WhatsApp)",
+          configured: true,
+          status: "ok",
+          message: "Modelo disponível na conta",
+          latencyMs: 420,
+          rateLimit: {
+            remainingTokens: null,
+            limitTokens: null,
+            remainingRequests: 480,
+            limitRequests: 500,
+          },
+        },
+        {
+          id: "openai-gpt-4o-mini",
+          label: "OpenAI GPT-4o mini",
+          model: "gpt-4o-mini",
+          role: "Extração de texto",
+          configured: true,
+          status: "ok",
+          message: "Conectado e respondendo",
+          latencyMs: 890,
+          rateLimit: {
+            remainingTokens: 185_000,
+            limitTokens: 200_000,
+            remainingRequests: 980,
+            limitRequests: 1000,
+          },
+        },
+        {
+          id: "openai-gpt-4o",
+          label: "OpenAI GPT-4o",
+          model: "gpt-4o",
+          role: "Visão — fotos",
+          configured: true,
+          status: "degraded",
+          message: "Poucos tokens restantes — monitore o billing OpenAI",
+          latencyMs: 1200,
+          rateLimit: {
+            remainingTokens: 8_500,
+            limitTokens: 100_000,
+            remainingRequests: 120,
+            limitRequests: 500,
+          },
+        },
+        {
+          id: "google-maps",
+          label: "Google Maps",
+          model: null,
+          role: "Rotas no app",
+          configured: true,
+          status: "ok",
+          message: "Geocoding respondendo",
+          latencyMs: 310,
+          rateLimit: null,
+        },
+        {
+          id: "evolution-whatsapp",
+          label: "Evolution API",
+          model: "motocopiloto",
+          role: "WhatsApp",
+          configured: true,
+          status: "ok",
+          message: "Conectado (open)",
+          latencyMs: 180,
+          rateLimit: null,
+        },
+      ],
+    } as T);
+  }
+
   if (path.startsWith("/admin/logs")) {
     return Promise.resolve(demoAdminLogs as T);
   }

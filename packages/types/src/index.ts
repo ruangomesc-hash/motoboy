@@ -528,6 +528,39 @@ export const periodStatsSchema = z.object({
 
 export type PeriodStats = z.infer<typeof periodStatsSchema>;
 
+export const integrationRateLimitSchema = z.object({
+  remainingTokens: z.number().nullable(),
+  limitTokens: z.number().nullable(),
+  remainingRequests: z.number().nullable(),
+  limitRequests: z.number().nullable(),
+});
+
+export const integrationHealthRowSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  model: z.string().nullable(),
+  role: z.string(),
+  configured: z.boolean(),
+  status: z.enum([
+    "ok",
+    "degraded",
+    "rate_limited",
+    "error",
+    "not_configured",
+  ]),
+  message: z.string().nullable(),
+  latencyMs: z.number().nullable(),
+  rateLimit: integrationRateLimitSchema.nullable(),
+});
+
+export const integrationsHealthSchema = z.object({
+  checkedAt: z.string(),
+  integrations: z.array(integrationHealthRowSchema),
+});
+
+export type IntegrationHealthRow = z.infer<typeof integrationHealthRowSchema>;
+export type IntegrationsHealthReport = z.infer<typeof integrationsHealthSchema>;
+
 export const activityChangeSchema = z.object({
   field: z.string(),
   label: z.string(),
