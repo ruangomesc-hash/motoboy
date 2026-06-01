@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ScrollText,
   Trophy,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdminDemoBanner } from "@/components/admin/admin-demo-banner";
@@ -33,6 +34,12 @@ const NAV = [
     short: "Atraso",
   },
   { href: "/admin/logs", label: "Logs", icon: ScrollText, short: "Logs" },
+  {
+    href: "/admin/status",
+    label: "Status",
+    icon: Activity,
+    short: "Status",
+  },
   { href: "/admin/regioes", label: "Regiões", icon: MapPin, short: "Regiões" },
 ];
 

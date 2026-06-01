@@ -1,23 +1,38 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PeriodStats } from "@motoboy/types";
+import type { DeliverySource, PeriodStats } from "@motoboy/types";
+import { resolvePeriodRange } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 import { buildPreviewPeriodStats } from "@/lib/stats-preview";
+import { todayDateInputValue } from "@/lib/local-date";
+
+const SOURCE_LABELS: Record<DeliverySource, string> = {
+  IFOOD: "iFood",
+  NINETY_NINE: "99",
+  RAPPI: "Rappi",
+  PARTICULAR: "Particular",
+  OTHER: "Outro",
+};
 
 function mergeDisplayStats(
   api: PeriodStats | null,
   preview: PeriodStats,
-  deliveryCount: number,
 ): PeriodStats {
-  if (!api) return { ...preview, count: deliveryCount };
+  if (!api) return preview;
+
   const usePreviewGross = preview.totalGross > api.totalGross + 0.001;
+  const mergedBySource = api.bySource.length > 0 ? api.bySource : preview.bySource;
+  const mergedExpenses =
+    api.expenses.length > 0 ? api.expenses : preview.expenses;
+
   return {
     ...api,
-    count: deliveryCount,
+    count: Math.max(api.count, preview.count),
     totalGross: usePreviewGross
       ? Math.max(api.totalGross, preview.totalGross)
       : api.totalGross,
@@ -25,8 +40,16 @@ function mergeDisplayStats(
       ? Math.max(api.totalNet, preview.totalNet)
       : api.totalNet,
     totalKm: Math.max(api.totalKm, preview.totalKm),
+    totalExpenses: Math.max(api.totalExpenses, preview.totalExpenses),
     series: preview.series.length > 0 ? preview.series : api.series,
+    bySource: mergedBySource,
+    expenses: mergedExpenses,
   };
+}
+
+function formatChartDay(date: string): string {
+  const [, m, d] = date.split("-");
+  return `${d}/${m}`;
 }
 
 export default function StatsPage() {
@@ -36,8 +59,19 @@ export default function StatsPage() {
     refreshStats,
     today,
     deliveries,
+    deliveriesDate,
+    setDeliveriesDate,
+    syncDeliveriesFilterDate,
   } = useAppData();
   const [period, setPeriod] = useState<"week" | "month">("week");
+
+  const deviceToday = todayDateInputValue();
+  const filterDate = deliveriesDate || deviceToday;
+  const isToday = filterDate === deviceToday;
+
+  useEffect(() => {
+    syncDeliveriesFilterDate();
+  }, [syncDeliveriesFilterDate]);
 
   const apiStats: PeriodStats | null =
     period === "week" ? statsWeek : statsMonth;
@@ -49,15 +83,19 @@ export default function StatsPage() {
         deliveries,
         today,
         apiStats,
+        filterDate,
       ),
-    [period, deliveries, today, apiStats],
+    [period, deliveries, today, apiStats, filterDate],
   );
 
-  const deliveryCount = preview.count;
-
   const stats = useMemo(
-    () => mergeDisplayStats(apiStats, preview, deliveryCount),
-    [apiStats, preview, deliveryCount],
+    () => mergeDisplayStats(apiStats, preview),
+    [apiStats, preview],
+  );
+
+  const rangeMeta = useMemo(
+    () => resolvePeriodRange(period, filterDate),
+    [period, filterDate],
   );
 
   useEffect(() => {
@@ -66,10 +104,38 @@ export default function StatsPage() {
   }, [refreshStats]);
 
   const max = Math.max(...(stats.series.map((s) => s.gross) ?? [1]), 1);
+  const maxSource = Math.max(...stats.bySource.map((s) => s.gross), 1);
+  const maxExpense = Math.max(...stats.expenses.map((e) => e.amount), 1);
 
   return (
-    <AppPage className="p-3 space-y-3">
-      <h1 className="text-lg font-bold px-1">Estatísticas</h1>
+    <AppPage className="p-3 space-y-3 pb-4">
+      <div className="px-1">
+        <h1 className="text-lg font-bold">Estatísticas</h1>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          {rangeMeta.title} · {rangeMeta.subtitle}
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground px-1">
+          Data de referência (sincronizada com Entregas)
+        </label>
+        <Input
+          type="date"
+          value={filterDate}
+          max={deviceToday}
+          onChange={(e) => setDeliveriesDate(e.target.value)}
+        />
+        {!isToday && (
+          <button
+            type="button"
+            className="text-xs text-primary underline px-1"
+            onClick={() => setDeliveriesDate(deviceToday)}
+          >
+            Voltar para hoje ({deviceToday.split("-").reverse().join("/")})
+          </button>
+        )}
+      </div>
 
       <div className="flex gap-2">
         <Button
@@ -103,6 +169,63 @@ export default function StatsPage() {
         />
       </div>
 
+      {stats.bySource.length > 0 && (
+        <section className="rounded-xl border border-border bg-card p-3 space-y-2">
+          <p className="text-xs font-medium">Receita por origem</p>
+          <ul className="space-y-2">
+            {stats.bySource.map((row) => (
+              <li key={row.source} className="space-y-1">
+                <div className="flex justify-between text-[11px] gap-2">
+                  <span className="text-muted-foreground">
+                    {SOURCE_LABELS[row.source]}
+                  </span>
+                  <span className="tabular-nums shrink-0">
+                    {formatBRL(row.gross)} · {row.count} entrega
+                    {row.count !== 1 ? "s" : ""}
+                    {row.km > 0 ? ` · ${row.km.toFixed(0)} km` : ""}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full"
+                    style={{ width: `${(row.gross / maxSource) * 100}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {stats.expenses.length > 0 && (
+        <section className="rounded-xl border border-border bg-card p-3 space-y-2">
+          <div className="flex justify-between items-baseline gap-2">
+            <p className="text-xs font-medium">Principais despesas</p>
+            <p className="text-[11px] text-red-400 tabular-nums">
+              −{formatBRL(stats.totalExpenses)}
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {stats.expenses.slice(0, 6).map((row) => (
+              <li key={row.key} className="space-y-1">
+                <div className="flex justify-between text-[11px] gap-2">
+                  <span className="text-muted-foreground">{row.label}</span>
+                  <span className="text-red-400 tabular-nums shrink-0">
+                    −{formatBRL(row.amount)}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-red-500/70 rounded-full"
+                    style={{ width: `${(row.amount / maxExpense) * 100}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {stats.series.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-3 w-full max-w-full min-w-0 overflow-hidden">
           <p className="text-xs text-muted-foreground mb-3">
@@ -110,18 +233,27 @@ export default function StatsPage() {
           </p>
           <div className="w-full max-w-full overflow-x-auto overscroll-x-contain -mx-0.5 px-0.5">
             <div
-              className="flex items-end gap-0.5 h-32 min-w-0"
+              className="flex items-end gap-1 h-32 min-w-0"
               style={{
-                minWidth: `${Math.max(stats.series.length * 10, 100)}px`,
+                minWidth: `${Math.max(stats.series.length * 28, 100)}px`,
               }}
             >
               {stats.series.map((s) => (
                 <div
                   key={s.date}
-                  className="flex-1 min-w-[6px] max-w-[20px] bg-primary rounded-t"
-                  style={{ height: `${(s.gross / max) * 100}%` }}
-                  title={`${s.date}: ${formatBRL(s.gross)}`}
-                />
+                  className="flex flex-col items-center flex-1 min-w-[24px] max-w-[32px] gap-1"
+                >
+                  <div
+                    className="w-full bg-primary rounded-t min-h-[4px]"
+                    style={{
+                      height: `${Math.max((s.gross / max) * 100, 4)}%`,
+                    }}
+                    title={`${s.date}: ${formatBRL(s.gross)}`}
+                  />
+                  <span className="text-[8px] text-muted-foreground tabular-nums">
+                    {formatChartDay(s.date)}
+                  </span>
+                </div>
               ))}
             </div>
           </div>

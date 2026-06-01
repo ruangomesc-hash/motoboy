@@ -429,11 +429,19 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
     return Promise.resolve({ ...demoDeliveries.items[idx] } as T);
   }
   if (path.startsWith("/me/stats")) {
+    const url = new URL(path, "http://local");
+    const isMonth = url.searchParams.get("period") === "month";
     const hoursWorked = 28.5;
-    const totalGross = 1707.8;
-    const totalNet = 1420;
+    const totalGross = isMonth ? 4200 : 1707.8;
+    const totalNet = isMonth ? 3500 : 1420;
+    const totalExpenses = totalGross - totalNet;
+    const anchor =
+      url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
     return Promise.resolve({
-      period: path.includes("month") ? "month" : "week",
+      period: isMonth ? "month" : "week",
+      anchorDate: anchor,
+      periodStart: isMonth ? anchor.slice(0, 8) + "01" : "2026-05-20",
+      periodEnd: anchor,
       series: [
         { date: "2026-05-20", gross: 180 },
         { date: "2026-05-21", gross: 220 },
@@ -445,8 +453,28 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       ],
       totalGross,
       totalNet,
-      count: 42,
-      totalKm: 412,
+      totalExpenses,
+      count: isMonth ? 168 : 42,
+      totalKm: isMonth ? 1840 : 412,
+      bySource: [
+        { source: "IFOOD", gross: totalGross * 0.45, count: 18, km: 120 },
+        { source: "PARTICULAR", gross: totalGross * 0.35, count: 14, km: 95 },
+        { source: "NINETY_NINE", gross: totalGross * 0.2, count: 10, km: 60 },
+      ],
+      expenses: [
+        { key: "fuel", label: "Combustível", amount: totalExpenses * 0.5 },
+        {
+          key: "maintenance",
+          label: "Manutenção (km)",
+          amount: totalExpenses * 0.25,
+        },
+        {
+          key: "other",
+          label: "Alimentação e outros",
+          amount: totalExpenses * 0.15,
+        },
+        { key: "manual:lanche", label: "Lanche", amount: totalExpenses * 0.1 },
+      ],
       hoursWorked,
       grossPerHour: totalGross / hoursWorked,
       netPerHour: totalNet / hoursWorked,

@@ -7,6 +7,7 @@ import {
 export * from "./phone";
 export * from "./delivery-entry";
 export * from "./expense-tags";
+export * from "./period-range";
 
 /** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
 export const brazilWhatsAppFieldSchema = z
@@ -488,13 +489,32 @@ export const expensePatchSchema = z.object({
 
 export type ExpensePatchInput = z.infer<typeof expensePatchSchema>;
 
+export const periodStatsSourceRowSchema = z.object({
+  source: deliverySourceSchema,
+  gross: z.number(),
+  count: z.number(),
+  km: z.number(),
+});
+
+export const periodStatsExpenseRowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  amount: z.number(),
+});
+
 export const periodStatsSchema = z.object({
   period: z.enum(["week", "month"]),
+  anchorDate: z.string(),
+  periodStart: z.string(),
+  periodEnd: z.string(),
   series: z.array(z.object({ date: z.string(), gross: z.number() })),
   totalGross: z.number(),
   totalNet: z.number(),
+  totalExpenses: z.number(),
   count: z.number(),
   totalKm: z.number(),
+  bySource: z.array(periodStatsSourceRowSchema),
+  expenses: z.array(periodStatsExpenseRowSchema),
   hoursWorked: z.number(),
   grossPerHour: z.number().nullable(),
   netPerHour: z.number().nullable(),

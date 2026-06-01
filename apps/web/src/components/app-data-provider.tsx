@@ -347,18 +347,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const costsConfigured =
         stateRef.current.today?.costsConfigured ?? false;
+      const anchorDate =
+        stateRef.current.deliveriesDate || todayDateInputValue();
 
       const bump = (
         period: "week" | "month",
         setter: Dispatch<SetStateAction<PeriodStats | null>>,
       ) => {
-        if (!isInStatsPeriod(occurredAt, period)) return;
+        if (!isInStatsPeriod(occurredAt, period, anchorDate)) return;
         setter((prev) => {
           const fallback = buildPreviewPeriodStats(
             period,
             stateRef.current.deliveries,
             stateRef.current.today,
             prev,
+            anchorDate,
           );
           const base = prev ?? fallback;
           return patchPeriodStatsDelivery(base, delta, costsConfigured);
@@ -589,8 +592,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const refreshStats = useCallback(
     async (period: "week" | "month") => {
       const genAtStart = deliveryMutationGen.current;
+      const date =
+        stateRef.current.deliveriesDate || todayDateInputValue();
       try {
-        const data = await api<PeriodStats>(`/me/stats?period=${period}`);
+        const data = await api<PeriodStats>(
+          `/me/stats?period=${period}&date=${encodeURIComponent(date)}`,
+        );
         if (genAtStart !== deliveryMutationGen.current) return;
         if (period === "week") {
           setStatsWeek(data);
@@ -602,7 +609,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         /* mantém cache */
       }
     },
-    [api, schedulePersist, userId],
+    [api, deliveriesDate, schedulePersist, userId],
   );
   refreshStatsRef.current = refreshStats;
 
@@ -941,6 +948,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!isBootstrapped) return;
     void refreshDeliveries();
   }, [deliveriesDate, isBootstrapped, refreshDeliveries]);
+
+  useEffect(() => {
+    if (!isBootstrapped) return;
+    void refreshStats("week");
+    void refreshStats("month");
+  }, [deliveriesDate, isBootstrapped, refreshStats]);
 
   useEffect(() => {
     registerAppSyncPersist(() => {

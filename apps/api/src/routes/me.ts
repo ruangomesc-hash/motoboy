@@ -467,9 +467,13 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/me/stats", async (request) => {
-    const query = request.query as { period?: string };
+    const query = request.query as { period?: string; date?: string };
     const period = query.period === "month" ? "month" : "week";
-    return getPeriodStats(request.sessionUser!.id, period);
+    const anchor =
+      typeof query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(query.date)
+        ? query.date
+        : new Date().toISOString().slice(0, 10);
+    return getPeriodStats(request.sessionUser!.id, period, anchor);
   });
 
   app.put("/me/costs", async (request) => {
