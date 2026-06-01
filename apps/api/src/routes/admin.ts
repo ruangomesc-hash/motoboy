@@ -30,6 +30,7 @@ import {
   getAdminAffiliatesRanking,
 } from "../services/affiliate.js";
 import { getIntegrationsHealth } from "../services/integration-health.js";
+import { getServerPlatformHealth } from "../services/platform-health.js";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -323,5 +324,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/integrations/health", async () => {
     return getIntegrationsHealth(env);
+  });
+
+  app.get("/admin/platform/health", async () => {
+    return getServerPlatformHealth(env);
   });
 }

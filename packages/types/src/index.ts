@@ -561,6 +561,34 @@ export const integrationsHealthSchema = z.object({
 export type IntegrationHealthRow = z.infer<typeof integrationHealthRowSchema>;
 export type IntegrationsHealthReport = z.infer<typeof integrationsHealthSchema>;
 
+export const platformIdSchema = z.enum([
+  "railway",
+  "vercel",
+  "upstash",
+  "evolution",
+  "whatsapp",
+]);
+
+export const platformHealthRowSchema = z.object({
+  id: platformIdSchema,
+  label: z.string(),
+  status: z.enum(["ok", "degraded", "error", "not_configured"]),
+  ok: z.boolean(),
+  message: z.string().nullable(),
+  latencyMs: z.number().nullable(),
+  statusPageUrl: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+
+export const platformHealthReportSchema = z.object({
+  checkedAt: z.string(),
+  platforms: z.array(platformHealthRowSchema),
+});
+
+export type PlatformId = z.infer<typeof platformIdSchema>;
+export type PlatformHealthRow = z.infer<typeof platformHealthRowSchema>;
+export type PlatformHealthReport = z.infer<typeof platformHealthReportSchema>;
+
 export const activityChangeSchema = z.object({
   field: z.string(),
   label: z.string(),

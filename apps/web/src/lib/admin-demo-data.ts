@@ -559,6 +559,44 @@ export function adminDemoFetch<T>(
     } as T);
   }
 
+  if (path.startsWith("/admin/platform/health")) {
+    return Promise.resolve({
+      checkedAt: new Date().toISOString(),
+      platforms: [
+        {
+          id: "upstash",
+          label: "Upstash (Redis)",
+          status: "ok",
+          ok: true,
+          message: "PING respondendo",
+          latencyMs: 42,
+          statusPageUrl: "https://status.upstash.com/",
+          detail: "TLS (rediss://)",
+        },
+        {
+          id: "evolution",
+          label: "Evolution API",
+          status: "ok",
+          ok: true,
+          message: "API respondendo",
+          latencyMs: 180,
+          statusPageUrl: null,
+          detail: "motocopiloto",
+        },
+        {
+          id: "whatsapp",
+          label: "WhatsApp",
+          status: "ok",
+          ok: true,
+          message: "Conectado (open)",
+          latencyMs: 180,
+          statusPageUrl: "https://developers.facebook.com/status/",
+          detail: "motocopiloto",
+        },
+      ],
+    } as T);
+  }
+
   if (path.startsWith("/admin/integrations/health")) {
     return Promise.resolve({
       checkedAt: new Date().toISOString(),

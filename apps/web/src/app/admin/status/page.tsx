@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { IntegrationsHealthReport } from "@motoboy/types";
+import type {
+  IntegrationsHealthReport,
+  PlatformHealthReport,
+} from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/stat-card";
 import { useAdminApi } from "@/hooks/use-admin-api";
@@ -15,6 +18,11 @@ import {
   integrationStatusLabel,
   tokenBudgetPercent,
 } from "@/lib/integrations-health";
+import {
+  fetchVercelHealth,
+  mergePlatformHealth,
+  platformStatusLabel,
+} from "@/lib/platform-health";
 import { cn } from "@/lib/utils";
 import {
   Activity,
@@ -28,6 +36,8 @@ import {
   KeyRound,
   Table2,
   Radio,
+  Cloud,
+  MessageCircle,
 } from "lucide-react";
 
 function boolLabel(v: boolean | undefined): string {
@@ -87,6 +97,15 @@ function statusBadgeClass(
   return "bg-white/5 text-muted-foreground border-white/10";
 }
 
+function platformIcon(id: PlatformHealthReport["platforms"][number]["id"]) {
+  if (id === "railway") return Server;
+  if (id === "vercel") return Cloud;
+  if (id === "upstash") return Database;
+  if (id === "evolution") return Radio;
+  if (id === "whatsapp") return MessageCircle;
+  return Activity;
+}
+
 export default function AdminStatusPage() {
   const api = useAdminApi();
   const [snapshot, setSnapshot] = useState<SystemHealthSnapshot | null>(null);
@@ -95,23 +114,39 @@ export default function AdminStatusPage() {
   const [integrationsError, setIntegrationsError] = useState<string | null>(
     null,
   );
+  const [platforms, setPlatforms] = useState<PlatformHealthReport | null>(
+    null,
+  );
+  const [platformsError, setPlatformsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     setIntegrationsError(null);
-    const [healthData, integrationsResult] = await Promise.all([
-      fetchSystemHealth(),
-      api<IntegrationsHealthReport>("/admin/integrations/health").catch(
-        (err: Error) => {
-          setIntegrationsError(err.message);
-          return null;
-        },
-      ),
-    ]);
+    setPlatformsError(null);
+    const [healthData, integrationsResult, serverPlatforms, vercelProbe] =
+      await Promise.all([
+        fetchSystemHealth(),
+        api<IntegrationsHealthReport>("/admin/integrations/health").catch(
+          (err: Error) => {
+            setIntegrationsError(err.message);
+            return null;
+          },
+        ),
+        api<PlatformHealthReport>("/admin/platform/health").catch(
+          (err: Error) => {
+            setPlatformsError(err.message);
+            return null;
+          },
+        ),
+        fetchVercelHealth(),
+      ]);
     setSnapshot(healthData);
     setIntegrations(integrationsResult);
+    setPlatforms(
+      mergePlatformHealth(healthData, serverPlatforms, vercelProbe),
+    );
     setLoading(false);
   }, [api]);
 
@@ -137,6 +172,10 @@ export default function AdminStatusPage() {
     aiRows?.every((r) => r.status === "ok" || r.status === "not_configured") ??
     false;
   const aiLimited = aiRows?.some((r) => r.status === "rate_limited") ?? false;
+  const platformsOk =
+    platforms?.platforms.every(
+      (p) => p.status === "ok" || p.status === "not_configured",
+    ) ?? true;
 
   return (
     <div className="p-4 md:p-8 pb-24 md:pb-8 space-y-6 max-w-6xl mx-auto">
@@ -188,7 +227,7 @@ export default function AdminStatusPage() {
           )}
           <div className="min-w-0">
             <p className="font-semibold">
-              {healthy && aiOk && !aiLimited
+              {healthy && aiOk && !aiLimited && platformsOk
                 ? "Sistema operacional"
                 : "Atenção — revise infra ou IAs"}
             </p>
@@ -209,6 +248,11 @@ export default function AdminStatusPage() {
                 IAs: {integrationsError}
               </p>
             )}
+            {platformsError && (
+              <p className="text-sm text-destructive mt-2">
+                Plataformas: {platformsError}
+              </p>
+            )}
             {h?.migrationsHint && (
               <p className="text-sm text-amber-400 mt-2">{h.migrationsHint}</p>
             )}
@@ -220,6 +264,74 @@ export default function AdminStatusPage() {
         <p className="text-sm text-muted-foreground animate-pulse">
           Consultando serviços…
         </p>
+      )}
+
+      {platforms && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2 px-1">
+            <Cloud className="h-4 w-4 text-emerald-400" />
+            Plataformas (uptime)
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
+            {platforms.platforms.map((p) => {
+              const Icon = platformIcon(p.id);
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Icon className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <p className="text-xs font-medium truncate">{p.label}</p>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border",
+                        statusBadgeClass(
+                          p.status === "ok"
+                            ? "ok"
+                            : p.status === "degraded"
+                              ? "degraded"
+                              : p.status === "not_configured"
+                                ? "not_configured"
+                                : "error",
+                        ),
+                      )}
+                    >
+                      {platformStatusLabel(p.status)}
+                    </span>
+                  </div>
+                  {p.message && (
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      {p.message}
+                    </p>
+                  )}
+                  {p.latencyMs != null && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                      {p.latencyMs} ms
+                    </p>
+                  )}
+                  {p.detail && (
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">
+                      {p.detail}
+                    </p>
+                  )}
+                  {p.statusPageUrl && (
+                    <a
+                      href={p.statusPageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block text-[10px] text-emerald-400 hover:underline"
+                    >
+                      Status page ↗
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
@@ -408,10 +520,16 @@ export default function AdminStatusPage() {
           mono
         />
         <DetailRow
+          label="Plataformas (admin)"
+          value="/api/backend/admin/platform/health"
+          mono
+        />
+        <DetailRow
           label="Liveness (Railway)"
           value="/api/backend/health/live"
           mono
         />
+        <DetailRow label="Web (Vercel)" value="/api/health" mono />
       </section>
 
       {(h || integrations) && (
@@ -422,7 +540,7 @@ export default function AdminStatusPage() {
             </p>
           </div>
           <pre className="p-4 text-xs font-mono overflow-x-auto text-emerald-200/90 max-h-96">
-            {JSON.stringify({ health: h, integrations }, null, 2)}
+            {JSON.stringify({ health: h, integrations, platforms }, null, 2)}
           </pre>
         </section>
       )}
