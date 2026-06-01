@@ -63,6 +63,7 @@ import { DEMO_USER_ID } from "@/lib/demo-data";
 import {
   buildPreviewPeriodStats,
   isInStatsPeriod,
+  normalizePeriodStats,
   patchPeriodStatsDelivery,
 } from "@/lib/stats-preview";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
@@ -270,8 +271,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
     setDeliveries(deletedDeliveries.current.filter(cached.deliveries));
     setDeliveriesDate(resolveDeliveriesFilterDate(cached.deliveriesDate));
-    if (cached.statsWeek) setStatsWeek(cached.statsWeek);
-    if (cached.statsMonth) setStatsMonth(cached.statsMonth);
+    if (cached.statsWeek) {
+      setStatsWeek(
+        normalizePeriodStats(
+          cached.statsWeek,
+          "week",
+          cached.deliveriesDate || todayDateInputValue(),
+        ),
+      );
+    }
+    if (cached.statsMonth) {
+      setStatsMonth(
+        normalizePeriodStats(
+          cached.statsMonth,
+          "month",
+          cached.deliveriesDate || todayDateInputValue(),
+        ),
+      );
+    }
     if (cached.profileName) setProfileName(cached.profileName);
     setIsBootstrapped(true);
   }, []);
@@ -360,10 +377,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             period,
             stateRef.current.deliveries,
             stateRef.current.today,
-            prev,
+            prev ? normalizePeriodStats(prev, period, anchorDate) : null,
             anchorDate,
           );
-          const base = prev ?? fallback;
+          const base = prev
+            ? normalizePeriodStats(prev, period, anchorDate)!
+            : fallback;
           return patchPeriodStatsDelivery(base, delta, costsConfigured);
         });
       };
@@ -595,10 +614,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const date =
         stateRef.current.deliveriesDate || todayDateInputValue();
       try {
-        const data = await api<PeriodStats>(
-          `/me/stats?period=${period}&date=${encodeURIComponent(date)}`,
+        const data = normalizePeriodStats(
+          await api<PeriodStats>(
+            `/me/stats?period=${period}&date=${encodeURIComponent(date)}`,
+          ),
+          period,
+          date,
         );
-        if (genAtStart !== deliveryMutationGen.current) return;
+        if (!data || genAtStart !== deliveryMutationGen.current) return;
         if (period === "week") {
           setStatsWeek(data);
         } else {

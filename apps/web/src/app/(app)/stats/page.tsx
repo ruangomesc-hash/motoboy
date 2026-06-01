@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
-import { buildPreviewPeriodStats } from "@/lib/stats-preview";
+import { buildPreviewPeriodStats, normalizePeriodStats } from "@/lib/stats-preview";
 import { todayDateInputValue } from "@/lib/local-date";
 
 const SOURCE_LABELS: Record<DeliverySource, string> = {
@@ -25,23 +25,28 @@ function mergeDisplayStats(
 ): PeriodStats {
   if (!api) return preview;
 
-  const usePreviewGross = preview.totalGross > api.totalGross + 0.001;
-  const mergedBySource = api.bySource.length > 0 ? api.bySource : preview.bySource;
+  const safeApi = normalizePeriodStats(api, preview.period, preview.anchorDate)!;
+  const usePreviewGross = preview.totalGross > safeApi.totalGross + 0.001;
+  const mergedBySource =
+    safeApi.bySource.length > 0 ? safeApi.bySource : preview.bySource;
   const mergedExpenses =
-    api.expenses.length > 0 ? api.expenses : preview.expenses;
+    safeApi.expenses.length > 0 ? safeApi.expenses : preview.expenses;
 
   return {
-    ...api,
-    count: Math.max(api.count, preview.count),
+    ...safeApi,
+    count: Math.max(safeApi.count, preview.count),
     totalGross: usePreviewGross
-      ? Math.max(api.totalGross, preview.totalGross)
-      : api.totalGross,
+      ? Math.max(safeApi.totalGross, preview.totalGross)
+      : safeApi.totalGross,
     totalNet: usePreviewGross
-      ? Math.max(api.totalNet, preview.totalNet)
-      : api.totalNet,
-    totalKm: Math.max(api.totalKm, preview.totalKm),
-    totalExpenses: Math.max(api.totalExpenses, preview.totalExpenses),
-    series: preview.series.length > 0 ? preview.series : api.series,
+      ? Math.max(safeApi.totalNet, preview.totalNet)
+      : safeApi.totalNet,
+    totalKm: Math.max(safeApi.totalKm, preview.totalKm),
+    totalExpenses: Math.max(
+      safeApi.totalExpenses ?? 0,
+      preview.totalExpenses ?? 0,
+    ),
+    series: preview.series.length > 0 ? preview.series : safeApi.series,
     bySource: mergedBySource,
     expenses: mergedExpenses,
   };
@@ -73,8 +78,15 @@ export default function StatsPage() {
     syncDeliveriesFilterDate();
   }, [syncDeliveriesFilterDate]);
 
-  const apiStats: PeriodStats | null =
-    period === "week" ? statsWeek : statsMonth;
+  const apiStats = useMemo(
+    () =>
+      normalizePeriodStats(
+        period === "week" ? statsWeek : statsMonth,
+        period,
+        filterDate,
+      ),
+    [period, statsWeek, statsMonth, filterDate],
+  );
 
   const preview = useMemo(
     () =>
@@ -103,9 +115,15 @@ export default function StatsPage() {
     void refreshStats("month");
   }, [refreshStats]);
 
-  const max = Math.max(...(stats.series.map((s) => s.gross) ?? [1]), 1);
-  const maxSource = Math.max(...stats.bySource.map((s) => s.gross), 1);
-  const maxExpense = Math.max(...stats.expenses.map((e) => e.amount), 1);
+  const max = Math.max(...(stats.series?.map((s) => s.gross) ?? [1]), 1);
+  const maxSource = Math.max(
+    ...(stats.bySource?.map((s) => s.gross) ?? [1]),
+    1,
+  );
+  const maxExpense = Math.max(
+    ...(stats.expenses?.map((e) => e.amount) ?? [1]),
+    1,
+  );
 
   return (
     <AppPage className="p-3 space-y-3 pb-4">

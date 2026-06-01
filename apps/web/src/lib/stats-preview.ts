@@ -9,6 +9,53 @@ import {
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 import { todayDateInputValue } from "@/lib/local-date";
 
+const EMPTY_PERIOD_STATS = (
+  period: "week" | "month",
+  anchorDate: string,
+): PeriodStats => ({
+  period,
+  anchorDate,
+  periodStart: anchorDate,
+  periodEnd: anchorDate,
+  series: [],
+  totalGross: 0,
+  totalNet: 0,
+  totalExpenses: 0,
+  count: 0,
+  totalKm: 0,
+  bySource: [],
+  expenses: [],
+  hoursWorked: 0,
+  grossPerHour: null,
+  netPerHour: null,
+  activeShift: null,
+});
+
+/** Garante campos novos quando stats vem do cache antigo ou API parcial. */
+export function normalizePeriodStats(
+  stats: PeriodStats | null | undefined,
+  period: "week" | "month",
+  anchorDate = todayDateInputValue(),
+): PeriodStats | null {
+  if (!stats) return null;
+  const base = EMPTY_PERIOD_STATS(period, anchorDate);
+  const totalExpenses =
+    stats.totalExpenses ??
+    Math.max(0, (stats.totalGross ?? 0) - (stats.totalNet ?? 0));
+  return {
+    ...base,
+    ...stats,
+    period: stats.period ?? period,
+    anchorDate: stats.anchorDate ?? anchorDate,
+    periodStart: stats.periodStart ?? base.periodStart,
+    periodEnd: stats.periodEnd ?? base.periodEnd,
+    bySource: Array.isArray(stats.bySource) ? stats.bySource : [],
+    expenses: Array.isArray(stats.expenses) ? stats.expenses : [],
+    totalExpenses,
+    series: Array.isArray(stats.series) ? stats.series : [],
+  };
+}
+
 const SOURCE_ORDER: DeliverySource[] = [
   "IFOOD",
   "NINETY_NINE",
@@ -86,10 +133,13 @@ export function buildPreviewPeriodStats(
   let totalExpenses = 0;
   const expenses: PeriodStats["expenses"] = [];
 
-  if (previous?.period === period && previous.anchorDate === anchorDate) {
+  if (
+    previous?.period === period &&
+    previous.anchorDate === anchorDate
+  ) {
     totalNet = previous.totalNet;
-    totalExpenses = previous.totalExpenses;
-    if (previous.expenses.length > 0) {
+    totalExpenses = previous.totalExpenses ?? 0;
+    if (previous.expenses?.length) {
       expenses.push(...previous.expenses);
     }
   } else if (costsConfigured && today) {
@@ -121,7 +171,7 @@ export function buildPreviewPeriodStats(
 
   for (const [label, amount] of manualExpenseMap.entries()) {
     expenses.push({ key: `manual:${label}`, label, amount });
-    if (!previous?.expenses.length) {
+    if (!previous?.expenses?.length) {
       totalExpenses += amount;
       totalNet -= amount;
     }
