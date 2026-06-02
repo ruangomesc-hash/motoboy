@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DeliverySource } from "@motoboy/types";
+import type { DeliverySource, PeriodStats } from "@motoboy/types";
 import { resolvePeriodRange } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,29 @@ export default function StatsPage() {
     syncDeliveriesFilterDate();
   }, [syncDeliveriesFilterDate]);
 
-  const stats = period === "week" ? liveStatsWeek : liveStatsMonth;
+  const stats: PeriodStats = useMemo(() => {
+    const raw = period === "week" ? liveStatsWeek : liveStatsMonth;
+    if (raw) return raw;
+    const range = resolvePeriodRange(period, filterDate);
+    return {
+      period,
+      anchorDate: filterDate,
+      periodStart: range.periodStart,
+      periodEnd: range.periodEnd,
+      series: [],
+      totalGross: 0,
+      totalNet: 0,
+      totalExpenses: 0,
+      count: 0,
+      totalKm: 0,
+      bySource: [],
+      expenses: [],
+      hoursWorked: 0,
+      grossPerHour: null,
+      netPerHour: null,
+      activeShift: null,
+    };
+  }, [period, liveStatsWeek, liveStatsMonth, filterDate]);
 
   const rangeMeta = useMemo(
     () => resolvePeriodRange(period, filterDate),

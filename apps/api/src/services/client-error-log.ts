@@ -1,4 +1,4 @@
-import { prisma } from "@motoboy/db";
+import { prisma, Prisma } from "@motoboy/db";
 import {
   resolveErrorCode,
   translateErrorForAdmin,
@@ -58,7 +58,9 @@ export async function recordClientError(
       route: input.route?.slice(0, 500) ?? null,
       method: input.method?.slice(0, 16) ?? null,
       source: input.source ?? "app",
-      context: input.context ?? undefined,
+      context: input.context
+        ? (input.context as Prisma.InputJsonValue)
+        : undefined,
     },
   });
 }
