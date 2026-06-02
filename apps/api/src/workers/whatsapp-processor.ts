@@ -37,6 +37,7 @@ import { getBullMQConnection } from "../lib/bullmq-connection.js";
 import { recordClientErrorSafe } from "../services/client-error-log.js";
 import { formatWhatsAppProcessingError } from "../lib/whatsapp-user-message.js";
 import { resolvePublicAppUrl } from "../lib/app-url.js";
+import { safeWhatsAppErrorReply, safeWhatsAppReply } from "../lib/whatsapp-reply.js";
 
 function dayBounds() {
   const start = new Date();
@@ -117,9 +118,11 @@ async function processWhatsAppJobInternal(
             where: { id: inbound.id },
             data: { processedAs: "invalid_phone" },
           });
-          await evolution.sendText(
+          await safeWhatsAppReply(
+            evolution,
             replyTo,
             "❌ Não identifiquei seu número de WhatsApp. Em Configurações, confira o campo WhatsApp (mesmo celular que manda mensagem no Zap).",
+            log,
           );
           return;
         }
@@ -130,9 +133,11 @@ async function processWhatsAppJobInternal(
             where: { id: inbound.id },
             data: { processedAs: "user_not_found" },
           });
-          await evolution.sendText(
+          await safeWhatsAppReply(
+            evolution,
             replyTo,
             "❌ WhatsApp não cadastrado. Entre no app → Configurações e confira o número de WhatsApp (DDD + 9 dígitos).",
+            log,
           );
           return;
         }
@@ -216,12 +221,7 @@ async function processWhatsAppJobInternal(
           method: "WORKER",
           source: "whatsapp",
         });
-        try {
-          await evolution.sendText(replyTo, formatWhatsAppProcessingError(err));
-        } catch (sendErr) {
-          log.error({ sendErr, replyTo }, "Falha ao enviar erro no WhatsApp");
-        }
-        throw err;
+        await safeWhatsAppErrorReply(evolution, replyTo, err, log);
       }
 }
 
@@ -366,7 +366,14 @@ async function processTextMessage(
   log: FastifyBaseLogger,
 ): Promise<void> {
   const replyTo = jobReplyTo(job);
-  const extraction = await ai.extractFromText(text);
+  let extraction: Awaited<ReturnType<AiService["extractFromText"]>>;
+  try {
+    extraction = await ai.extractFromText(text);
+  } catch (err) {
+    log.error({ err, replyTo }, "IA extractFromText falhou");
+    await safeWhatsAppErrorReply(evolution, replyTo, err, log);
+    return;
+  }
 
   if (extraction.type === "fuel_refuel") {
         const refuel = await registerFuelRefuel(user.id, {
@@ -528,6 +535,11 @@ async function processTextMessage(
             await prisma.delivery.delete({ where: { id: last.id } });
             await evolution.sendText(replyTo, "🗑️ Última entrega removida.");
             emitDeliveryDeleted(user.id, last.id);
+          } else {
+            await evolution.sendText(
+              replyTo,
+              "Não há entrega recente para remover.",
+            );
           }
           return;
         }
