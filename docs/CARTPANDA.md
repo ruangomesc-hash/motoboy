@@ -1,13 +1,13 @@
 # Integração CartPanda (pagamentos)
 
-Checkout: **https://pagamento.motocopiloto.com.br**  
+Checkout: **https://assinatura.motocopiloto.com.br**  
 App: **https://app.motocopiloto.com.br**
 
 ## Variáveis de ambiente (Vercel)
 
 | Variável | Obrigatório | Descrição |
 |----------|-------------|-----------|
-| `CARTPANDA_CHECKOUT_URL` | Sim (produção) | URL base do checkout, ex. `https://pagamento.motocopiloto.com.br` |
+| `CARTPANDA_CHECKOUT_URL` | Sim (produção) | URL base do checkout, ex. `https://assinatura.motocopiloto.com.br` |
 | `CARTPANDA_WEBHOOK_SECRET` | Recomendado | Token que você define; enviado no header do webhook |
 | `APP_URL` | Sim | `https://app.motocopiloto.com.br` |
 
@@ -38,7 +38,7 @@ Quando o pagamento é confirmado:
 |-------|----------------|
 | Motoboy em `/assinar` | Clica em **Ir para pagamento** |
 | API | `POST /me/subscribe` → URL do checkout com `email`, `phone` e `utm_content={userId}` |
-| Checkout CartPanda | Pix ou cartão em pagamento.motocopiloto.com.br |
+| Checkout CartPanda | Pix ou cartão em assinatura.motocopiloto.com.br |
 | Webhook | Conta ativa em segundos |
 
 ## Testar webhook
@@ -55,7 +55,7 @@ Quando o pagamento é confirmado:
 {
   "cartpanda": {
     "configured": true,
-    "checkoutUrl": "https://pagamento.motocopiloto.com.br",
+    "checkoutUrl": "https://assinatura.motocopiloto.com.br",
     "webhookPath": "/api/backend/webhooks/cartpanda"
   }
 }

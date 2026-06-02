@@ -144,7 +144,7 @@ export const demoSubscription: SubscriptionStatus = {
   lastPayment: null,
   cartpanda: {
     configured: true,
-    checkoutUrl: "https://pagamento.motocopiloto.com.br",
+    checkoutUrl: "https://assinatura.motocopiloto.com.br",
     webhookPath: "/api/backend/webhooks/cartpanda",
   },
 };

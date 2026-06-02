@@ -55,7 +55,7 @@ export default function AssinarPage() {
   }
 
   const checkoutBase =
-    subStatus?.cartpanda?.checkoutUrl ?? "https://pagamento.motocopiloto.com.br";
+    subStatus?.cartpanda?.checkoutUrl ?? "https://assinatura.motocopiloto.com.br";
 
   return (
     <AppPage className="p-6 flex flex-col flex-1 gap-6">
@@ -123,7 +123,7 @@ export default function AssinarPage() {
           rel="noopener noreferrer"
           className="text-primary underline-offset-2 hover:underline"
         >
-          pagamento.motocopiloto.com.br
+          assinatura.motocopiloto.com.br
         </a>
         . Após pagar, o app libera em instantes.
       </p>

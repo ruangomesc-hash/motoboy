@@ -7,7 +7,7 @@ import {
 } from "../services/cartpanda.js";
 
 const checkoutEnv = {
-  CARTPANDA_CHECKOUT_URL: "https://pagamento.motocopiloto.com.br",
+  CARTPANDA_CHECKOUT_URL: "https://assinatura.motocopiloto.com.br",
 } as Env;
 
 describe("cartpanda checkout url", () => {
@@ -22,7 +22,7 @@ describe("cartpanda checkout url", () => {
       },
     );
     const parsed = new URL(url);
-    expect(parsed.hostname).toBe("pagamento.motocopiloto.com.br");
+    expect(parsed.hostname).toBe("assinatura.motocopiloto.com.br");
     expect(parsed.searchParams.get("email")).toBe("moto@email.com");
     expect(parsed.searchParams.get("phone")).toBe("61999999999");
     expect(parsed.searchParams.get("utm_content")).toBe("user_abc");

@@ -35,7 +35,7 @@ export function cartpandaConnectionStatus(env: Env): {
 } {
   const checkoutUrl =
     env.CARTPANDA_CHECKOUT_URL?.trim() ||
-    "https://pagamento.motocopiloto.com.br";
+    "https://assinatura.motocopiloto.com.br";
   return {
     configured: isCartpandaConfigured(env),
     checkoutUrl,
@@ -65,7 +65,7 @@ export function buildCartpandaCheckoutUrl(
   },
 ): string {
   const raw = env.CARTPANDA_CHECKOUT_URL?.trim();
-  const base = raw || "https://pagamento.motocopiloto.com.br";
+  const base = raw || "https://assinatura.motocopiloto.com.br";
   const url = new URL(base.includes("://") ? base : `https://${base}`);
 
   if (user.email?.trim()) {
