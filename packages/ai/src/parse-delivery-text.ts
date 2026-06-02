@@ -34,21 +34,31 @@ function looksLikeDeliveryRegistration(lower: string): boolean {
   return /\br\$\s*\d/.test(lower) && /\bentrega\b/.test(lower);
 }
 
+function amountFromMatch(...groups: (string | undefined)[]): number | null {
+  for (const g of groups) {
+    if (g) {
+      const n = normalizeAmount(g);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
 function parseMoneyAmount(lower: string): number | null {
   const brl = lower.match(/r\$\s*(\d{1,5}(?:[.,]\d{1,2})?)/);
-  if (brl) return normalizeAmount(brl[1]);
+  const fromBrl = amountFromMatch(brl?.[1]);
+  if (fromBrl != null) return fromBrl;
 
   const reais = lower.match(
     /(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:reais|real|conto|pila)\b/,
   );
-  if (reais) return normalizeAmount(reais[1]);
+  const fromReais = amountFromMatch(reais?.[1]);
+  if (fromReais != null) return fromReais;
 
   const nearEntrega = lower.match(
     /entrega\s+(?:da\s+|de\s+|no\s+)?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s+entrega\b/,
   );
-  if (nearEntrega) return normalizeAmount(nearEntrega[1] ?? nearEntrega[2]);
-
-  return null;
+  return amountFromMatch(nearEntrega?.[1], nearEntrega?.[2]);
 }
 
 function normalizeAmount(raw: string): number | null {
