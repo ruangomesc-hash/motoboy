@@ -170,16 +170,24 @@ export function parseCartpandaWebhookPayload(
     }
   });
 
-  if (email) email = email.toLowerCase();
-  if (phone) {
+  const normalizedEmail = email ? email.toLowerCase() : null;
+  let normalizedPhone = phone;
+  if (normalizedPhone) {
     try {
-      phone = normalizePhone(phone);
+      normalizedPhone = normalizePhone(normalizedPhone);
     } catch {
-      phone = digitsOnly(phone);
+      normalizedPhone = digitsOnly(normalizedPhone);
     }
   }
 
-  return { orderId, email, phone, amount, status, event };
+  return {
+    orderId,
+    email: normalizedEmail,
+    phone: normalizedPhone,
+    amount,
+    status,
+    event,
+  };
 }
 
 export function isCartpandaPaidEvent(identity: CartpandaOrderIdentity): boolean {
