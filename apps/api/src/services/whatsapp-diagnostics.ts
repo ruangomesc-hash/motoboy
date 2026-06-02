@@ -6,6 +6,7 @@ import {
   webhookUrlsMatch,
   whatsappWebhookUrl,
 } from "../lib/app-url.js";
+import { evolutionWebhookSecrets } from "../lib/webhook-auth.js";
 import { isRedisEnabled } from "../lib/redis.js";
 
 export type WhatsAppPipelineIssue = {
@@ -358,6 +359,31 @@ export async function getWhatsAppPipelineDiagnostics(
     where: { occurredAt: { gte: since48 } },
   });
 
+  const authRejected24h = recentMessages.filter(
+    (m) => m.messageType === "webhook" && m.processedAs === "auth_rejected",
+  ).length;
+  if (authRejected24h > 0) {
+    issues.push({
+      severity: "critical",
+      code: "WEBHOOK_AUTH_REJECTED",
+      message: `${authRejected24h} chamada(s) com apikey rejeitado — Evolution e Vercel com secrets diferentes.`,
+      action:
+        "Na Vercel, EVOLUTION_WEBHOOK_SECRET deve ser o mesmo valor do header apikey no webhook da Evolution.",
+    });
+  }
+
+  const userNotFound24h = recentMessages.filter(
+    (m) => m.processedAs === "user_not_found",
+  ).length;
+  if (userNotFound24h > 0) {
+    issues.push({
+      severity: "critical",
+      code: "USER_PHONE_NOT_FOUND",
+      message: `${userNotFound24h} mensagem(ns) de número não cadastrado no app.`,
+      action: "Configurações → WhatsApp = mesmo celular que manda mensagem no Zap.",
+    });
+  }
+
   if (
     webhookHitsLast24h === 0 &&
     evolutionConfigured &&
@@ -445,10 +471,8 @@ export async function repairEvolutionWebhook(env: Env): Promise<{
   const base = env.EVOLUTION_API_URL?.replace(/\/$/, "");
   const key = env.EVOLUTION_API_KEY?.trim();
   const instance = env.EVOLUTION_INSTANCE?.trim();
-  const secret =
-    process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ||
-    env.EVOLUTION_API_KEY?.trim() ||
-    "";
+  const secrets = evolutionWebhookSecrets(env);
+  const secret = secrets[0] ?? "";
   if (!base || !key || !instance || !secret) {
     throw Object.assign(new Error("Evolution ou secret não configurado"), {
       statusCode: 503,

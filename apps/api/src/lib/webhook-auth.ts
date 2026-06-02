@@ -10,37 +10,50 @@ function headerValue(
   return raw;
 }
 
-/** Evolution: secret dedicado ou apikey do painel (header apikey). */
-export function verifyEvolutionWebhook(
-  env: Env,
+/** Todos os segredos válidos (Vercel pode ter WEBHOOK_SECRET ≠ API_KEY). */
+export function evolutionWebhookSecrets(env: Env): string[] {
+  const list = [
+    process.env.EVOLUTION_WEBHOOK_SECRET?.trim(),
+    env.EVOLUTION_WEBHOOK_SECRET?.trim(),
+    env.EVOLUTION_API_KEY?.trim(),
+  ].filter((v): v is string => Boolean(v));
+  return [...new Set(list)];
+}
+
+function providedWebhookSecret(
   headers: Record<string, string | string[] | undefined>,
-): boolean {
-  const secret =
-    process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ||
-    env.EVOLUTION_API_KEY?.trim();
-  if (!secret) {
-    return !isProductionRuntime();
-  }
-  const provided =
+): string | undefined {
+  return (
     headerValue(headers, "apikey") ??
     headerValue(headers, "x-api-key") ??
     headerValue(headers, "x-webhook-secret") ??
     headerValue(headers, "x-evolution-webhook-secret") ??
-    headerValue(headers, "authorization")?.replace(/^Bearer\s+/i, "");
-  return provided === secret;
+    headerValue(headers, "authorization")?.replace(/^Bearer\s+/i, "")
+  );
+}
+
+/** Evolution: header apikey deve bater com WEBHOOK_SECRET e/ou API_KEY. */
+export function verifyEvolutionWebhook(
+  env: Env,
+  headers: Record<string, string | string[] | undefined>,
+): boolean {
+  const secrets = evolutionWebhookSecrets(env);
+  if (!secrets.length) {
+    return !isProductionRuntime();
+  }
+  const provided = providedWebhookSecret(headers);
+  return Boolean(provided && secrets.includes(provided));
 }
 
 export function verifyEvolutionWebhookQuery(
   env: Env,
   query: Record<string, unknown> | undefined,
 ): boolean {
-  const secret =
-    process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ||
-    env.EVOLUTION_API_KEY?.trim();
-  if (!secret) return !isProductionRuntime();
+  const secrets = evolutionWebhookSecrets(env);
+  if (!secrets.length) return !isProductionRuntime();
   const q = query?.apikey ?? query?.apiKey ?? query?.token;
   const provided = Array.isArray(q) ? q[0] : q;
-  return typeof provided === "string" && provided === secret;
+  return typeof provided === "string" && secrets.includes(provided);
 }
 
 export function verifyAsaasWebhook(

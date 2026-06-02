@@ -202,18 +202,12 @@ export async function createApp(
 
   if (isProductionRuntime() && env.EVOLUTION_API_URL?.trim()) {
     void import("./services/whatsapp-diagnostics.js")
-      .then(async ({ getWhatsAppPipelineDiagnostics, repairEvolutionWebhook }) => {
-        const d = await getWhatsAppPipelineDiagnostics(env);
-        if (d.webhook.webhookByEvents || !d.webhook.urlMatches) {
-          app.log.warn(
-            { webhookByEvents: d.webhook.webhookByEvents, url: d.webhook.configuredUrl },
-            "Auto-reparando webhook Evolution",
-          );
-          await repairEvolutionWebhook(env);
-        }
+      .then(async ({ repairEvolutionWebhook }) => {
+        app.log.info("Sincronizando webhook Evolution (URL + apikey Vercel)");
+        await repairEvolutionWebhook(env);
       })
       .catch((err) => {
-        app.log.warn({ err }, "Auto-repair webhook Evolution falhou");
+        app.log.warn({ err }, "Sync webhook Evolution falhou");
       });
   }
 
@@ -295,6 +289,14 @@ export async function createApp(
           webhookHitsLast24h: d.database.webhookHitsLast24h,
         },
         webhookByEvents: d.webhook.webhookByEvents,
+        recentInbound: d.database.recentMessages
+          .filter((m) => m.messageType === "webhook")
+          .slice(0, 8)
+          .map((m) => ({
+            at: m.receivedAt,
+            status: m.processedAs,
+            phoneTail: m.fromNumber.slice(-4),
+          })),
         issues: d.issues.map((i) => ({
           severity: i.severity,
           code: i.code,

@@ -39,32 +39,48 @@ export class EvolutionService {
       this.log.info({ to, text }, "Evolution mock send");
       return;
     }
-    /** Aceita dígitos (55…), JID @s.whatsapp.net ou @lid. */
     const digits = to.replace(/\D/g, "");
-    const number = to.includes("@")
-      ? to.trim()
-      : digits.length >= 12
-        ? `${digits}@s.whatsapp.net`
-        : digits;
-    await withRetry(async () => {
-      const res = await fetch(
-        `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: this.env.EVOLUTION_API_KEY!,
-          },
-          body: JSON.stringify({ number, text }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(
-          `Evolution send failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`,
-        );
+    /** Evolution v2 exige número com DDI, sem @s.whatsapp.net */
+    const candidates: string[] = [];
+    if (to.includes("@lid")) {
+      candidates.push(to.trim());
+    } else if (digits.length >= 10) {
+      candidates.push(digits);
+    } else if (to.includes("@")) {
+      candidates.push(to.trim());
+    } else {
+      candidates.push(digits || to.trim());
+    }
+
+    let lastError: unknown;
+    for (const number of [...new Set(candidates)]) {
+      try {
+        await withRetry(async () => {
+          const res = await fetch(
+            `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                apikey: this.env.EVOLUTION_API_KEY!,
+              },
+              body: JSON.stringify({ number, text }),
+            },
+          );
+          if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            throw new Error(
+              `Evolution send failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`,
+            );
+          }
+        }, this.log);
+        return;
+      } catch (err) {
+        lastError = err;
+        this.log.warn({ err, number }, "Evolution sendText tentativa falhou");
       }
-    }, this.log);
+    }
+    throw lastError;
   }
 
   async downloadMedia(messageKey: {
