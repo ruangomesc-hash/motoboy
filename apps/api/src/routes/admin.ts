@@ -10,11 +10,15 @@ import {
   envAdminCredentialsConfigured,
   isAdminConfigured,
   isAdminTableReady,
-  isDatabaseConnected,
+  getDatabaseHealth,
   resetAdminAccountWithToken,
   setupAdminAccount,
   verifyAdminLoginWithEnvFallback,
 } from "../services/admin-auth-store.js";
+import {
+  getDatabaseHealth,
+  isDatabaseConnected,
+} from "../lib/database-health.js";
 import { MIGRATIONS_REQUIRED_MESSAGE } from "../lib/prisma-errors.js";
 import { authenticateAdmin } from "../lib/admin-auth.js";
 import { sendPrismaOrServiceError } from "../lib/prisma-http.js";
@@ -52,15 +56,17 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
 
   app.get("/admin/auth/status", async (_request, reply) => {
-    const [databaseConnected, migrationsReady] = await Promise.all([
-      isDatabaseConnected(),
+    const [dbHealth, migrationsReady] = await Promise.all([
+      getDatabaseHealth(),
       isAdminTableReady(),
     ]);
+    const databaseConnected = dbHealth.connected;
     const configured = migrationsReady ? await isAdminConfigured() : false;
     return reply.send({
       configured,
       migrationsReady,
       databaseConnected,
+      databaseHint: dbHealth.hint ?? null,
       envLoginAvailable: isProductionRuntime()
         ? false
         : envAdminCredentialsConfigured(),

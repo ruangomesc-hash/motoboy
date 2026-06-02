@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,106 @@ const adminDevAllowed =
   process.env.NODE_ENV === "development" ||
   process.env.NEXT_PUBLIC_ALLOW_ADMIN_DEV_LOGIN === "true";
 
+type DatabaseHint =
+  | "env_missing"
+  | "transient"
+  | "credentials"
+  | "unknown"
+  | null;
+
 type AdminAuthStatus = {
   configured: boolean;
   migrationsReady: boolean;
   databaseConnected?: boolean;
+  databaseHint?: DatabaseHint;
   envLoginAvailable: boolean;
   bootstrapEmail: string | null;
 };
+
+async function fetchAdminAuthStatus(): Promise<AdminAuthStatus> {
+  const res = await fetch("/api/backend/admin/auth/status", {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`status ${res.status}`);
+  }
+  return res.json() as Promise<AdminAuthStatus>;
+}
+
+async function fetchAdminAuthStatusWithRetry(
+  attempts = 3,
+): Promise<AdminAuthStatus> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const data = await fetchAdminAuthStatus();
+      if (data.databaseConnected || i === attempts - 1) return data;
+      if (data.databaseHint === "transient") {
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+        continue;
+      }
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+function databaseUnavailableCopy(hint: DatabaseHint): {
+  title: string;
+  body: ReactNode;
+} {
+  switch (hint) {
+    case "env_missing":
+      return {
+        title: "DATABASE_URL ausente na Vercel",
+        body: (
+          <>
+            Cadastre <strong>DATABASE_URL</strong> (pooler 6543) e{" "}
+            <strong>DIRECT_URL</strong> (5432), marque Production + Build, e
+            faça redeploy.
+          </>
+        ),
+      };
+    case "credentials":
+      return {
+        title: "Senha do Supabase incorreta",
+        body: (
+          <>
+            A senha em <strong>DATABASE_URL</strong> / <strong>DIRECT_URL</strong>{" "}
+            não confere. No Supabase: Settings → Database → reset password, atualize
+            as duas variáveis na Vercel e redeploy.
+          </>
+        ),
+      };
+    case "transient":
+      return {
+        title: "Conexão temporária com o Supabase",
+        body: (
+          <>
+            O banco pode estar pausado (plano free) ou demorando a responder. Abra
+            o projeto no Supabase, confirme que está <strong>Active</strong>, aguarde
+            ~30s e use <strong>Tentar novamente</strong> abaixo.
+          </>
+        ),
+      };
+    default:
+      return {
+        title: "Supabase inacessível",
+        body: (
+          <>
+            Confira <strong>DATABASE_URL</strong> e <strong>DIRECT_URL</strong> na
+            Vercel (Production + Build) e faça redeploy. O painel só carrega dados
+            com o banco online.
+          </>
+        ),
+      };
+  }
+}
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -31,25 +124,36 @@ export default function AdminLoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [statusRefreshing, setStatusRefreshing] = useState(false);
+
+  function applyStatus(data: AdminAuthStatus) {
+    setStatus(data);
+    if (data.bootstrapEmail) setEmail(data.bootstrapEmail);
+    if (!data.migrationsReady && data.envLoginAvailable) {
+      setPhase("login");
+      return;
+    }
+    setPhase(data.configured ? "login" : "first");
+  }
+
+  const refreshStatus = useCallback(async () => {
+    setStatusRefreshing(true);
+    setError("");
+    try {
+      const data = await fetchAdminAuthStatusWithRetry();
+      applyStatus(data);
+    } catch {
+      setError(
+        "Não foi possível conectar à API. Confira o deploy e DATABASE_URL na Vercel.",
+      );
+    } finally {
+      setStatusRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void fetch("/api/backend/admin/auth/status")
-      .then((r) => r.json())
-      .then((data: AdminAuthStatus) => {
-        setStatus(data);
-        if (data.bootstrapEmail) setEmail(data.bootstrapEmail);
-        if (!data.migrationsReady && data.envLoginAvailable) {
-          setPhase("login");
-          return;
-        }
-        setPhase(data.configured ? "login" : "first");
-      })
-      .catch(() =>
-        setError(
-          "Não foi possível conectar à API. Confira o deploy e DATABASE_URL na Vercel.",
-        ),
-      );
-  }, []);
+    void refreshStatus();
+  }, [refreshStatus]);
 
   async function submitLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -145,18 +249,25 @@ export default function AdminLoginPage() {
   const showFirst = migrationsReady && !configured && !resetMode && phase === "first";
   const showLogin =
     (!showSetup && (configured || envLogin || phase === "login")) || statusLoading;
+  const dbCopy = databaseUnavailableCopy(status?.databaseHint ?? null);
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 w-full max-w-full overflow-x-hidden box-border">
       <div className="w-full max-w-md min-w-0 space-y-4">
         {!statusLoading && !databaseConnected && (
           <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-100/90 space-y-2">
-            <p className="font-medium">Supabase inacessível</p>
-            <p className="text-red-100/70 text-xs leading-relaxed">
-              Confira <strong>DATABASE_URL</strong> e{" "}
-              <strong>DIRECT_URL</strong> na Vercel (Production + Build) e faça
-              redeploy. O painel só carrega dados com o banco online.
-            </p>
+            <p className="font-medium">{dbCopy.title}</p>
+            <p className="text-red-100/70 text-xs leading-relaxed">{dbCopy.body}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1 border-red-400/40 text-red-100 hover:bg-red-500/20"
+              disabled={statusRefreshing}
+              onClick={() => void refreshStatus()}
+            >
+              {statusRefreshing ? "Verificando…" : "Tentar novamente"}
+            </Button>
             {envLogin && (
               <p className="text-xs text-emerald-200/90">
                 Você ainda pode entrar com ADMIN_EMAIL / ADMIN_PASSWORD para

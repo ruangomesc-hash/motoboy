@@ -14,6 +14,9 @@ function resolveDatabaseUrl(): string | undefined {
     if (!url.searchParams.has("connection_limit")) {
       url.searchParams.set("connection_limit", "1");
     }
+    if (!url.searchParams.has("connect_timeout")) {
+      url.searchParams.set("connect_timeout", "15");
+    }
     return url.toString();
   } catch {
     return raw;

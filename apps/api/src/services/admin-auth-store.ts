@@ -22,14 +22,7 @@ export function envAdminCredentialsConfigured(): boolean {
   return Boolean(email && password);
 }
 
-export async function isDatabaseConnected(): Promise<boolean> {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { isDatabaseConnected } from "../lib/database-health.js";
 
 export async function isAdminTableReady(): Promise<boolean> {
   try {
