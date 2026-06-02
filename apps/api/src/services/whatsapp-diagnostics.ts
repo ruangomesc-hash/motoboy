@@ -32,6 +32,7 @@ export type WhatsAppPipelineDiagnostics = {
   webhook: {
     enabled: boolean | null;
     configuredUrl: string | null;
+    webhookByEvents: boolean;
     urlMatches: boolean;
     hasApikeyHeader: boolean;
     events: string[];
@@ -39,6 +40,7 @@ export type WhatsAppPipelineDiagnostics = {
   database: {
     messagesLast48h: number;
     messagesLast24h: number;
+    webhookHitsLast24h: number;
     deliveriesLast48h: number;
     recentMessages: Array<{
       receivedAt: string;
@@ -82,6 +84,7 @@ async function evolutionGet(
 function parseWebhookConfig(json: Record<string, unknown>): {
   enabled: boolean | null;
   url: string | null;
+  webhookByEvents: boolean;
   events: string[];
   hasApikeyHeader: boolean;
 } {
@@ -98,6 +101,12 @@ function parseWebhookConfig(json: Record<string, unknown>): {
       : typeof json.enabled === "boolean"
         ? json.enabled
         : null;
+  const webhookByEvents = Boolean(
+    root.webhookByEvents ??
+      root.webhook_by_events ??
+      json.webhookByEvents ??
+      json.webhook_by_events,
+  );
   const eventsRaw = root.events ?? json.events;
   const events = Array.isArray(eventsRaw)
     ? eventsRaw.map(String)
@@ -110,7 +119,7 @@ function parseWebhookConfig(json: Record<string, unknown>): {
   const hasApikeyHeader = Boolean(
     h.apikey ?? h.Apikey ?? h.APIKEY ?? h["x-api-key"],
   );
-  return { enabled, url, events, hasApikeyHeader };
+  return { enabled, url, webhookByEvents, events, hasApikeyHeader };
 }
 
 export async function getWhatsAppPipelineDiagnostics(
@@ -137,6 +146,7 @@ export async function getWhatsAppPipelineDiagnostics(
   let webhook = {
     enabled: null as boolean | null,
     configuredUrl: null as string | null,
+    webhookByEvents: false,
     urlMatches: false,
     hasApikeyHeader: false,
     events: [] as string[],
@@ -189,10 +199,22 @@ export async function getWhatsAppPipelineDiagnostics(
     webhook = {
       enabled: parsed.enabled,
       configuredUrl: configured,
+      webhookByEvents: parsed.webhookByEvents,
       urlMatches,
       hasApikeyHeader: parsed.hasApikeyHeader,
       events: parsed.events,
     };
+
+    if (parsed.webhookByEvents) {
+      issues.push({
+        severity: "critical",
+        code: "WEBHOOK_BY_EVENTS_ENABLED",
+        message:
+          "Evolution está com webhook por evento (/messages-upsert). A API só tinha rota /webhooks/whatsapp → 404 nas mensagens.",
+        action:
+          "Admin → Reparar webhook (força webhookByEvents: false) ou desative no manager Evolution.",
+      });
+    }
 
     if (appUrlMisconfigured && configured && webhookUrlsMatch(configured, expected)) {
       issues.push({
@@ -282,18 +304,29 @@ export async function getWhatsAppPipelineDiagnostics(
   const since48 = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const since24 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [messagesLast48h, messagesLast24h, recentMessages, recentWhatsAppErrors] =
-    await Promise.all([
+  const [
+    messagesLast48h,
+    messagesLast24h,
+    webhookHitsLast24h,
+    recentMessages,
+    recentWhatsAppErrors,
+  ] = await Promise.all([
       prisma.whatsAppMessage.count({
         where: { receivedAt: { gte: since48 } },
       }),
       prisma.whatsAppMessage.count({
         where: { receivedAt: { gte: since24 } },
       }),
+      prisma.whatsAppMessage.count({
+        where: {
+          receivedAt: { gte: since24 },
+          messageType: "webhook",
+        },
+      }),
       prisma.whatsAppMessage.findMany({
         where: { receivedAt: { gte: since48 } },
         orderBy: { receivedAt: "desc" },
-        take: 10,
+        take: 15,
         select: {
           receivedAt: true,
           fromNumber: true,
@@ -326,19 +359,31 @@ export async function getWhatsAppPipelineDiagnostics(
   });
 
   if (
-    messagesLast24h === 0 &&
+    webhookHitsLast24h === 0 &&
     evolutionConfigured &&
     apiReachable &&
     connectionState?.toLowerCase().includes("open")
   ) {
     issues.push({
-      severity: webhook.urlMatches ? "warning" : "critical",
-      code: "NO_MESSAGES_IN_DB",
+      severity: "critical",
+      code: "WEBHOOK_NEVER_HIT",
       message:
-        "Nenhuma mensagem WhatsApp gravada nas últimas 24h. Pode ser: Zap ainda não testado, apikey errado (401), ou número do Zap diferente do cadastro no app.",
-      action: webhook.urlMatches
-        ? "Envie um texto de teste no Zap; confira Configurações → WhatsApp e EVOLUTION_WEBHOOK_SECRET na Vercel."
-        : "Corrija o webhook na Evolution primeiro.",
+        "A Evolution não chamou a API nas últimas 24h (zero hits no webhook). Mensagens não chegam na Vercel.",
+      action:
+        "Confira URL do webhook, webhookByEvents desligado, e se a instância motoboy está open.",
+    });
+  } else if (
+    messagesLast24h === 0 &&
+    webhookHitsLast24h > 0 &&
+    connectionState?.toLowerCase().includes("open")
+  ) {
+    const last = recentMessages[0];
+    issues.push({
+      severity: "critical",
+      code: "WEBHOOK_HITS_BUT_NO_PROCESS",
+      message: `Webhook recebeu ${webhookHitsLast24h} chamada(s), último status: ${last?.processedAs ?? "?"}.`,
+      action:
+        "Veja Admin → últimas mensagens: auth_rejected = secret errado; parse_failed = payload; user_not_found = número no app.",
     });
   }
 
@@ -371,6 +416,7 @@ export async function getWhatsAppPipelineDiagnostics(
     database: {
       messagesLast48h,
       messagesLast24h,
+      webhookHitsLast24h,
       deliveriesLast48h,
       recentMessages: recentMessages.map((m) => ({
         receivedAt: m.receivedAt.toISOString(),

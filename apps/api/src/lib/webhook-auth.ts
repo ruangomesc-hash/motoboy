@@ -23,9 +23,24 @@ export function verifyEvolutionWebhook(
   }
   const provided =
     headerValue(headers, "apikey") ??
+    headerValue(headers, "x-api-key") ??
     headerValue(headers, "x-webhook-secret") ??
-    headerValue(headers, "x-evolution-webhook-secret");
+    headerValue(headers, "x-evolution-webhook-secret") ??
+    headerValue(headers, "authorization")?.replace(/^Bearer\s+/i, "");
   return provided === secret;
+}
+
+export function verifyEvolutionWebhookQuery(
+  env: Env,
+  query: Record<string, unknown> | undefined,
+): boolean {
+  const secret =
+    process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ||
+    env.EVOLUTION_API_KEY?.trim();
+  if (!secret) return !isProductionRuntime();
+  const q = query?.apikey ?? query?.apiKey ?? query?.token;
+  const provided = Array.isArray(q) ? q[0] : q;
+  return typeof provided === "string" && provided === secret;
 }
 
 export function verifyAsaasWebhook(

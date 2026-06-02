@@ -39,8 +39,13 @@ export class EvolutionService {
       this.log.info({ to, text }, "Evolution mock send");
       return;
     }
-    /** Aceita dígitos (55…) ou JID completo (@s.whatsapp.net / @lid). */
-    const number = to.includes("@") ? to.trim() : to.replace(/\D/g, "");
+    /** Aceita dígitos (55…), JID @s.whatsapp.net ou @lid. */
+    const digits = to.replace(/\D/g, "");
+    const number = to.includes("@")
+      ? to.trim()
+      : digits.length >= 12
+        ? `${digits}@s.whatsapp.net`
+        : digits;
     await withRetry(async () => {
       const res = await fetch(
         `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,

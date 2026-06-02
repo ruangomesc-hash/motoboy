@@ -15,6 +15,7 @@ import type { EvolutionService as EvoType } from "./services/evolution.js";
 import { collectCorsOrigins, isCorsOriginAllowed } from "./lib/cors-origins.js";
 import { mapPrismaHttpError } from "./lib/prisma-http.js";
 import { recordClientErrorSafe } from "./services/client-error-log.js";
+import { isProductionRuntime } from "./lib/runtime-env.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -34,6 +35,16 @@ export async function createApp(
 ): Promise<FastifyInstance> {
   const env = options.env ?? loadEnv();
   const app = Fastify({ logger: options.logger ?? true });
+
+  app.addHook("onRequest", async (request) => {
+    const { normalizeWhatsAppWebhookPath } = await import(
+      "./lib/whatsapp-webhook-routes.js"
+    );
+    const normalized = normalizeWhatsAppWebhookPath(request.url);
+    if (normalized !== request.url) {
+      request.raw.url = normalized;
+    }
+  });
 
   // DELETE/GET com Content-Type: application/json e corpo vazio (ex.: fetch do app).
   app.removeContentTypeParser("application/json");
@@ -189,6 +200,23 @@ export async function createApp(
   await app.register(meRoutes);
   await app.register(adminRoutes);
 
+  if (isProductionRuntime() && env.EVOLUTION_API_URL?.trim()) {
+    void import("./services/whatsapp-diagnostics.js")
+      .then(async ({ getWhatsAppPipelineDiagnostics, repairEvolutionWebhook }) => {
+        const d = await getWhatsAppPipelineDiagnostics(env);
+        if (d.webhook.webhookByEvents || !d.webhook.urlMatches) {
+          app.log.warn(
+            { webhookByEvents: d.webhook.webhookByEvents, url: d.webhook.configuredUrl },
+            "Auto-reparando webhook Evolution",
+          );
+          await repairEvolutionWebhook(env);
+        }
+      })
+      .catch((err) => {
+        app.log.warn({ err }, "Auto-repair webhook Evolution falhou");
+      });
+  }
+
   /** Liveness — Railway healthcheck (sem DB). */
   app.get("/health/live", async () => ({ ok: true }));
 
@@ -264,7 +292,9 @@ export async function createApp(
         database: {
           messagesLast24h: d.database.messagesLast24h,
           messagesLast48h: d.database.messagesLast48h,
+          webhookHitsLast24h: d.database.webhookHitsLast24h,
         },
+        webhookByEvents: d.webhook.webhookByEvents,
         issues: d.issues.map((i) => ({
           severity: i.severity,
           code: i.code,

@@ -130,19 +130,22 @@ export default function AdminStatusPage() {
     expectedWebhookUrl: string;
     webhook: {
       configuredUrl: string | null;
+      webhookByEvents: boolean;
       urlMatches: boolean;
       hasApikeyHeader: boolean;
       enabled: boolean | null;
     };
-    evolution: { connectionState: string | null; instance: string | null };
     database: {
       messagesLast24h: number;
+      webhookHitsLast24h: number;
       recentMessages: Array<{
         receivedAt: string;
         fromNumber: string;
         userId: string | null;
+        processedAs: string | null;
       }>;
     };
+    evolution: { connectionState: string | null; instance: string | null };
     processing: string;
   } | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
@@ -325,8 +328,8 @@ export default function AdminStatusPage() {
                 Pipeline WhatsApp (causa raiz)
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Evolution → webhook Vercel → banco → app. Mensagens no banco (24h):{" "}
-                {whatsappPipeline?.database.messagesLast24h ?? "—"}
+                Hits webhook (24h): {whatsappPipeline?.database.webhookHitsLast24h ?? "—"} ·
+                processadas: {whatsappPipeline?.database.messagesLast24h ?? "—"}
               </p>
             </div>
             <Button
@@ -371,6 +374,10 @@ export default function AdminStatusPage() {
                 label="Header apikey"
                 value={boolLabel(whatsappPipeline.webhook.hasApikeyHeader)}
               />
+              <DetailRow
+                label="Webhook por evento"
+                value={boolLabel(whatsappPipeline.webhook.webhookByEvents)}
+              />
               {waCritical.length > 0 && (
                 <ul className="mt-2 space-y-2">
                   {waCritical.map((issue) => (
@@ -399,8 +406,8 @@ export default function AdminStatusPage() {
                   <ul className="text-xs font-mono space-y-1">
                     {whatsappPipeline.database.recentMessages.map((m) => (
                       <li key={m.receivedAt + m.fromNumber}>
-                        {formatCheckedAt(m.receivedAt)} · {m.fromNumber} · user=
-                        {m.userId ?? "NÃO VINCULADO"}
+                        {formatCheckedAt(m.receivedAt)} · {m.fromNumber} ·{" "}
+                        {m.processedAs ?? "?"} · user={m.userId ?? "—"}
                       </li>
                     ))}
                   </ul>

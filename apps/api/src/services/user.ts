@@ -33,12 +33,27 @@ export async function assertAffiliateCodeValid(
   }
 }
 
-export async function findUserByPhone(whatsappNumber: string) {
+function phoneLookupCandidates(whatsappNumber: string): string[] {
   const normalized = normalizePhone(whatsappNumber);
-  return prisma.user.findUnique({
-    where: { whatsappNumber: normalized },
-    include: { costs: true },
-  });
+  const candidates = new Set<string>([normalized]);
+  if (normalized.length === 13 && normalized.startsWith("55") && normalized[4] === "9") {
+    candidates.add(`${normalized.slice(0, 4)}${normalized.slice(5)}`);
+  }
+  if (normalized.length === 12 && normalized.startsWith("55")) {
+    candidates.add(`${normalized.slice(0, 4)}9${normalized.slice(4)}`);
+  }
+  return [...candidates];
+}
+
+export async function findUserByPhone(whatsappNumber: string) {
+  for (const whatsappNumberKey of phoneLookupCandidates(whatsappNumber)) {
+    const user = await prisma.user.findUnique({
+      where: { whatsappNumber: whatsappNumberKey },
+      include: { costs: true },
+    });
+    if (user) return user;
+  }
+  return null;
 }
 
 export async function createUserWithProfile(input: {

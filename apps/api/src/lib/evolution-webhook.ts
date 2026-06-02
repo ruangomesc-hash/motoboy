@@ -28,11 +28,31 @@ function shouldIgnoreEvent(event: string): boolean {
   if (e.includes("connection") || e.includes("qrcode") || e.includes("qr_code")) {
     return true;
   }
-  if (e.includes("messages.delete") || e.includes("messages.update")) {
-    return true;
-  }
+  if (e.includes("messages.delete")) return true;
+  if (e.includes("messages.update") && !e.includes("upsert")) return true;
   if (e.includes("send.message") && !e.includes("upsert")) return true;
+  if (e.includes("presence") || e.includes("contacts.")) return true;
   return false;
+}
+
+/** Evolution 2.x: mensagem pode vir em data.message.message (wrapper Baileys). */
+function unwrapMessageNode(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  let node = raw as Record<string, unknown>;
+  for (let depth = 0; depth < 4; depth++) {
+    if (
+      typeof node.conversation === "string" ||
+      typeof node.extendedTextMessage === "object" ||
+      typeof node.audioMessage === "object" ||
+      typeof node.imageMessage === "object"
+    ) {
+      return node;
+    }
+    const inner = node.message;
+    if (!inner || typeof inner !== "object") break;
+    node = inner as Record<string, unknown>;
+  }
+  return node;
 }
 
 function pickInboundData(root: Record<string, unknown>): unknown {
@@ -140,12 +160,21 @@ export function parseEvolutionInboundMessage(
     const asMessage = messageDataSchema.safeParse(root);
     if (asMessage.success) parsed = asMessage;
   }
+  if (!parsed.success && rawData && typeof rawData === "object") {
+    const d = rawData as Record<string, unknown>;
+    parsed = messageDataSchema.safeParse({
+      key: d.key ?? d.messageKey,
+      message: unwrapMessageNode(d.message) ?? d.message,
+      messageType: d.messageType,
+    });
+  }
   if (!parsed.success) return null;
 
   const remoteJid =
     parsed.data.key?.remoteJid ??
     parsed.data.key?.remoteJidAlt ??
-    parsed.data.key?.senderPn;
+    parsed.data.key?.senderPn ??
+    parsed.data.key?.participant;
   if (!remoteJid) return null;
 
   const key: EvolutionInboundMessage["key"] = {
@@ -153,9 +182,12 @@ export function parseEvolutionInboundMessage(
     remoteJid,
   };
 
+  const message =
+    unwrapMessageNode(parsed.data.message) ?? parsed.data.message;
+
   return {
     key,
-    message: parsed.data.message,
+    message,
     messageType: parsed.data.messageType,
   };
 }
