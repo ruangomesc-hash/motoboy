@@ -23,7 +23,6 @@ import {
   WHATSAPP_QUEUE_DOWN_MESSAGE,
   formatWhatsAppProcessingError,
 } from "../lib/whatsapp-user-message.js";
-import { acquireWhatsAppMessageLock } from "../lib/whatsapp-idempotency.js";
 import { getSocketServer } from "../lib/socket.js";
 import { processWhatsAppJobData } from "../workers/whatsapp-processor.js";
 import { logWhatsAppWebhookHit } from "../lib/whatsapp-inbound-log.js";
@@ -173,15 +172,6 @@ async function handleWhatsAppWebhook(
     const redisUrl = env.REDIS_URL?.trim();
     const messageId = data.key.id;
     const workerOnHost = process.env.RUN_WHATSAPP_WORKER === "true";
-
-    if (redisUrl && messageId) {
-      const acquired = await acquireWhatsAppMessageLock(redisUrl, messageId);
-      if (!acquired) {
-        request.log.info({ messageId }, "Webhook WhatsApp: duplicate ignorado");
-        await logWhatsAppWebhookHit(body, "duplicate_ignored", fromNumber);
-        return reply.send({ ok: true, duplicate: true });
-      }
-    }
 
     if (workerOnHost) {
       if (!redisUrl) {
