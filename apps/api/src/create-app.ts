@@ -238,5 +238,48 @@ export async function createApp(
     };
   });
 
+  /** Diagnóstico público do pipeline Zap (sem PII — use /admin/whatsapp/pipeline para detalhe). */
+  app.get("/health/whatsapp", async (_request, reply) => {
+    const { getWhatsAppPipelineDiagnostics } = await import(
+      "./services/whatsapp-diagnostics.js"
+    );
+    try {
+      const d = await getWhatsAppPipelineDiagnostics(env);
+      const critical = d.issues.filter((i) => i.severity === "critical");
+      return reply.status(critical.length === 0 ? 200 : 503).send({
+        ok: critical.length === 0,
+        checkedAt: d.checkedAt,
+        processing: d.processing,
+        evolution: {
+          connectionState: d.evolution.connectionState,
+          instance: d.evolution.instance,
+        },
+        webhook: {
+          expectedUrl: d.expectedWebhookUrl,
+          configuredUrl: d.webhook.configuredUrl,
+          urlMatches: d.webhook.urlMatches,
+          enabled: d.webhook.enabled,
+          hasApikeyHeader: d.webhook.hasApikeyHeader,
+        },
+        database: {
+          messagesLast24h: d.database.messagesLast24h,
+          messagesLast48h: d.database.messagesLast48h,
+        },
+        issues: d.issues.map((i) => ({
+          severity: i.severity,
+          code: i.code,
+          message: i.message,
+          action: i.action,
+        })),
+      });
+    } catch (err) {
+      app.log.error(err);
+      return reply.status(500).send({
+        ok: false,
+        error: "Falha ao diagnosticar pipeline WhatsApp",
+      });
+    }
+  });
+
   return app;
 }

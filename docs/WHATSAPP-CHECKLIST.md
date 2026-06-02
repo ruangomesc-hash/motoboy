@@ -68,6 +68,24 @@ Zap → Evolution (VPS) → POST webhook → Vercel enfileira (Redis)
    - `/health` com DB errado (deploy pode passar com `/health/live`, mas Zap não funciona até corrigir `DATABASE_URL`).
 5. Logs: se aparecer `[node-version] Projeto exige Node 20`, o Node do Railway está errado.
 
+## Diagnóstico (causa raiz)
+
+Depois do deploy com `/health/whatsapp`:
+
+```bash
+curl -s https://app.motocopiloto.com.br/api/backend/health/whatsapp | jq
+```
+
+Ou no painel: **Admin → Status → Pipeline WhatsApp** (lê Evolution + banco com as vars da Vercel).
+
+Local (com `.env` igual à Vercel):
+
+```bash
+APP_URL=https://app.motocopiloto.com.br EVOLUTION_INSTANCE=motoboy pnpm whatsapp:diagnose
+```
+
+Se `messagesLast24h: 0` e `WEBHOOK_URL_MISMATCH` → a Evolution **não está chamando** a Vercel (mensagem nunca chega; o app não tem o que atualizar).
+
 ## Testes
 
 ```bash

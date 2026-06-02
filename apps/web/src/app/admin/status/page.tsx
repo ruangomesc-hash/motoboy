@@ -120,12 +120,39 @@ export default function AdminStatusPage() {
   const [platformsError, setPlatformsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [whatsappPipeline, setWhatsappPipeline] = useState<{
+    issues: Array<{
+      severity: string;
+      code: string;
+      message: string;
+      action?: string;
+    }>;
+    expectedWebhookUrl: string;
+    webhook: {
+      configuredUrl: string | null;
+      urlMatches: boolean;
+      hasApikeyHeader: boolean;
+      enabled: boolean | null;
+    };
+    evolution: { connectionState: string | null; instance: string | null };
+    database: {
+      messagesLast24h: number;
+      recentMessages: Array<{
+        receivedAt: string;
+        fromNumber: string;
+        userId: string | null;
+      }>;
+    };
+    processing: string;
+  } | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [repairingWebhook, setRepairingWebhook] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setIntegrationsError(null);
     setPlatformsError(null);
-    const [healthData, integrationsResult, serverPlatforms, vercelProbe] =
+    const [healthData, integrationsResult, serverPlatforms, vercelProbe, waPipe] =
       await Promise.all([
         fetchSystemHealth(),
         api<IntegrationsHealthReport>("/admin/integrations/health").catch(
@@ -141,8 +168,16 @@ export default function AdminStatusPage() {
           },
         ),
         fetchVercelHealth(),
+        api<Awaited<typeof whatsappPipeline>>("/admin/whatsapp/pipeline").catch(
+          (err: Error) => {
+            setWhatsappError(err.message);
+            return null;
+          },
+        ),
       ]);
     setSnapshot(healthData);
+    setWhatsappPipeline(waPipe);
+    if (waPipe) setWhatsappError(null);
     setIntegrations(integrationsResult);
     setPlatforms(
       mergePlatformHealth(healthData, serverPlatforms, vercelProbe),
@@ -176,6 +211,21 @@ export default function AdminStatusPage() {
     platforms?.platforms.every(
       (p) => p.status === "ok" || p.status === "not_configured",
     ) ?? true;
+
+  const waCritical =
+    whatsappPipeline?.issues.filter((i) => i.severity === "critical") ?? [];
+
+  const repairWebhook = async () => {
+    setRepairingWebhook(true);
+    try {
+      await api("/admin/whatsapp/repair-webhook", { method: "POST" });
+      await load();
+    } catch (err) {
+      setWhatsappError(err instanceof Error ? err.message : "Falha ao reparar");
+    } finally {
+      setRepairingWebhook(false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 pb-24 md:pb-8 space-y-6 max-w-6xl mx-auto">
@@ -264,6 +314,101 @@ export default function AdminStatusPage() {
         <p className="text-sm text-muted-foreground animate-pulse">
           Consultando serviços…
         </p>
+      )}
+
+      {(whatsappPipeline || whatsappError) && (
+        <section className="space-y-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-emerald-400" />
+                Pipeline WhatsApp (causa raiz)
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Evolution → webhook Vercel → banco → app. Mensagens no banco (24h):{" "}
+                {whatsappPipeline?.database.messagesLast24h ?? "—"}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={repairingWebhook}
+              onClick={() => void repairWebhook()}
+            >
+              {repairingWebhook ? "Reparando…" : "Reparar webhook"}
+            </Button>
+          </div>
+          {whatsappError && (
+            <p className="text-sm text-destructive">{whatsappError}</p>
+          )}
+          {whatsappPipeline && (
+            <>
+              <DetailRow
+                label="Processamento"
+                value={whatsappPipeline.processing}
+              />
+              <DetailRow
+                label="WhatsApp Evolution"
+                value={whatsappPipeline.evolution.connectionState ?? "—"}
+              />
+              <DetailRow
+                label="Webhook esperado"
+                value={whatsappPipeline.expectedWebhookUrl}
+                mono
+              />
+              <DetailRow
+                label="Webhook na Evolution"
+                value={
+                  whatsappPipeline.webhook.configuredUrl ?? "(não configurado)"
+                }
+                mono
+              />
+              <DetailRow
+                label="URL coincide"
+                value={boolLabel(whatsappPipeline.webhook.urlMatches)}
+              />
+              <DetailRow
+                label="Header apikey"
+                value={boolLabel(whatsappPipeline.webhook.hasApikeyHeader)}
+              />
+              {waCritical.length > 0 && (
+                <ul className="mt-2 space-y-2">
+                  {waCritical.map((issue) => (
+                    <li
+                      key={issue.code}
+                      className="text-sm rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2"
+                    >
+                      <span className="font-mono text-xs text-red-300">
+                        {issue.code}
+                      </span>
+                      <p className="mt-1">{issue.message}</p>
+                      {issue.action && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          → {issue.action}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {whatsappPipeline.database.recentMessages.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Últimas mensagens no banco
+                  </p>
+                  <ul className="text-xs font-mono space-y-1">
+                    {whatsappPipeline.database.recentMessages.map((m) => (
+                      <li key={m.receivedAt + m.fromNumber}>
+                        {formatCheckedAt(m.receivedAt)} · {m.fromNumber} · user=
+                        {m.userId ?? "NÃO VINCULADO"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {platforms && (

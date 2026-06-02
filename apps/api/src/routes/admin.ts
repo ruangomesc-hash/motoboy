@@ -33,6 +33,10 @@ import { getIntegrationsHealth } from "../services/integration-health.js";
 import { getServerPlatformHealth } from "../services/platform-health.js";
 import { getAdminClientErrorLogs } from "../services/client-error-log.js";
 import {
+  getWhatsAppPipelineDiagnostics,
+  repairEvolutionWebhook,
+} from "../services/whatsapp-diagnostics.js";
+import {
   createAdminUser,
   deleteAdminUser,
   exportAllAdminUsersCsv,
@@ -329,6 +333,31 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/platform/health", async () => {
     return getServerPlatformHealth(env);
+  });
+
+  app.get("/admin/whatsapp/pipeline", async () => {
+    return getWhatsAppPipelineDiagnostics(env);
+  });
+
+  app.post("/admin/whatsapp/repair-webhook", async (_request, reply) => {
+    try {
+      const result = await repairEvolutionWebhook(env);
+      if (!result.ok) {
+        return reply.status(502).send({
+          error: `Evolution webhook/set retornou HTTP ${result.status}`,
+          code: "EVOLUTION_WEBHOOK_SET_FAILED",
+          webhookUrl: result.webhookUrl,
+        });
+      }
+      const diagnostics = await getWhatsAppPipelineDiagnostics(env);
+      return { ok: true, webhookUrl: result.webhookUrl, diagnostics };
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.status(e.statusCode ?? 500).send({
+        error: e.message,
+        code: "WEBHOOK_REPAIR_FAILED",
+      });
+    }
   });
 
   app.get("/admin/client-errors", async (request) => {
