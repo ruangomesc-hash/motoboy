@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
@@ -26,9 +34,11 @@ import { clearPendingRegistration } from "@/lib/registration-pending";
 import {
   buildInitialConfigForm,
   buildOptimisticMeFromPending,
+  configFormFingerprint,
   meToConfigForm,
   readPendingRegistrationProfile,
   type ConfigFormSnapshot,
+  type MeSettingsSnapshot,
 } from "@/lib/me-settings";
 import { AppPage } from "@/components/app-page";
 
@@ -56,7 +66,32 @@ function ConfigPageInner() {
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
   const [initialCosts, setInitialCosts] = useState(() => buildInitialConfigForm().costs);
+  const formDirtyRef = useRef(false);
+  const lastAppliedFingerprintRef = useRef<string | null>(null);
   const { profile, monthlyGoal, costs } = form;
+
+  const applyMeToForm = useCallback(
+    (me: MeSettingsSnapshot, opts?: { force?: boolean }) => {
+      const pending = readPendingRegistrationProfile();
+      const next = meToConfigForm(me, pending, session?.phone);
+      const fingerprint = configFormFingerprint(next);
+      if (
+        !opts?.force &&
+        formDirtyRef.current &&
+        fingerprint !== lastAppliedFingerprintRef.current
+      ) {
+        return;
+      }
+      setForm(next);
+      setInitialCosts(next.costs);
+      lastAppliedFingerprintRef.current = fingerprint;
+      formDirtyRef.current = false;
+      if (next.profile.name?.trim() && next.profile.email?.trim()) {
+        clearPendingRegistration();
+      }
+    },
+    [session?.phone],
+  );
 
   const previewPlan = useMemo(() => {
     const monthly = Number(monthlyGoal);
@@ -92,36 +127,29 @@ function ConfigPageInner() {
   useLayoutEffect(() => {
     if (sessionStatus !== "authenticated") return;
     const pending = readPendingRegistrationProfile();
-    if (pending) {
-      const next = meToConfigForm(
-        meSettings ?? buildOptimisticMeFromPending(pending),
-        pending,
-        session?.phone,
-      );
-      setForm(next);
-      setInitialCosts(next.costs);
-    }
-  }, [sessionStatus, meSettings]);
+    if (!pending) return;
+    applyMeToForm(
+      meSettings ?? buildOptimisticMeFromPending(pending),
+      { force: true },
+    );
+  }, [sessionStatus, applyMeToForm, meSettings]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     if (!pathname.startsWith("/config")) return;
     setLoadError(null);
-    void loadMeSettings({ force: true, silent: true }).catch((e: Error) => {
+    void loadMeSettings({
+      force: !meSettings,
+      silent: true,
+    }).catch((e: Error) => {
       setLoadError(e.message);
     });
-  }, [pathname, sessionStatus, loadMeSettings]);
+  }, [pathname, sessionStatus, loadMeSettings, meSettings]);
 
   useEffect(() => {
     if (!meSettings || saving) return;
-    const pending = readPendingRegistrationProfile();
-    const next = meToConfigForm(meSettings, pending, session?.phone);
-    setForm(next);
-    setInitialCosts(next.costs);
-    if (next.profile.name?.trim() && next.profile.email?.trim()) {
-      clearPendingRegistration();
-    }
-  }, [meSettings, saving]);
+    applyMeToForm(meSettings);
+  }, [meSettings, saving, applyMeToForm]);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
@@ -132,10 +160,12 @@ function ConfigPageInner() {
   }, [api, sessionStatus]);
 
   function patchForm(patch: Partial<ConfigFormSnapshot>) {
+    formDirtyRef.current = true;
     setForm((prev) => ({ ...prev, ...patch }));
   }
 
   function setProfile(next: ProfileFormState) {
+    formDirtyRef.current = true;
     setForm((prev) => ({ ...prev, profile: next }));
   }
 
@@ -173,6 +203,8 @@ function ConfigPageInner() {
         );
         return;
       }
+
+      if (me) applyMeToForm(me, { force: true });
 
       const message = "Configurações salvas com sucesso!";
       setSaveSuccess(message);

@@ -180,6 +180,31 @@ export function buildConfigSavePayload(
   return form;
 }
 
+/** Identidade estável do formulário para evitar sobrescrever edição local. */
+export function configFormFingerprint(form: ConfigFormSnapshot): string {
+  const p = form.profile;
+  return JSON.stringify({
+    name: p.name.trim(),
+    email: p.email.trim().toLowerCase(),
+    whatsappPhone: p.whatsappPhone.replace(/\D/g, ""),
+    city: p.city.trim(),
+    workApps: [...p.workApps].sort(),
+    workDays: [...p.workDays].sort((a, b) => a - b),
+    subscriptionPaymentMethod: p.subscriptionPaymentMethod,
+    monthlyGoal: form.monthlyGoal.trim(),
+    costs: form.costs,
+  });
+}
+
+export function meSettingsToConfigFingerprint(
+  me: MeSettingsSnapshot,
+  sessionPhone?: string | null,
+): string {
+  return configFormFingerprint(
+    meToConfigForm(me, readPendingRegistrationProfile(), sessionPhone),
+  );
+}
+
 export function toProfilePutBody(
   profile: ProfileFormState,
   loginPhoneLocal?: string | null,

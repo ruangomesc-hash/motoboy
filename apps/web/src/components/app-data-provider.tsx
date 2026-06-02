@@ -197,6 +197,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const bootstrapStarted = useRef(false);
   const configRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const meLoadSeq = useRef(0);
+  /** Após salvar Config, ignora GET /me concorrente que traria dados antigos. */
+  const meSettingsGuardUntil = useRef(0);
   const deliveriesFetchSeq = useRef(0);
   const periodFetchSeq = useRef(0);
   const deliveryMutationGen = useRef(0);
@@ -836,6 +838,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           void api<MeApiResponse>("/me")
             .then((data) => {
               if (seq !== meLoadSeq.current) return;
+              if (Date.now() < meSettingsGuardUntil.current) return;
               applyMeSnapshot(parseMeSettings(data));
               if (userId) schedulePersist(userId);
             })
@@ -849,6 +852,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       try {
         const data = await api<MeApiResponse>("/me");
         if (seq !== meLoadSeq.current) return null;
+        if (opts?.silent && Date.now() < meSettingsGuardUntil.current) {
+          return meSettingsRef.current;
+        }
         const snap = parseMeSettings(data);
         if (pending) {
           applyMeSnapshot({
@@ -891,9 +897,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [loadMeSettings]);
 
   const queueConfigRefresh = useCallback(() => {
+    if (Date.now() < meSettingsGuardUntil.current) return;
     if (configRefreshTimer.current) clearTimeout(configRefreshTimer.current);
     configRefreshTimer.current = setTimeout(() => {
       configRefreshTimer.current = null;
+      if (Date.now() < meSettingsGuardUntil.current) return;
       void loadMeSettings({ force: true, silent: true });
     }, 80);
   }, [loadMeSettings]);
@@ -1133,17 +1141,34 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      const [profileRes, planRes] = (await Promise.all(requests)) as [
-        UserProfile,
-        { plan: GoalsPlan },
-      ];
+      const results = await Promise.all(requests);
+      const profileRes = results[0] as UserProfile;
+      const planRes = results[1] as { plan: GoalsPlan };
+      let costsFromServer: MeSettingsSnapshot["costs"] | undefined;
+      if (saveCosts && results[2]) {
+        const row = results[2] as {
+          fuelPricePerLiter: { toString(): string } | number;
+          kmPerLiter: { toString(): string } | number;
+          maintenancePerKm: { toString(): string } | number;
+          dailyFoodCost: { toString(): string } | number;
+          otherDailyCost: { toString(): string } | number;
+        };
+        costsFromServer = {
+          fuelPricePerLiter: Number(row.fuelPricePerLiter),
+          kmPerLiter: Number(row.kmPerLiter),
+          maintenancePerKm: Number(row.maintenancePerKm),
+          dailyFoodCost: Number(row.dailyFoodCost),
+          otherDailyCost: Number(row.otherDailyCost),
+        };
+      }
 
       const snap = buildMeSnapshotAfterSave(
         payload,
         profileRes,
         planRes.plan,
-        saveCosts ? undefined : current?.costs ?? null,
+        saveCosts ? costsFromServer : (current?.costs ?? null),
       );
+      meSettingsGuardUntil.current = Date.now() + 8_000;
       applyMeSnapshot(snap);
       if (userId) persistNow(userId);
       markConfigSavedOnce();
