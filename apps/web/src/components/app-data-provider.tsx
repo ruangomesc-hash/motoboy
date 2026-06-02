@@ -67,6 +67,7 @@ import { clearInflightCreates } from "@/lib/inflight-delivery-create";
 import {
   dedupeRecentDeliveries,
   mergeDeliveryLists,
+  mergeDeliveryListsFromServerPoll,
   mergeTodayFromServer,
 } from "@/lib/merge-app-data";
 import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
@@ -123,8 +124,8 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-/** Atualização do app sem socket — 2s com aba visível. */
-const POLL_MS = 2_000;
+/** Atualização do app sem socket — poll com aba visível. */
+const POLL_MS = 1_000;
 /** Reconciliação após edição local no app (debounce curto). */
 const MUTATION_SETTLE_MS = 400;
 /** Após entrega via Zap/socket: busca servidor em ~250ms. */
@@ -582,7 +583,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const tomb = deletedDeliveries.current;
         const tombSet = new Set(tomb.toArray());
         const items = tomb.filter(r.items);
-        setDeliveries((prev) => mergeDeliveryLists(items, prev, date, tombSet));
+        setDeliveries((prev) =>
+          options?.background
+            ? mergeDeliveryListsFromServerPoll(items, prev, date, tombSet)
+            : mergeDeliveryLists(items, prev, date, tombSet),
+        );
 
         if (genAtStart === deliveryMutationGen.current) {
           tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));

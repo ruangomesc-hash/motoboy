@@ -148,8 +148,11 @@ export async function getWhatsAppPipelineDiagnostics(
     normalizeAppOrigin(env.APP_URL),
     publicOrigin,
   );
+  const { whatsappProcessingMode, isVercelServerless } = await import(
+    "../lib/whatsapp-processing-mode.js"
+  );
   const runWhatsAppWorker = process.env.RUN_WHATSAPP_WORKER === "true";
-  const processing = runWhatsAppWorker ? "queue" : "inline";
+  const processing = whatsappProcessingMode();
   const evolutionConfigured = Boolean(
     env.EVOLUTION_API_URL?.trim() &&
       env.EVOLUTION_API_KEY?.trim() &&
@@ -317,14 +320,22 @@ export async function getWhatsAppPipelineDiagnostics(
     });
   }
 
-  if (runWhatsAppWorker && processing === "queue") {
+  if (isVercelServerless() && runWhatsAppWorker) {
     issues.push({
       severity: "warning",
-      code: "QUEUE_MODE_VERCEL",
+      code: "VERCEL_WORKER_FLAG_IGNORED",
       message:
-        "Modo fila ativo: o webhook só enfileira; o Railway precisa estar no ar.",
+        "RUN_WHATSAPP_WORKER=true na Vercel não enfileira (evita atraso ~1 min). Remova essa variável na Vercel.",
+      action: "Vercel: apague RUN_WHATSAPP_WORKER ou defina false.",
+    });
+  } else if (runWhatsAppWorker && processing === "queue") {
+    issues.push({
+      severity: "warning",
+      code: "QUEUE_MODE",
+      message:
+        "Modo fila: o webhook só enfileira; o worker Railway precisa estar no ar.",
       action:
-        "Para só Vercel: RUN_WHATSAPP_WORKER=false. Para fila: Railway com build OK + mesmo REDIS_URL.",
+        "Confira logs do Railway ou use processamento inline no host do webhook.",
     });
   }
 

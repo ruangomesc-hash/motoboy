@@ -19,6 +19,7 @@ import {
   parseEvolutionInboundMessage,
 } from "../lib/evolution-webhook.js";
 import { getWhatsAppQueue } from "../lib/whatsapp-queue.js";
+import { shouldEnqueueWhatsAppOnWebhook } from "../lib/whatsapp-processing-mode.js";
 import {
   WHATSAPP_INVALID_PAYLOAD_MESSAGE,
   WHATSAPP_QUEUE_DOWN_MESSAGE,
@@ -190,9 +191,18 @@ async function handleWhatsAppWebhook(
 
     const redisUrl = env.REDIS_URL?.trim();
     const messageId = data.key.id;
-    const workerOnHost = process.env.RUN_WHATSAPP_WORKER === "true";
+    const enqueue = shouldEnqueueWhatsAppOnWebhook();
+    if (
+      !enqueue &&
+      process.env.RUN_WHATSAPP_WORKER === "true" &&
+      process.env.VERCEL === "1"
+    ) {
+      request.log.warn(
+        "RUN_WHATSAPP_WORKER=true na Vercel ignorado — processamento inline (remova da Vercel ou use só no Railway)",
+      );
+    }
 
-    if (workerOnHost) {
+    if (enqueue) {
       if (!redisUrl) {
         await safeWhatsAppReply(
           app.evolution,

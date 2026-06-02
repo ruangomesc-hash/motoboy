@@ -39,6 +39,21 @@ export function mergeDeliveryLists(
   return sortDeliveriesByOccurredAt([...byId.values()]);
 }
 
+/**
+ * Poll em background (Zap/socket): servidor manda a verdade; local só `local-*` pendente.
+ */
+export function mergeDeliveryListsFromServerPoll(
+  server: DeliveryListItem[],
+  local: DeliveryListItem[],
+  dateFilter: string,
+  tombstoneIds: ReadonlySet<string> = new Set(),
+): DeliveryListItem[] {
+  const pendingLocal = local.filter(
+    (d) => isPendingDeliveryId(d.id) && !tombstoneIds.has(d.id),
+  );
+  return mergeDeliveryLists(server, pendingLocal, dateFilter, tombstoneIds);
+}
+
 /** Remove duplicatas por id (mantém a primeira ocorrência). */
 export function dedupeRecentDeliveries<
   T extends { id: string },

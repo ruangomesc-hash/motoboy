@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TodaySummary } from "@motoboy/types";
 import {
   mergeDeliveryLists,
+  mergeDeliveryListsFromServerPoll,
   mergeTodayFromServer,
 } from "@/lib/merge-app-data";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
@@ -34,6 +35,44 @@ describe("mergeDeliveryLists", () => {
     const merged = mergeDeliveryLists(server, local, todayKey);
     expect(merged).toHaveLength(2);
     expect(merged.some((d) => d.id === "b")).toBe(true);
+  });
+
+  it("server poll replaces stale local rows (keeps only local-* pending)", () => {
+    const server: DeliveryListItem[] = [
+      {
+        id: "new-100",
+        grossValue: 100,
+        source: "IFOOD",
+        originName: null,
+        occurredAt: `${todayKey}T16:04:00.000Z`,
+        distanceKm: null,
+      },
+    ];
+    const staleLocal: DeliveryListItem[] = [
+      {
+        id: "old-25",
+        grossValue: 25,
+        source: "PARTICULAR",
+        originName: null,
+        occurredAt: `${todayKey}T15:00:00.000Z`,
+        distanceKm: null,
+      },
+      {
+        id: "local-pending",
+        grossValue: 50,
+        source: "PARTICULAR",
+        originName: null,
+        occurredAt: `${todayKey}T16:05:00.000Z`,
+        distanceKm: null,
+      },
+    ];
+    const merged = mergeDeliveryListsFromServerPoll(
+      server,
+      staleLocal,
+      todayKey,
+    );
+    expect(merged.map((d) => d.id)).toEqual(["local-pending", "new-100"]);
+    expect(merged.find((d) => d.id === "old-25")).toBeUndefined();
   });
 
   it("hides tombstoned ids even if server still returns them", () => {

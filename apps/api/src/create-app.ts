@@ -234,9 +234,12 @@ export async function createApp(
     const userPasswordColumn = await isUserPasswordColumnReady();
     const { getWhatsAppQueueCounts } = await import("./lib/whatsapp-queue.js");
     const whatsappQueue = await getWhatsAppQueueCounts(env);
+    const { whatsappProcessingMode, isVercelServerless } = await import(
+      "./lib/whatsapp-processing-mode.js"
+    );
     const runWhatsAppWorker =
       process.env.RUN_WHATSAPP_WORKER === "true" && isRedisEnabled(env);
-    const whatsappProcessing = runWhatsAppWorker ? "queue" : "inline";
+    const whatsappProcessing = whatsappProcessingMode();
     const migrationsHint = !adminTable
       ? "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build"
       : !userPasswordColumn
@@ -251,6 +254,7 @@ export async function createApp(
       redis: isRedisEnabled(env),
       whatsappWorker: runWhatsAppWorker,
       whatsappProcessing,
+      vercelServerless: isVercelServerless(),
       whatsappQueue,
       asaas: {
         configured: isAsaasConfigured(env),

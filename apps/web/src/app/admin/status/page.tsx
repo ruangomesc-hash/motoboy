@@ -7,7 +7,7 @@ import type {
 } from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/stat-card";
-import { useAdminApi } from "@/hooks/use-admin-api";
+import { useAdminApi, useAdminSessionReady } from "@/hooks/use-admin-api";
 import {
   fetchSystemHealth,
   isSystemHealthy,
@@ -201,16 +201,17 @@ export default function AdminStatusPage() {
   }, [api]);
 
   useEffect(() => {
+    if (!adminReady) return;
     void load();
-  }, [load]);
+  }, [load, adminReady]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !adminReady) return;
     const id = setInterval(() => {
       void load();
     }, 60_000);
     return () => clearInterval(id);
-  }, [autoRefresh, load]);
+  }, [autoRefresh, load, adminReady]);
 
   const healthy = snapshot ? isSystemHealthy(snapshot) : false;
   const h = snapshot?.health;

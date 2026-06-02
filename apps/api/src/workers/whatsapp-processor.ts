@@ -90,13 +90,13 @@ async function finalizeWhatsAppDelivery(
     },
     log,
   );
-  emitDeliveryCreated(user.id, delivery);
   const msg = formatDeliveryConfirmationMessage({
     grossValue: delivery.grossValue,
     source: delivery.source,
     originName: delivery.originName,
   });
   await evolution.sendText(replyTo, msg, { fast: true });
+  emitDeliveryCreated(user.id, delivery);
 }
 
 export interface WhatsAppJobData {
@@ -248,6 +248,28 @@ async function processWhatsAppJobInternal(
             "Não entendi. Manda texto, áudio ou foto da comanda.",
           );
           return;
+        }
+
+        if (messageType === "text") {
+          const quick = tryParseDeliveryFromText(text);
+          if (quick) {
+            await finalizeWhatsAppDelivery(
+              user,
+              job,
+              quick,
+              text,
+              messageType,
+              rawContent,
+              evolution,
+              io,
+              log,
+            );
+            await prisma.whatsAppMessage.update({
+              where: { id: inbound.id },
+              data: { processedAs: "processed" },
+            });
+            return;
+          }
         }
 
         await processTextMessage(

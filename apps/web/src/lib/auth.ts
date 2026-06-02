@@ -215,6 +215,9 @@ export const authOptions: NextAuthOptions = {
         token.isAdmin = (user as { isAdmin?: boolean }).isAdmin ?? false;
         token.adminDemo = (user as { adminDemo?: boolean }).adminDemo ?? false;
       }
+      if (token.userId === "admin" && !token.isAdmin) {
+        token.isAdmin = true;
+      }
       return token;
     },
     async session({ session, token }) {
