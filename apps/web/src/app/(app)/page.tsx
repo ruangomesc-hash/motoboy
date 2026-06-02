@@ -76,7 +76,7 @@ function sourceLabel(source: string): string {
 }
 
 export default function HomePage() {
-  const { today, profileName, deliveries } = useAppData();
+  const { today, profileName, todayDeliveries } = useAppData();
   const { deleteDelivery } = useDeleteDelivery();
   const [deleteTarget, setDeleteTarget] = useState<
     TodaySummary["recentDeliveries"][number] | null
@@ -92,8 +92,8 @@ export default function HomePage() {
 
   const s = useMemo(() => {
     if (!today) return emptySummary;
-    return recomputeTodayFromDeliveries(deliveries, today);
-  }, [today, deliveries]);
+    return recomputeTodayFromDeliveries(todayDeliveries, today);
+  }, [today, todayDeliveries]);
   const recentDeliveries = s.recentDeliveries;
   const manualExpensesTotal = s.manualExpensesTotal ?? 0;
   const outrosTotal = s.otherCost + manualExpensesTotal;

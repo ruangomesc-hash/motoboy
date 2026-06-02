@@ -4,6 +4,7 @@ import {
   mergeDeliveryLists,
   mergeDeliveryListsFromServerPoll,
   mergeTodayFromServer,
+  selectDeliveriesForDate,
 } from "@/lib/merge-app-data";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
 
@@ -35,6 +36,22 @@ describe("mergeDeliveryLists", () => {
     const merged = mergeDeliveryLists(server, local, todayKey);
     expect(merged).toHaveLength(2);
     expect(merged.some((d) => d.id === "b")).toBe(true);
+  });
+
+  it("selectDeliveriesForDate picks today from period when day list is empty", () => {
+    const period: DeliveryListItem[] = [
+      {
+        id: "wa-200",
+        grossValue: 200,
+        source: "PARTICULAR",
+        originName: null,
+        occurredAt: `${todayKey}T16:10:00.000Z`,
+        distanceKm: null,
+      },
+    ];
+    const picked = selectDeliveriesForDate([], period, todayKey);
+    expect(picked).toHaveLength(1);
+    expect(picked[0]?.grossValue).toBe(200);
   });
 
   it("server poll replaces stale local rows (keeps only local-* pending)", () => {

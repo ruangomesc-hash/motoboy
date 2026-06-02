@@ -69,6 +69,8 @@ import {
   mergeDeliveryLists,
   mergeDeliveryListsFromServerPoll,
   mergeTodayFromServer,
+  selectDeliveriesForDate,
+  upsertDeliveriesForDate,
 } from "@/lib/merge-app-data";
 import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
 
@@ -78,6 +80,8 @@ type AppDataContextValue = {
   today: TodaySummary | null;
   profileName: string | null;
   deliveries: DeliveryListItem[];
+  /** Hoje (device) — lista do dia + período; Home sempre usa isto. */
+  todayDeliveries: DeliveryListItem[];
   deliveriesDate: string;
   setDeliveriesDate: (date: string) => void;
   /** Alinha o filtro de Entregas ao dia atual do celular (após meia-noite). */
@@ -594,13 +598,29 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const tomb = deletedDeliveries.current;
         const tombSet = new Set(tomb.toArray());
         const items = tomb.filter(r.items);
+        const todayKey = todayDateInputValue();
+
         setDeliveries((prev) =>
           options?.background
-            ? mergeDeliveryListsFromServerPoll(items, prev, date, tombSet)
-            : mergeDeliveryLists(items, prev, date, tombSet),
+            ? upsertDeliveriesForDate(prev, items, date, tombSet, {
+                serverPoll: true,
+              })
+            : upsertDeliveriesForDate(prev, items, date, tombSet),
         );
 
-        if (genAtStart === deliveryMutationGen.current) {
+        if (options?.background && date !== todayKey) {
+          const todayRes = await api<{ items: DeliveryListItem[] }>(
+            `/me/deliveries?date=${todayKey}&limit=100`,
+          );
+          if (seq !== deliveriesFetchSeq.current) return;
+          const todayItems = tomb.filter(todayRes.items);
+          setDeliveries((prev) =>
+            upsertDeliveriesForDate(prev, todayItems, todayKey, tombSet, {
+              serverPoll: true,
+            }),
+          );
+          tomb.pruneConfirmedAbsent(todayRes.items.map((d) => d.id));
+        } else if (genAtStart === deliveryMutationGen.current) {
           tomb.pruneConfirmedAbsent(r.items.map((d) => d.id));
         }
         if (userId) schedulePersist(userId);
@@ -785,8 +805,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const background = { background: true as const };
     try {
       await refreshDeliveries(undefined, background);
+      await refreshPeriodDeliveries(undefined, background);
       await refreshToday(undefined, background);
-      void refreshPeriodDeliveries(undefined, background);
     } finally {
       reconcileInFlight.current = false;
     }
@@ -1130,9 +1150,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [isBootstrapped, syncDeliveriesFilterDate]);
 
   const anchorDate = deliveriesDate || todayDateInputValue();
+  const deviceToday = todayDateInputValue();
   const tombSet = useMemo(
     () => new Set(deletedDeliveries.current.toArray()),
     [deliveries, periodDeliveries],
+  );
+
+  const todayDeliveries = useMemo(
+    () =>
+      selectDeliveriesForDate(
+        deliveries,
+        periodDeliveries,
+        deviceToday,
+        tombSet,
+      ),
+    [deliveries, periodDeliveries, deviceToday, tombSet],
   );
 
   const liveStatsWeek = useMemo(
@@ -1164,6 +1196,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       today,
       profileName,
       deliveries,
+      todayDeliveries,
       deliveriesDate,
       setDeliveriesDate,
       syncDeliveriesFilterDate,
@@ -1195,6 +1228,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       today,
       profileName,
       deliveries,
+      todayDeliveries,
       deliveriesDate,
       syncDeliveriesFilterDate,
       statsWeek,

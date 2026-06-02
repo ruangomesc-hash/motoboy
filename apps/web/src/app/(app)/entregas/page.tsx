@@ -26,6 +26,7 @@ function sourceLabel(source: string): string {
 export default function EntregasPage() {
   const {
     deliveries,
+    todayDeliveries,
     deliveriesDate,
     setDeliveriesDate,
     syncDeliveriesFilterDate,
@@ -39,11 +40,10 @@ export default function EntregasPage() {
   useEffect(() => {
     syncDeliveriesFilterDate();
   }, [syncDeliveriesFilterDate]);
-  const visibleDeliveries = useMemo(
-    () =>
-      deliveries.filter((d) => isIsoOnDateInput(d.occurredAt, filterDate)),
-    [deliveries, filterDate],
-  );
+  const visibleDeliveries = useMemo(() => {
+    const source = isToday ? todayDeliveries : deliveries;
+    return source.filter((d) => isIsoOnDateInput(d.occurredAt, filterDate));
+  }, [deliveries, todayDeliveries, filterDate, isToday]);
 
   return (
     <AppPage className="p-3 pb-4 space-y-3">

@@ -39,6 +39,34 @@ export function mergeDeliveryLists(
   return sortDeliveriesByOccurredAt([...byId.values()]);
 }
 
+/** Entregas de um dia a partir de duas fontes (lista do dia + período/mês). */
+export function selectDeliveriesForDate(
+  dayList: DeliveryListItem[],
+  periodList: DeliveryListItem[],
+  dateFilter: string,
+  tombstoneIds: ReadonlySet<string> = new Set(),
+): DeliveryListItem[] {
+  const dayRows = mergeDeliveryLists([], dayList, dateFilter, tombstoneIds);
+  return mergeDeliveryLists(dayRows, periodList, dateFilter, tombstoneIds);
+}
+
+/** Atualiza só as entregas de `dateFilter` e mantém outros dias no array. */
+export function upsertDeliveriesForDate(
+  list: DeliveryListItem[],
+  serverItems: DeliveryListItem[],
+  dateFilter: string,
+  tombstoneIds: ReadonlySet<string>,
+  options?: { serverPoll?: boolean },
+): DeliveryListItem[] {
+  const otherDays = list.filter(
+    (d) => !isIsoOnDateInput(d.occurredAt, dateFilter),
+  );
+  const forDay = options?.serverPoll
+    ? mergeDeliveryListsFromServerPoll(serverItems, [], dateFilter, tombstoneIds)
+    : mergeDeliveryLists(serverItems, [], dateFilter, tombstoneIds);
+  return sortDeliveriesByOccurredAt([...forDay, ...otherDays]);
+}
+
 /**
  * Poll em background (Zap/socket): servidor manda a verdade; local só `local-*` pendente.
  */
