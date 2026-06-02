@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from "@motoboy/db";
 import { TRIAL_DAYS } from "@motoboy/types";
+import { coerceBrazilStoredPhone } from "../lib/evolution-contact.js";
 import { normalizePhone } from "../lib/phone.js";
 import { attachReferralToUser, validateAffiliateCode } from "./affiliate.js";
 
@@ -45,43 +46,99 @@ function phoneLookupCandidates(whatsappNumber: string): string[] {
   return [...candidates];
 }
 
-export async function findUserByPhone(whatsappNumber: string) {
-  for (const whatsappNumberKey of phoneLookupCandidates(whatsappNumber)) {
-    const user = await prisma.user.findUnique({
-      where: { whatsappNumber: whatsappNumberKey },
-      include: { costs: true },
-    });
-    if (user) return user;
+function canonicalBrazilStoredPhone(raw: string): string | null {
+  const coerced = coerceBrazilStoredPhone(raw);
+  if (coerced) return coerced;
+  try {
+    return normalizePhone(raw);
+  } catch {
+    return null;
   }
-  return null;
+}
+
+/** Chaves de busca (com/sem 9, JID, etc.) — novos e cadastros antigos. */
+export function resolvePhoneLookupKeys(whatsappNumber: string): string[] {
+  const keys = new Set<string>();
+  const addKeys = (raw: string) => {
+    const canonical = canonicalBrazilStoredPhone(raw);
+    if (!canonical) return;
+    for (const k of phoneLookupCandidates(canonical)) keys.add(k);
+  };
+  addKeys(whatsappNumber);
+  return [...keys];
+}
+
+function phonesReferToSameAccount(stored: string, incoming: string): boolean {
+  if (stored === incoming) return true;
+  const a = new Set(resolvePhoneLookupKeys(stored));
+  return resolvePhoneLookupKeys(incoming).some((k) => a.has(k));
 }
 
 /**
- * Garante que o WhatsApp salvo no banco é o mesmo do login/cadastro (55 + 11 dígitos).
- * Evita conta criada no app com número diferente do que manda mensagem no Zap.
+ * Atualiza contas antigas para 55 + 11 dígitos (com 9) quando o número é o mesmo.
+ * Usado no login, GET /me e ao receber mensagem no Zap.
  */
-export async function syncUserWhatsAppOnLogin(
+export async function migrateUserWhatsAppToCanonical(
   userId: string,
-  loginPhone: string,
+  preferredPhone?: string,
 ): Promise<string> {
-  const normalized = normalizePhone(loginPhone);
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { whatsappNumber: true },
   });
-  if (!user) return normalized;
-  if (user.whatsappNumber === normalized) return normalized;
+  if (!user) {
+    return preferredPhone
+      ? (canonicalBrazilStoredPhone(preferredPhone) ?? preferredPhone)
+      : "";
+  }
+
+  const preferredCanonical = preferredPhone
+    ? canonicalBrazilStoredPhone(preferredPhone)
+    : null;
+  const storedCanonical =
+    canonicalBrazilStoredPhone(user.whatsappNumber) ?? user.whatsappNumber;
+  const canonical = preferredCanonical ?? storedCanonical;
+
+  if (!phonesReferToSameAccount(user.whatsappNumber, canonical)) {
+    return user.whatsappNumber;
+  }
+  if (user.whatsappNumber === canonical) return canonical;
 
   const conflict = await prisma.user.findFirst({
-    where: { whatsappNumber: normalized, NOT: { id: userId } },
+    where: { whatsappNumber: canonical, NOT: { id: userId } },
   });
   if (conflict) return user.whatsappNumber;
 
   await prisma.user.update({
     where: { id: userId },
-    data: { whatsappNumber: normalized },
+    data: { whatsappNumber: canonical },
   });
-  return normalized;
+  return canonical;
+}
+
+export async function findUserByPhone(whatsappNumber: string) {
+  for (const whatsappNumberKey of resolvePhoneLookupKeys(whatsappNumber)) {
+    const user = await prisma.user.findUnique({
+      where: { whatsappNumber: whatsappNumberKey },
+      include: { costs: true },
+    });
+    if (!user) continue;
+
+    await migrateUserWhatsAppToCanonical(user.id, whatsappNumber);
+    return prisma.user.findUnique({
+      where: { id: user.id },
+      include: { costs: true },
+    });
+  }
+  return null;
+}
+
+/** Login/cadastro: alinha WhatsApp da conta ao telefone informado (novos e existentes). */
+export async function syncUserWhatsAppOnLogin(
+  userId: string,
+  loginPhone: string,
+): Promise<string> {
+  return migrateUserWhatsAppToCanonical(userId, loginPhone);
 }
 
 export async function createUserWithProfile(input: {
@@ -163,27 +220,24 @@ export async function applyRegistrationInVerify(
 }
 
 export async function findOrCreateUser(whatsappNumber: string) {
-  const normalized = normalizePhone(whatsappNumber);
-  let user = await prisma.user.findUnique({
-    where: { whatsappNumber: normalized },
+  const existing = await findUserByPhone(whatsappNumber);
+  if (existing) return existing;
+
+  const normalized =
+    canonicalBrazilStoredPhone(whatsappNumber) ??
+    normalizePhone(whatsappNumber);
+
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+  return prisma.user.create({
+    data: {
+      whatsappNumber: normalized,
+      status: "TRIAL",
+      trialEndsAt,
+      ...defaultUserNestedCreate(),
+    },
     include: { costs: true },
   });
-
-  if (!user) {
-    const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
-    user = await prisma.user.create({
-      data: {
-        whatsappNumber: normalized,
-        status: "TRIAL",
-        trialEndsAt,
-        ...defaultUserNestedCreate(),
-      },
-      include: { costs: true },
-    });
-  }
-
-  return user;
 }
 
 export function isTrialExpired(user: {

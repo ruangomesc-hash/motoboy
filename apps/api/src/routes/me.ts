@@ -19,6 +19,7 @@ import {
   getUserGoalsContext,
 } from "../services/goals-plan.js";
 import { toUserProfile, updateUserProfile } from "../services/profile.js";
+import { migrateUserWhatsAppToCanonical } from "../services/user.js";
 import {
   costDiffFields,
   diffValues,
@@ -92,8 +93,11 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAppAccess);
 
   app.get("/me", async (request) => {
+    const userId = request.sessionUser!.id;
+    await migrateUserWhatsAppToCanonical(userId);
+
     const user = await prisma.user.findUnique({
-      where: { id: request.sessionUser!.id },
+      where: { id: userId },
       include: { costs: true, goals: { where: { active: true } } },
     });
     if (!user) return { error: "Não encontrado" };
@@ -175,8 +179,15 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.put("/me/profile", async (request) => {
+    const userId = request.sessionUser!.id;
     const body = profileUpdateSchema.parse(request.body);
-    return updateUserProfile(request.sessionUser!.id, body);
+    const profile = await updateUserProfile(userId, body);
+    if (body.whatsapp !== undefined) {
+      await migrateUserWhatsAppToCanonical(userId, body.whatsapp);
+      const refreshed = await prisma.user.findUnique({ where: { id: userId } });
+      if (refreshed) return toUserProfile(refreshed);
+    }
+    return profile;
   });
 
   app.get("/me/history", async (request) => {

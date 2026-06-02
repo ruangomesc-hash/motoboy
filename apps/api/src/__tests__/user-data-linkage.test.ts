@@ -35,4 +35,12 @@ describe("user data linkage (static audit)", () => {
     expect(src).toContain('where: { userId }');
     expect(src).toContain("createDeliveryManual(userId");
   });
+
+  it("GET /me normaliza WhatsApp de contas antigas", () => {
+    const me = readFileSync(join(root, "routes", "me.ts"), "utf8");
+    const user = readService("user.ts");
+    expect(me).toContain("migrateUserWhatsAppToCanonical");
+    expect(user).toContain("resolvePhoneLookupKeys");
+    expect(user).toContain("migrateUserWhatsAppToCanonical");
+  });
 });
