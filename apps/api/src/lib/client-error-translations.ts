@@ -143,7 +143,14 @@ const TRANSLATIONS: Record<
     action: "Confira NEXTAUTH_SECRET, NEXTAUTH_URL e logs Vercel.",
     severity: "critical",
   },
-  REDIS_QUEUE_ERROR: {
+  WHATSAPP_PROCESS_ERROR: {
+    title: "Falha ao processar mensagem WhatsApp",
+    detail:
+      "O worker BullMQ falhou ao interpretar ou salvar a mensagem (IA, banco ou fila).",
+    action:
+      "Veja logs do worker na Railway e Admin → Erros. Peça ao motoboy tentar de novo.",
+    severity: "critical",
+  },
     title: "Fila WhatsApp (Redis) indisponível",
     detail: "REDIS_URL Upstash inacessível — fila de mensagens parada.",
     action: "Confira Upstash e REDIS_URL na Railway.",

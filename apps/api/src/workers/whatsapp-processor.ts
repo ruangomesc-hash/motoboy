@@ -25,6 +25,7 @@ import {
 import {
   emitDeliveryCreated,
   emitDeliveryDeleted,
+  emitDeliveryUpdated,
 } from "../lib/delivery-events.js";
 import {
   registerOdometerReading,
@@ -33,6 +34,8 @@ import {
 } from "../services/odometer.js";
 import { normalizePhone } from "../lib/phone.js";
 import { getBullMQConnection } from "../lib/bullmq-connection.js";
+import { recordClientErrorSafe } from "../services/client-error-log.js";
+import { formatWhatsAppProcessingError } from "../lib/whatsapp-user-message.js";
 
 function dayBounds() {
   const start = new Date();
@@ -68,154 +71,238 @@ export function startWhatsAppWorker(
     async (job: Job<WhatsAppJobData>) => {
       const { fromNumber, messageType, rawContent } = job.data;
       const phone = normalizePhone(fromNumber);
-      const user = await findUserByPhone(phone);
+      let userId: string | undefined;
 
-      if (!user) {
-        await evolution.sendText(
-          phone,
-          "❌ WhatsApp não cadastrado. Entre no app e use o mesmo número em Configurações.",
-        );
-        return;
-      }
-
-      await prisma.whatsAppMessage.create({
-        data: {
-          userId: user.id,
-          fromNumber: phone,
-          messageType,
-          rawContent: rawContent as object,
-        },
-      });
-
-      if (isTrialExpired(user) && user.status !== "ACTIVE") {
-        await evolution.sendText(
-          phone,
-          `Trial encerrado. Assine em: ${env.APP_URL}/assinar`,
-        );
-        return;
-      }
-
-      let text = job.data.text ?? "";
-
-      if (messageType === "audio" && job.data.mediaBuffer) {
-        const buffer = Buffer.from(job.data.mediaBuffer, "base64");
-        if (buffer.length > 5_000_000) {
+      try {
+        const user = await findUserByPhone(phone);
+        if (!user) {
           await evolution.sendText(
             phone,
-            "Áudio muito longo. Fala mais curto, fica mais rápido 🙂",
+            "❌ WhatsApp não cadastrado. Entre no app e use o mesmo número em Configurações.",
           );
           return;
         }
-        text = await ai.transcribeAudio(
-          buffer,
-          job.data.mediaMime ?? "audio/ogg",
-        );
-      }
+        userId = user.id;
 
-      if (messageType === "image" && (job.data.mediaUrl || job.data.mediaBuffer)) {
-        const imageUrl = job.data.mediaUrl
-          ?? `data:${job.data.mediaMime ?? "image/jpeg"};base64,${job.data.mediaBuffer}`;
-        const cacheKey = job.data.mediaBuffer?.slice(0, 64);
-        const vision = await ai.analyzeImage(imageUrl, cacheKey);
+        await prisma.whatsAppMessage.create({
+          data: {
+            userId: user.id,
+            fromNumber: phone,
+            messageType,
+            rawContent: rawContent as object,
+          },
+        });
 
-        if (vision.type === "fuel_receipt") {
-          const refuel = await registerFuelRefuel(user.id, {
-            totalAmount: vision.totalAmount,
-            liters: vision.liters,
-            receiptPhotoUrl: job.data.mediaUrl,
-            rawInput: rawContent,
-          });
-          const { start, end } = dayBounds();
-          const stats = await getFuelDayStats(user.id, start, end, 0);
-          io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
+        if (isTrialExpired(user) && user.status !== "ACTIVE") {
           await evolution.sendText(
             phone,
-            formatFuelConfirmation(
-              vision.totalAmount,
-              vision.liters,
-              Number(refuel.pricePerLiter),
-              stats,
-            ),
+            `Trial encerrado. Assine em: ${env.APP_URL}/assinar`,
           );
           return;
         }
 
-        if (vision.type === "dashboard_odometer") {
-          await registerOdometerReading(user.id, {
-            odometerKm: vision.odometerKm,
-            photoUrl: job.data.mediaUrl,
-            rawInput: rawContent,
-          });
-          const { start, end } = dayBounds();
-          const stats = await getOdometerDayStats(user.id, start, end, 0);
-          io?.to(`user:${user.id}`).emit("odometer:updated", {
-            km: vision.odometerKm,
-          });
-          await evolution.sendText(
-            phone,
-            formatOdometerConfirmation(vision.odometerKm, stats),
-          );
-          return;
-        }
+        let text = job.data.text ?? "";
 
-        if (vision.type === "delivery_data") {
-          const delivery = await prisma.delivery.create({
-            data: {
-              userId: user.id,
-              source: "PARTICULAR",
-              grossValue: vision.grossValue,
-              originName: vision.originName,
-              destinationAddr: vision.destinationAddr,
-              proofPhotoUrl: job.data.mediaUrl,
-              proofLat: job.data.latitude,
-              proofLng: job.data.longitude,
-              proofAt: new Date(),
-              rawInput: rawContent as object,
-            },
-          });
-          emitDeliveryCreated(user.id, delivery);
-          const msg = await buildDeliveryConfirmation(user.id);
-          await evolution.sendText(phone, msg);
-          return;
-        }
-
-        if (vision.type === "delivery_proof") {
-          const last = await prisma.delivery.findFirst({
-            where: { userId: user.id },
-            orderBy: { occurredAt: "desc" },
-          });
-          if (last) {
-            await prisma.delivery.update({
-              where: { id: last.id },
-              data: {
-                proofPhotoUrl: job.data.mediaUrl,
-                proofLat: job.data.latitude,
-                proofLng: job.data.longitude,
-                proofAt: new Date(),
-              },
-            });
-            await evolution.sendText(phone, "✅ Foto de prova anexada à última entrega.");
-          } else {
+        if (messageType === "audio" && job.data.mediaBuffer) {
+          const buffer = Buffer.from(job.data.mediaBuffer, "base64");
+          if (buffer.length > 5_000_000) {
             await evolution.sendText(
               phone,
-              "Não achei entrega recente pra anexar a foto. Registra a entrega primeiro.",
+              "Áudio muito longo. Fala mais curto, fica mais rápido 🙂",
             );
+            return;
           }
+          text = await ai.transcribeAudio(
+            buffer,
+            job.data.mediaMime ?? "audio/ogg",
+          );
+        }
+
+        if (
+          messageType === "image" &&
+          (job.data.mediaUrl || job.data.mediaBuffer)
+        ) {
+          await processImageMessage(
+            job,
+            user,
+            phone,
+            rawContent,
+            ai,
+            evolution,
+            io,
+            env,
+          );
           return;
         }
-      }
 
-      if (!text.trim()) {
-        await evolution.sendText(
+        if (!text.trim()) {
+          await evolution.sendText(
+            phone,
+            "Não entendi. Manda texto, áudio ou foto da comanda.",
+          );
+          return;
+        }
+
+        await processTextMessage(
+          job,
+          user,
           phone,
-          "Não entendi. Manda texto, áudio ou foto da comanda.",
+          text,
+          messageType,
+          rawContent,
+          ai,
+          evolution,
+          io,
+          env,
+          log,
         );
-        return;
+      } catch (err) {
+        log.error({ err, jobId: job.id, phone }, "WhatsApp job falhou");
+        void recordClientErrorSafe({
+          userId: userId ?? null,
+          errorCode: "WHATSAPP_PROCESS_ERROR",
+          rawMessage: err instanceof Error ? err.message : String(err),
+          route: "/webhooks/whatsapp",
+          method: "WORKER",
+          source: "whatsapp",
+        });
+        try {
+          await evolution.sendText(phone, formatWhatsAppProcessingError(err));
+        } catch (sendErr) {
+          log.error({ sendErr, phone }, "Falha ao enviar erro no WhatsApp");
+        }
+        throw err;
       }
+    },
+    { connection },
+  );
+}
 
-      const extraction = await ai.extractFromText(text);
+async function processImageMessage(
+  job: Job<WhatsAppJobData>,
+  user: NonNullable<Awaited<ReturnType<typeof findUserByPhone>>>,
+  phone: string,
+  rawContent: unknown,
+  ai: AiService,
+  evolution: EvolutionService,
+  io: SocketServer | null,
+  env: Env,
+): Promise<void> {
+  const imageUrl =
+    job.data.mediaUrl ??
+    `data:${job.data.mediaMime ?? "image/jpeg"};base64,${job.data.mediaBuffer}`;
+  const cacheKey = job.data.mediaBuffer?.slice(0, 64);
+  const vision = await ai.analyzeImage(imageUrl, cacheKey);
 
-      if (extraction.type === "fuel_refuel") {
+  if (vision.type === "fuel_receipt") {
+    const refuel = await registerFuelRefuel(user.id, {
+      totalAmount: vision.totalAmount,
+      liters: vision.liters,
+      receiptPhotoUrl: job.data.mediaUrl,
+      rawInput: rawContent,
+    });
+    const { start, end } = dayBounds();
+    const stats = await getFuelDayStats(user.id, start, end, 0);
+    io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
+    await evolution.sendText(
+      phone,
+      formatFuelConfirmation(
+        vision.totalAmount,
+        vision.liters,
+        Number(refuel.pricePerLiter),
+        stats,
+      ),
+    );
+    return;
+  }
+
+  if (vision.type === "dashboard_odometer") {
+    await registerOdometerReading(user.id, {
+      odometerKm: vision.odometerKm,
+      photoUrl: job.data.mediaUrl,
+      rawInput: rawContent,
+    });
+    const { start, end } = dayBounds();
+    const stats = await getOdometerDayStats(user.id, start, end, 0);
+    io?.to(`user:${user.id}`).emit("odometer:updated", {
+      km: vision.odometerKm,
+    });
+    await evolution.sendText(
+      phone,
+      formatOdometerConfirmation(vision.odometerKm, stats),
+    );
+    return;
+  }
+
+  if (vision.type === "delivery_data") {
+    const delivery = await prisma.delivery.create({
+      data: {
+        userId: user.id,
+        source: "PARTICULAR",
+        grossValue: vision.grossValue,
+        originName: vision.originName,
+        destinationAddr: vision.destinationAddr,
+        proofPhotoUrl: job.data.mediaUrl,
+        proofLat: job.data.latitude,
+        proofLng: job.data.longitude,
+        proofAt: new Date(),
+        rawInput: rawContent as object,
+      },
+    });
+    emitDeliveryCreated(user.id, delivery);
+    const msg = await buildDeliveryConfirmation(user.id);
+    await evolution.sendText(phone, msg);
+    return;
+  }
+
+  if (vision.type === "delivery_proof") {
+    const last = await prisma.delivery.findFirst({
+      where: { userId: user.id },
+      orderBy: { occurredAt: "desc" },
+    });
+    if (last) {
+      const delivery = await prisma.delivery.update({
+        where: { id: last.id },
+        data: {
+          proofPhotoUrl: job.data.mediaUrl,
+          proofLat: job.data.latitude,
+          proofLng: job.data.longitude,
+          proofAt: new Date(),
+        },
+      });
+      emitDeliveryUpdated(user.id, delivery);
+      await evolution.sendText(phone, "✅ Foto de prova anexada à última entrega.");
+    } else {
+      await evolution.sendText(
+        phone,
+        "Não achei entrega recente pra anexar a foto. Registra a entrega primeiro.",
+      );
+    }
+    return;
+  }
+
+  await evolution.sendText(
+    phone,
+    "Não reconheci a foto. Envie comanda, cupom de posto ou painel (KM).",
+  );
+}
+
+async function processTextMessage(
+  job: Job<WhatsAppJobData>,
+  user: NonNullable<Awaited<ReturnType<typeof findUserByPhone>>>,
+  phone: string,
+  text: string,
+  messageType: string,
+  rawContent: unknown,
+  ai: AiService,
+  evolution: EvolutionService,
+  io: SocketServer | null,
+  env: Env,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const extraction = await ai.extractFromText(text);
+
+  if (extraction.type === "fuel_refuel") {
         const refuel = await registerFuelRefuel(user.id, {
           totalAmount: extraction.totalAmount,
           liters: extraction.liters,
@@ -413,11 +500,8 @@ export function startWhatsAppWorker(
         }
       }
 
-      await evolution.sendText(
-        phone,
-        "Não entendi. Exemplos:\n• entrega farmácia 25 reais\n• abasteci 40 reais 6 litros\n• foto do cupom do posto\n• foto do painel da moto (KM)",
-      );
-    },
-    { connection },
+  await evolution.sendText(
+    phone,
+    "Não entendi. Exemplos:\n• entrega farmácia 25 reais\n• abasteci 40 reais 6 litros\n• foto do cupom do posto\n• foto do painel da moto (KM)",
   );
 }

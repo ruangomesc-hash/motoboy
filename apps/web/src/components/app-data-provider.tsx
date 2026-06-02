@@ -122,7 +122,7 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 120_000;
+const POLL_MS = SOCKET_ENABLED ? 120_000 : 45_000;
 const MUTATION_SETTLE_MS = 8_000;
 const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;

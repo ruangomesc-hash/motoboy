@@ -60,14 +60,32 @@ const nextConfig = {
     return config;
   },
   async rewrites() {
+    const socketUpstream =
+      process.env.SOCKET_UPSTREAM_URL?.trim() ||
+      process.env.RAILWAY_API_URL?.trim() ||
+      (process.env.VERCEL === "1" ? undefined : process.env.API_URL?.trim());
+
     if (process.env.VERCEL === "1") {
-      return [];
+      const rewrites = [];
+      if (socketUpstream) {
+        const base = socketUpstream.replace(/\/$/, "");
+        rewrites.push({
+          source: "/socket.io/:path*",
+          destination: `${base}/socket.io/:path*`,
+        });
+      }
+      return rewrites;
     }
+
     const apiUrl = process.env.API_URL ?? "http://localhost:3001";
     return [
       {
         source: "/api/backend/:path*",
         destination: `${apiUrl}/:path*`,
+      },
+      {
+        source: "/socket.io/:path*",
+        destination: `${apiUrl}/socket.io/:path*`,
       },
     ];
   },

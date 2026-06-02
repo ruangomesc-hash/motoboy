@@ -5,6 +5,9 @@ import { createApp } from "./create-app.js";
 import { startWhatsAppWorker } from "./workers/whatsapp-processor.js";
 import { setSocketServer } from "./lib/socket.js";
 import { verifyToken } from "./lib/auth.js";
+import { EvolutionService } from "./services/evolution.js";
+import { normalizePhone } from "./lib/phone.js";
+import { formatWhatsAppProcessingError } from "./lib/whatsapp-user-message.js";
 
 const env = loadEnv();
 const app = await createApp();
@@ -62,8 +65,18 @@ if (runWorker) {
     );
   } else {
     const worker = startWhatsAppWorker(env, app.log, io);
-    worker.on("failed", (job, err) => {
+    worker.on("failed", async (job, err) => {
       app.log.error({ jobId: job?.id, err }, "Worker job failed");
+      if (!job?.data?.fromNumber) return;
+      const maxAttempts = job.opts.attempts ?? 3;
+      if ((job.attemptsMade ?? 0) < maxAttempts) return;
+      try {
+        const phone = normalizePhone(job.data.fromNumber);
+        const evolution = new EvolutionService(env, app.log);
+        await evolution.sendText(phone, formatWhatsAppProcessingError(err));
+      } catch (sendErr) {
+        app.log.error({ sendErr }, "Falha ao notificar erro final no WhatsApp");
+      }
     });
 
     process.on("SIGTERM", async () => {

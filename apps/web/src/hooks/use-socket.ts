@@ -9,10 +9,17 @@ import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
 
+/** Socket.io roda na API Railway; em produção use rewrite /socket.io no next.config. */
 function resolveSocketUrl(): string {
-  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-  if (typeof window !== "undefined") return window.location.origin;
+  const dedicated = process.env.NEXT_PUBLIC_SOCKET_URL?.trim();
+  if (dedicated) return dedicated.replace(/\/$/, "");
+
+  const apiPublic = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (apiPublic) return apiPublic.replace(/\/$/, "");
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
   return "http://localhost:3001";
 }
 
@@ -50,7 +57,12 @@ export function useSocket(userId: string | undefined, enabled = true): void {
     let socket: Socket | undefined;
     socket = io(resolveSocketUrl(), {
       auth: { token },
+      path: "/socket.io",
       transports: ["websocket", "polling"],
+    });
+
+    socket.on("connect_error", (err) => {
+      console.warn("[socket] connect_error", err.message);
     });
 
     socket.on("delivery:created", syncDeliveryFromSocket);
