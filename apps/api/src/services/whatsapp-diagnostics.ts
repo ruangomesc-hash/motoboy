@@ -8,6 +8,7 @@ import {
 } from "../lib/app-url.js";
 import { evolutionWebhookSecrets } from "../lib/webhook-auth.js";
 import { isRedisEnabled } from "../lib/redis.js";
+import { diagnosePhoneUserLink } from "./user.js";
 
 export type WhatsAppPipelineIssue = {
   severity: "critical" | "warning" | "info";
@@ -424,6 +425,53 @@ export async function getWhatsAppPipelineDiagnostics(
     });
   }
 
+  const phoneNumbersToDiagnose = [
+    ...new Set(
+      recentMessages
+        .filter(
+          (m) =>
+            m.messageType !== "webhook" &&
+            m.fromNumber &&
+            m.fromNumber !== "unknown" &&
+            !m.fromNumber.includes("@lid"),
+        )
+        .map((m) => m.fromNumber.replace(/@s\.whatsapp\.net$/i, "")),
+    ),
+  ];
+
+  const linkByPhone = new Map<
+    string,
+    Awaited<ReturnType<typeof diagnosePhoneUserLink>>
+  >();
+  await Promise.all(
+    phoneNumbersToDiagnose.map(async (phone) => {
+      linkByPhone.set(phone, await diagnosePhoneUserLink(phone));
+    }),
+  );
+
+  const unmatchedPhones = [...linkByPhone.values()]
+    .filter((d) => d.linkStatus === "not_in_database")
+    .map((d) => ({
+      fromNumber: d.incoming,
+      linkStatus: d.linkStatus,
+      lookupKeys: d.lookupKeys,
+      registeredAs: d.matchedUser?.whatsappNumber ?? null,
+    }));
+
+  if (unmatchedPhones.length > 0) {
+    const sample = unmatchedPhones
+      .slice(0, 3)
+      .map((p) => p.fromNumber)
+      .join(", ");
+    issues.push({
+      severity: "critical",
+      code: "ZAP_PHONE_NOT_IN_USERS_TABLE",
+      message: `${unmatchedPhones.length} número(s) do Zap sem conta: ${sample}${unmatchedPhones.length > 3 ? "…" : ""}.`,
+      action:
+        "No app, Entrar/Cadastro e Configurações devem usar exatamente esse celular (ex.: 31992907578 → salvo 5531992907578).",
+    });
+  }
+
   return {
     checkedAt: new Date().toISOString(),
     expectedWebhookUrl: expected,
@@ -444,13 +492,29 @@ export async function getWhatsAppPipelineDiagnostics(
       messagesLast24h,
       webhookHitsLast24h,
       deliveriesLast48h,
-      recentMessages: recentMessages.map((m) => ({
-        receivedAt: m.receivedAt.toISOString(),
-        fromNumber: m.fromNumber,
-        messageType: m.messageType,
-        userId: m.userId,
-        processedAs: m.processedAs,
-      })),
+      recentMessages: recentMessages.map((m) => {
+        const phoneKey =
+          m.messageType === "webhook" || m.fromNumber === "unknown"
+            ? null
+            : m.fromNumber.replace(/@s\.whatsapp\.net$/i, "");
+        const link = phoneKey ? linkByPhone.get(phoneKey) : null;
+        return {
+          receivedAt: m.receivedAt.toISOString(),
+          fromNumber: m.fromNumber,
+          messageType: m.messageType,
+          userId: m.userId,
+          processedAs: m.processedAs,
+          phoneLink: link
+            ? {
+                linkStatus: link.linkStatus,
+                lookupKeys: link.lookupKeys,
+                registeredAs: link.matchedUser?.whatsappNumber ?? null,
+                userName: link.matchedUser?.name ?? null,
+              }
+            : null,
+        };
+      }),
+      unmatchedPhones,
       recentWhatsAppErrors: recentWhatsAppErrors.map((e) => ({
         createdAt: e.createdAt.toISOString(),
         errorCode: e.errorCode,

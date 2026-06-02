@@ -133,6 +133,63 @@ export async function findUserByPhone(whatsappNumber: string) {
   return null;
 }
 
+export type PhoneUserLinkDiagnosis = {
+  incoming: string;
+  lookupKeys: string[];
+  matchedUser: {
+    id: string;
+    name: string | null;
+    whatsappNumber: string;
+  } | null;
+  linkStatus: "linked" | "not_in_database" | "invalid_phone" | "webhook_audit";
+};
+
+/** Admin: verifica se um número do Zap existe no cadastro (variantes com/sem 9). */
+export async function diagnosePhoneUserLink(
+  incoming: string,
+): Promise<PhoneUserLinkDiagnosis> {
+  const trimmed = incoming.trim();
+  if (!trimmed || trimmed === "unknown") {
+    return {
+      incoming: trimmed || "unknown",
+      lookupKeys: [],
+      matchedUser: null,
+      linkStatus: "webhook_audit",
+    };
+  }
+
+  const lookupKeys = resolvePhoneLookupKeys(trimmed);
+  if (lookupKeys.length === 0) {
+    return {
+      incoming: trimmed,
+      lookupKeys: [],
+      matchedUser: null,
+      linkStatus: "invalid_phone",
+    };
+  }
+
+  const user = await findUserByPhone(trimmed);
+  if (user) {
+    return {
+      incoming: trimmed,
+      lookupKeys,
+      matchedUser: {
+        id: user.id,
+        name: user.name,
+        whatsappNumber: user.whatsappNumber,
+      },
+      linkStatus: "linked",
+    };
+  }
+
+  return {
+    incoming: trimmed,
+    lookupKeys,
+    matchedUser: null,
+    linkStatus: "not_in_database",
+  };
+}
+
 /** Login/cadastro: alinha WhatsApp da conta ao telefone informado (novos e existentes). */
 export async function syncUserWhatsAppOnLogin(
   userId: string,

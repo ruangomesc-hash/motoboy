@@ -143,6 +143,18 @@ export default function AdminStatusPage() {
         fromNumber: string;
         userId: string | null;
         processedAs: string | null;
+        phoneLink?: {
+          linkStatus: string;
+          lookupKeys: string[];
+          registeredAs: string | null;
+          userName: string | null;
+        } | null;
+      }>;
+      unmatchedPhones?: Array<{
+        fromNumber: string;
+        linkStatus: string;
+        lookupKeys: string[];
+        registeredAs: string | null;
       }>;
     };
     evolution: { connectionState: string | null; instance: string | null };
@@ -405,12 +417,29 @@ export default function AdminStatusPage() {
                   </p>
                   <ul className="text-xs font-mono space-y-1">
                     {whatsappPipeline.database.recentMessages.map((m) => (
-                      <li key={m.receivedAt + m.fromNumber}>
+                      <li key={m.receivedAt + m.fromNumber} className="leading-relaxed">
                         {formatCheckedAt(m.receivedAt)} · {m.fromNumber} ·{" "}
                         {m.processedAs ?? "?"} · user={m.userId ?? "—"}
+                        {m.phoneLink && m.phoneLink.linkStatus !== "webhook_audit" && (
+                          <span className="block text-[11px] text-muted-foreground mt-0.5">
+                            {m.phoneLink.linkStatus === "linked"
+                              ? `✓ vinculado → ${m.phoneLink.registeredAs}${m.phoneLink.userName ? ` (${m.phoneLink.userName})` : ""}`
+                              : m.phoneLink.linkStatus === "not_in_database"
+                                ? `✗ sem conta no banco (buscou: ${m.phoneLink.lookupKeys.join(", ")})`
+                                : `? número inválido`}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
+                  {(whatsappPipeline.database.unmatchedPhones?.length ?? 0) > 0 && (
+                    <p className="text-xs text-amber-200/90 mt-2">
+                      Números do Zap sem usuário:{" "}
+                      {whatsappPipeline.database.unmatchedPhones
+                        ?.map((p) => p.fromNumber)
+                        .join(", ")}
+                    </p>
+                  )}
                 </div>
               )}
             </>
