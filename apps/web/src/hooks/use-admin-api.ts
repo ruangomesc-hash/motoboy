@@ -38,6 +38,11 @@ export function useAdminSessionReady(): boolean {
   );
 }
 
+export function useIsAdminDemoMode(): boolean {
+  const { data: session } = useSession();
+  return session?.adminDemo === true;
+}
+
 export function useAdminApi() {
   const { data: session, status } = useSession();
   const sessionRef = useRef(session);
