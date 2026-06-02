@@ -8,7 +8,7 @@ import {
 } from "../lib/webhook-auth.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
-import { resolveEvolutionContact } from "../lib/evolution-contact.js";
+import { resolveEvolutionWebhookContact } from "../lib/evolution-contact.js";
 import {
   extractEvolutionMessageText,
   inferEvolutionMessageType,
@@ -79,10 +79,10 @@ async function handleWhatsAppWebhook(
       return reply.send({ ok: true, skipped: true, reason: "from_me" });
     }
 
-    const contact = resolveEvolutionContact(data.key);
+    const contact = resolveEvolutionWebhookContact(body, data.key);
     if (!contact) {
       request.log.warn({ key: data.key }, "Webhook: invalid_sender_jid");
-      await logWhatsAppWebhookHit(body, "invalid_sender_jid");
+      await logWhatsAppWebhookHit(body, "invalid_sender_jid", replyTo ?? "unknown");
       await safeWhatsAppReply(
         app.evolution,
         replyTo,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveEvolutionContact } from "../lib/evolution-contact.js";
+import {
+  resolveEvolutionContact,
+  resolveEvolutionWebhookContact,
+} from "../lib/evolution-contact.js";
+import { extractReplyTargetFromWebhookBody } from "../lib/whatsapp-reply.js";
 import {
   extractEvolutionMessageText,
   parseEvolutionInboundMessage,
@@ -100,5 +104,26 @@ describe("resolveEvolutionContact", () => {
     });
     expect(contact?.storedPhone).toBeNull();
     expect(contact?.replyTo).toBe("69385314111689@lid");
+  });
+
+  it("usa sender do root quando key é só @lid (anúncio Meta)", () => {
+    const body = {
+      event: "messages.upsert",
+      sender: "5511977778888@s.whatsapp.net",
+      data: {
+        key: {
+          remoteJid: "11927141003400@lid",
+          fromMe: false,
+          id: "AC412",
+        },
+        message: { conversation: "quero saber mais" },
+      },
+    };
+    const parsed = parseEvolutionInboundMessage(body);
+    expect(parsed).not.toBeNull();
+    const contact = resolveEvolutionWebhookContact(body, parsed!.key);
+    expect(contact?.storedPhone).toBe("5511977778888");
+    expect(contact?.replyTo).toBe("5511977778888");
+    expect(extractReplyTargetFromWebhookBody(body)).toBe("5511977778888");
   });
 });

@@ -1,7 +1,9 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { EvolutionService } from "../services/evolution.js";
 import {
+  extractEvolutionRootSender,
   resolveEvolutionContact,
+  resolveEvolutionWebhookContact,
   type EvolutionMessageKey,
 } from "./evolution-contact.js";
 import { formatWhatsAppProcessingError } from "./whatsapp-user-message.js";
@@ -36,7 +38,16 @@ export function extractReplyTargetFromWebhookBody(
 
   for (const key of keys) {
     if (key.fromMe) continue;
-    const contact = resolveEvolutionContact(key);
+    const contact = resolveEvolutionWebhookContact(body, key);
+    if (contact?.replyTo) return contact.replyTo;
+  }
+
+  const rootSender = extractEvolutionRootSender(body);
+  if (rootSender) {
+    const contact = resolveEvolutionWebhookContact(body, {
+      remoteJid: rootSender,
+      fromMe: false,
+    });
     if (contact?.replyTo) return contact.replyTo;
   }
 
