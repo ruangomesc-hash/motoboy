@@ -37,19 +37,16 @@ export function useAppSync(
     window.addEventListener("pageshow", onVisible);
     window.addEventListener("focus", onFocus);
 
-    let poll: ReturnType<typeof setInterval> | undefined;
-    if (!SOCKET_ENABLED) {
-      poll = setInterval(() => {
-        if (document.visibilityState === "visible") void refresh();
-      }, POLL_MS);
-    }
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, POLL_MS);
 
     return () => {
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onVisible);
       window.removeEventListener("focus", onFocus);
-      if (poll) clearInterval(poll);
+      clearInterval(poll);
     };
   }, [refresh, topicsKey, enabled]);
 }
