@@ -294,8 +294,6 @@ export type FuelDayStats = z.infer<typeof fuelDayStatsSchema>;
 export type OdometerDayStats = z.infer<typeof odometerDayStatsSchema>;
 export type TodaySummary = z.infer<typeof todaySummarySchema>;
 
-export { applyDailyCostExclusions } from "./apply-daily-cost-exclusions.js";
-
 const emptyToUndefined = (val: unknown) => {
   if (typeof val === "string" && val.trim() === "") return undefined;
   return val;

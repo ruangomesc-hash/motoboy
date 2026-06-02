@@ -31,3 +31,45 @@ export function dailyCostExclusionId(
 ): string {
   return `${dateKey}:${costKey}`;
 }
+
+/** Campos de custo do resumo do dia. */
+export type TodayCostSummaryFields = {
+  grossTotal: number;
+  fuelCost: number;
+  maintenanceCost: number;
+  otherCost: number;
+  manualExpensesTotal?: number;
+  totalExpenses: number;
+  netProfit: number;
+  totalKm: number;
+  profitPerKm: number;
+};
+
+/** Zera custos automáticos excluídos e recalcula totais do dia. */
+export function applyDailyCostExclusions<T extends TodayCostSummaryFields>(
+  today: T,
+  excluded: ReadonlySet<DailyCostKey>,
+): T {
+  if (!excluded.size) return today;
+
+  const fuelCost = excluded.has("fuel") ? 0 : today.fuelCost;
+  const maintenanceCost = excluded.has("maintenance")
+    ? 0
+    : today.maintenanceCost;
+  const otherCost = excluded.has("other") ? 0 : today.otherCost;
+  const manual = today.manualExpensesTotal ?? 0;
+  const totalExpenses = fuelCost + maintenanceCost + otherCost + manual;
+  const netProfit = today.grossTotal - totalExpenses;
+  const profitPerKm =
+    today.totalKm > 0 ? netProfit / today.totalKm : today.profitPerKm;
+
+  return {
+    ...today,
+    fuelCost,
+    maintenanceCost,
+    otherCost,
+    totalExpenses,
+    netProfit,
+    profitPerKm,
+  };
+}

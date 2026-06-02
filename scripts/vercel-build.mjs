@@ -129,6 +129,7 @@ if (hasRealDatabase()) {
   );
 }
 
+run("pnpm --filter @motoboy/types build");
 run("pnpm exec next build", { cwd: webDir });
 
 const engineHints = [
