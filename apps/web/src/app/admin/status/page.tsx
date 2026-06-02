@@ -7,7 +7,6 @@ import type {
 } from "@motoboy/types";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/stat-card";
-import { useAdminApi, useAdminSessionReady } from "@/hooks/use-admin-api";
 import {
   fetchSystemHealth,
   isSystemHealthy,
@@ -107,8 +106,6 @@ function platformIcon(id: PlatformHealthReport["platforms"][number]["id"]) {
 }
 
 export default function AdminStatusPage() {
-  const api = useAdminApi();
-  const adminReady = useAdminSessionReady();
   const [snapshot, setSnapshot] = useState<SystemHealthSnapshot | null>(null);
   const [integrations, setIntegrations] =
     useState<IntegrationsHealthReport | null>(null);
@@ -168,51 +165,69 @@ export default function AdminStatusPage() {
     setLoading(true);
     setIntegrationsError(null);
     setPlatformsError(null);
-    const [healthData, integrationsResult, serverPlatforms, vercelProbe, waPipe] =
-      await Promise.all([
-        fetchSystemHealth(),
-        api<IntegrationsHealthReport>("/admin/integrations/health").catch(
-          (err: Error) => {
-            setIntegrationsError(err.message);
-            return null;
-          },
-        ),
-        api<PlatformHealthReport>("/admin/platform/health").catch(
-          (err: Error) => {
-            setPlatformsError(err.message);
-            return null;
-          },
-        ),
-        fetchVercelHealth(),
-        api<Awaited<typeof whatsappPipeline>>("/admin/whatsapp/pipeline").catch(
-          (err: Error) => {
-            setWhatsappError(err.message);
-            return null;
-          },
-        ),
-      ]);
+    setWhatsappError(null);
+
+    const [healthData, vercelProbe, adminBundle] = await Promise.all([
+      fetchSystemHealth(),
+      fetchVercelHealth(),
+      fetch("/api/admin/diagnostics", { credentials: "include", cache: "no-store" })
+        .then(async (res) => {
+          const body = (await res.json()) as {
+            error?: string;
+            integrations?: IntegrationsHealthReport;
+            platforms?: PlatformHealthReport;
+            whatsapp?: typeof whatsappPipeline;
+            needsRelogin?: boolean;
+          };
+          if (!res.ok) {
+            const msg = body.error ?? `Erro ${res.status}`;
+            if (body.needsRelogin) {
+              throw new Error(`${msg} Saia e entre de novo em /admin/login.`);
+            }
+            throw new Error(msg);
+          }
+          return body;
+        })
+        .catch((err: Error) => {
+          const msg = err.message;
+          setIntegrationsError(msg);
+          setPlatformsError(msg);
+          setWhatsappError(msg);
+          return null;
+        }),
+    ]);
+
     setSnapshot(healthData);
-    setWhatsappPipeline(waPipe);
-    if (waPipe) setWhatsappError(null);
-    setIntegrations(integrationsResult);
-    setPlatforms(
-      mergePlatformHealth(healthData, serverPlatforms, vercelProbe),
-    );
+
+    if (adminBundle?.integrations) {
+      setIntegrations(adminBundle.integrations);
+    }
+    if (adminBundle?.platforms) {
+      setPlatforms(
+        mergePlatformHealth(healthData, adminBundle.platforms, vercelProbe),
+      );
+    } else {
+      setPlatforms(mergePlatformHealth(healthData, null, vercelProbe));
+    }
+    if (adminBundle?.whatsapp) {
+      setWhatsappPipeline(adminBundle.whatsapp);
+      setWhatsappError(null);
+    }
+
     setLoading(false);
-  }, [api]);
+  }, []);
 
   useEffect(() => {
-    if (!adminReady) return;
     void load();
-  }, [load, adminReady]);
+  }, [load]);
 
   useEffect(() => {
-    if (!autoRefresh || !adminReady) return;
+    if (!autoRefresh) return;
     const id = setInterval(() => {
       void load();
     }, 60_000);
     return () => clearInterval(id);
-  }, [autoRefresh, load, adminReady]);
+  }, [autoRefresh, load]);
 
   const healthy = snapshot ? isSystemHealthy(snapshot) : false;
   const h = snapshot?.health;
@@ -235,7 +250,14 @@ export default function AdminStatusPage() {
   const repairWebhook = async () => {
     setRepairingWebhook(true);
     try {
-      await api("/admin/whatsapp/repair-webhook", { method: "POST" });
+      const res = await fetch("/api/admin/repair-webhook", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(body.error ?? `Erro ${res.status}`);
+      }
       await load();
     } catch (err) {
       setWhatsappError(err instanceof Error ? err.message : "Falha ao reparar");

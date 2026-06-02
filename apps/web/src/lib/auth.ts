@@ -215,7 +215,7 @@ export const authOptions: NextAuthOptions = {
         token.isAdmin = (user as { isAdmin?: boolean }).isAdmin ?? false;
         token.adminDemo = (user as { adminDemo?: boolean }).adminDemo ?? false;
       }
-      if (token.userId === "admin" && !token.isAdmin) {
+      if (token.userId === "admin") {
         token.isAdmin = true;
       }
       return token;

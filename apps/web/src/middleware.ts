@@ -28,7 +28,9 @@ export default async function middleware(request: NextRequest) {
   const token = await getToken({ req: request });
 
   if (pathname.startsWith("/admin")) {
-    if (!token?.isAdmin) {
+    const adminToken =
+      typeof token?.accessToken === "string" ? token.accessToken : undefined;
+    if (!token?.isAdmin || !adminToken) {
       return redirectTo(request, "/admin/login");
     }
     if (isProd && token.adminDemo) {
