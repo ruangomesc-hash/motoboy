@@ -78,12 +78,15 @@ export function CollapsibleSummaryRow({
   value,
   valueTone = "neutral",
   details,
+  trailingAction,
 }: {
   Icon: LucideIcon;
   label: string;
   value: string;
   valueTone?: "positive" | "negative" | "neutral";
   details?: React.ReactNode;
+  /** Ex.: apagar custo automático do dia */
+  trailingAction?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const expandable = details != null;
@@ -97,40 +100,43 @@ export function CollapsibleSummaryRow({
 
   return (
     <div className="border-b border-border/30 last:border-0">
-      <button
-        type="button"
-        disabled={!expandable}
-        onClick={() => expandable && setOpen((o) => !o)}
-        className={cn(
-          "w-full max-w-full min-w-0 flex items-center gap-2 min-h-[44px] py-2 px-0.5 text-left text-sm",
-          expandable && "active:opacity-80",
-          !expandable && "cursor-default",
-        )}
-      >
-        <Icon
-          className="h-4 w-4 shrink-0 text-muted-foreground"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <span className="flex-1 min-w-0 truncate">{label}</span>
-        <span
+      <div className="flex items-center gap-0 min-h-[44px]">
+        <button
+          type="button"
+          disabled={!expandable}
+          onClick={() => expandable && setOpen((o) => !o)}
           className={cn(
-            "font-semibold tabular-nums shrink-0 max-w-[46%] truncate text-right text-xs sm:text-sm",
-            toneClass,
+            "flex-1 min-w-0 flex items-center gap-2 py-2 px-0.5 text-left text-sm",
+            expandable && "active:opacity-80",
+            !expandable && "cursor-default",
           )}
         >
-          {value}
-        </span>
-        {expandable && (
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-180",
-            )}
+          <Icon
+            className="h-4 w-4 shrink-0 text-muted-foreground"
             strokeWidth={1.75}
+            aria-hidden
           />
-        )}
-      </button>
+          <span className="flex-1 min-w-0 truncate">{label}</span>
+          <span
+            className={cn(
+              "font-semibold tabular-nums shrink-0 max-w-[46%] truncate text-right text-xs sm:text-sm",
+              toneClass,
+            )}
+          >
+            {value}
+          </span>
+          {expandable && (
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-180",
+              )}
+              strokeWidth={1.75}
+            />
+          )}
+        </button>
+        {trailingAction}
+      </div>
       <AnimatePresence initial={false}>
         {open && expandable && (
           <motion.div

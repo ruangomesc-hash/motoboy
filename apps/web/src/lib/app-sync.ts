@@ -1,4 +1,5 @@
 import type { CreatedDelivery } from "./app-data-cache";
+import type { DailyCostExclusionTombstone } from "@/lib/excluded-daily-cost-tombstones";
 
 export const APP_SYNC_EVENT = "motoboy:sync";
 export const APP_SYNC_BRIDGE_KEY = "motoboy:sync:bridge";
@@ -23,6 +24,13 @@ export type AppSyncDetail = {
   removedDelivery?: CreatedDelivery;
   /** Tombstones replicados entre abas */
   deletedDeliveryIds?: string[];
+  excludedDailyCost?: DailyCostExclusionTombstone;
+  restoredDailyCost?: {
+    dateKey: string;
+    costKey: DailyCostExclusionTombstone["costKey"];
+    amount?: number;
+  };
+  excludedDailyCosts?: DailyCostExclusionTombstone[];
   /** true = só aplica cache local; API reconcilia em background */
   skipReconcile?: boolean;
   /** Evita processar o mesmo evento 2x (CustomEvent + BroadcastChannel) */
@@ -59,6 +67,12 @@ function buildSyncKey(detail: AppSyncDetail): string {
     detail.delivery?.id ?? "",
     detail.previousDelivery?.id ?? "",
     (detail.deletedDeliveryIds ?? []).join(","),
+    detail.excludedDailyCost
+      ? `${detail.excludedDailyCost.dateKey}:${detail.excludedDailyCost.costKey}`
+      : "",
+    detail.restoredDailyCost
+      ? `restore:${detail.restoredDailyCost.dateKey}:${detail.restoredDailyCost.costKey}`
+      : "",
     detail.topics.join(","),
     String(detail.skipReconcile ?? false),
   ].join("|");
@@ -160,6 +174,9 @@ export function syncTopicsForPath(path: string, method: string): AppSyncTopic[] 
   if (m === "GET" || m === "HEAD") return [];
   if (path.includes("/deliveries") || path.includes("/expenses")) {
     return ["deliveries", "today", "stats", "history"];
+  }
+  if (path.includes("/daily-cost-exclusions")) {
+    return ["today", "stats"];
   }
   if (path.includes("/shifts")) return ["stats", "today"];
   if (

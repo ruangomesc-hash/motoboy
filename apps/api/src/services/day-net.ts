@@ -1,5 +1,6 @@
 import { prisma } from "@motoboy/db";
 import { splitDeliveryEntries } from "@motoboy/types";
+import { getExcludedKeysForDate } from "./daily-cost-exclusion.js";
 import { computeDayExpenses } from "./day-expenses.js";
 import { getFuelDayStats } from "./fuel.js";
 import { getOdometerDayStats } from "./odometer.js";
@@ -70,6 +71,9 @@ export async function getDayFinancials(
     estimatedFuelCost,
   );
 
+  const dateKey = dayStart.toISOString().slice(0, 10);
+  const excludedKeys = await getExcludedKeysForDate(userId, dateKey);
+
   const hasActivity = deliveries.length > 0;
   const breakdown = computeDayExpenses({
     costsConfigured: Boolean(costs?.costsConfiguredAt),
@@ -78,6 +82,7 @@ export async function getDayFinancials(
     hasActivity,
     dailyOther,
     maintenancePerKm,
+    excludedKeys,
   });
 
   const configExpenses = breakdown.totalExpenses;

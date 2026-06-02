@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { TodaySummary } from "@motoboy/types";
+import type { DailyCostKey, TodaySummary } from "@motoboy/types";
 import { LucroCard } from "@/components/lucro-card";
 import {
   CollapsibleSummaryRow,
@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
+import { useExcludeDailyCost } from "@/hooks/use-exclude-daily-cost";
+import { todayDateInputValue } from "@/lib/local-date";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
@@ -47,11 +49,43 @@ function sourceLabel(source: string): string {
 export default function HomePage() {
   const { today, profileName, todayDeliveries } = useAppData();
   const { deleteDelivery } = useDeleteDelivery();
+  const { excludeDailyCost } = useExcludeDailyCost();
   const [deleteTarget, setDeleteTarget] = useState<
     TodaySummary["recentDeliveries"][number] | null
   >(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [costDeleteTarget, setCostDeleteTarget] = useState<{
+    key: DailyCostKey;
+    label: string;
+    amount: number;
+  } | null>(null);
+  const [costDeleting, setCostDeleting] = useState(false);
+
+  const todayKey = todayDateInputValue();
+
+  const costDeleteButton = (key: DailyCostKey, amount: number) =>
+    amount > 0.005 ? (
+      <button
+        type="button"
+        aria-label="Remover custo do dia"
+        className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive active:opacity-70"
+        onClick={() =>
+          setCostDeleteTarget({
+            key,
+            label:
+              key === "fuel"
+                ? "Gasolina"
+                : key === "maintenance"
+                  ? "Manutenção"
+                  : "Outros (config)",
+            amount,
+          })
+        }
+      >
+        <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+      </button>
+    ) : null;
 
   const hour = new Date().getHours();
   const greeting =
@@ -134,11 +168,13 @@ export default function HomePage() {
             summary={`−${formatBRL(s.totalExpenses)}`}
             summaryTone="negative"
           >
+          {(s.fuelCost > 0.005 || s.fuel.isActual) && (
           <CollapsibleSummaryRow
             Icon={Fuel}
             label="Gasolina"
             value={`−${formatBRL(s.fuelCost)}`}
             valueTone="negative"
+            trailingAction={costDeleteButton("fuel", s.fuelCost)}
             details={
               s.fuel.isActual ? (
                 <>
@@ -178,6 +214,7 @@ export default function HomePage() {
               )
             }
           />
+          )}
 
           {s.maintenanceCost > 0 && (
             <CollapsibleSummaryRow
@@ -185,6 +222,10 @@ export default function HomePage() {
               label="Manutenção"
               value={`−${formatBRL(s.maintenanceCost)}`}
               valueTone="negative"
+              trailingAction={costDeleteButton(
+                "maintenance",
+                s.maintenanceCost,
+              )}
               details={
                 <>
                   <p>
@@ -201,6 +242,7 @@ export default function HomePage() {
             label="Outros custos"
             value={`−${formatBRL(outrosTotal)}`}
             valueTone="negative"
+            trailingAction={costDeleteButton("other", s.otherCost)}
             details={
               manualItems.length > 0 || s.otherCost > 0 ? (
                 <>
@@ -331,6 +373,24 @@ export default function HomePage() {
           })}
         </ul>
       </section>
+
+      <ConfirmDialog
+        open={costDeleteTarget != null}
+        title="Remover custo do dia?"
+        description="O valor automático (Config) deixa de entrar no lucro de hoje e nas estatísticas. Você pode registrar de novo depois pelo Zap ou Config."
+        confirmLabel="Remover"
+        loading={costDeleting}
+        onCancel={() => setCostDeleteTarget(null)}
+        onConfirm={() => {
+          if (!costDeleteTarget || costDeleting) return;
+          const { key, amount } = costDeleteTarget;
+          setCostDeleteTarget(null);
+          setCostDeleting(true);
+          void excludeDailyCost(key, amount, todayKey).finally(() =>
+            setCostDeleting(false),
+          );
+        }}
+      />
 
       <ConfirmDialog
         open={deleteTarget != null}

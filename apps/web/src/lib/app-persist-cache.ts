@@ -1,4 +1,5 @@
 import type { PeriodStats, TodaySummary } from "@motoboy/types";
+import type { DailyCostExclusionTombstone } from "@/lib/excluded-daily-cost-tombstones";
 import type { MeSettingsSnapshot } from "@/lib/me-settings";
 
 export type DeliveryListItem = {
@@ -24,6 +25,7 @@ export type PersistedAppCache = {
   configComplete: boolean | null;
   /** IDs apagados em qualquer aba — sincronização instantânea entre abas. */
   deletedDeliveryIds?: string[];
+  excludedDailyCosts?: DailyCostExclusionTombstone[];
   savedAt: number;
 };
 

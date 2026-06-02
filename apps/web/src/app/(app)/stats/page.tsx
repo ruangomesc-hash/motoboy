@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DeliverySource, PeriodStats } from "@motoboy/types";
+import type { DailyCostKey, DeliverySource, PeriodStats } from "@motoboy/types";
 import { resolvePeriodRange } from "@motoboy/types";
 import { useAppData } from "@/components/app-data-provider";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 import { todayDateInputValue } from "@/lib/local-date";
+import { useExcludeDailyCost } from "@/hooks/use-exclude-daily-cost";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Trash2 } from "lucide-react";
 
 const SOURCE_LABELS: Record<DeliverySource, string> = {
   IFOOD: "iFood",
@@ -37,8 +40,16 @@ export default function StatsPage() {
     deliveriesDate,
     setDeliveriesDate,
     syncDeliveriesFilterDate,
+    today,
   } = useAppData();
+  const { excludeDailyCost } = useExcludeDailyCost();
   const [period, setPeriod] = useState<"week" | "month">("week");
+  const [costDeleteTarget, setCostDeleteTarget] = useState<{
+    key: DailyCostKey;
+    label: string;
+    amount: number;
+  } | null>(null);
+  const [costDeleting, setCostDeleting] = useState(false);
 
   const deviceToday = todayDateInputValue();
   const filterDate = deliveriesDate || deviceToday;
@@ -94,6 +105,18 @@ export default function StatsPage() {
 
   const configExpenses = stats.expenses.filter((e) => !e.key.startsWith("manual:"));
   const manualExpenses = stats.expenses.filter((e) => e.key.startsWith("manual:"));
+
+  const todayAmountForKey = (key: DailyCostKey): number => {
+    const s = today;
+    if (!s) return 0;
+    if (key === "fuel") return s.fuelCost;
+    if (key === "maintenance") return s.maintenanceCost;
+    return s.otherCost;
+  };
+
+  const canExcludeConfigCost = (key: string): key is DailyCostKey =>
+    isToday &&
+    (key === "fuel" || key === "maintenance" || key === "other");
 
   return (
     <AppPage className="p-3 space-y-3 pb-4">
@@ -215,6 +238,16 @@ export default function StatsPage() {
                   label={EXPENSE_LABELS[row.key] ?? row.label}
                   amount={row.amount}
                   max={maxExpense}
+                  onExclude={
+                    canExcludeConfigCost(row.key)
+                      ? () =>
+                          setCostDeleteTarget({
+                            key: row.key as DailyCostKey,
+                            label: EXPENSE_LABELS[row.key] ?? row.label,
+                            amount: todayAmountForKey(row.key as DailyCostKey),
+                          })
+                      : undefined
+                  }
                 />
               ))}
             </ul>
@@ -271,6 +304,23 @@ export default function StatsPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={costDeleteTarget != null}
+        title="Remover custo de hoje?"
+        description="O custo automático (Config) deixa de entrar no lucro e nas estatísticas deste período para o dia de hoje."
+        confirmLabel="Remover"
+        loading={costDeleting}
+        onCancel={() => setCostDeleteTarget(null)}
+        onConfirm={() => {
+          if (!costDeleteTarget || costDeleting) return;
+          const { key, amount } = costDeleteTarget;
+          setCostDeleteTarget(null);
+          setCostDeleting(true);
+          void excludeDailyCost(key, amount, deviceToday).finally(() =>
+            setCostDeleting(false),
+          );
+        }}
+      />
     </AppPage>
   );
 }
@@ -279,17 +329,31 @@ function ExpenseRow({
   label,
   amount,
   max,
+  onExclude,
 }: {
   label: string;
   amount: number;
   max: number;
+  onExclude?: () => void;
 }) {
   return (
     <li className="space-y-1 list-none">
-      <div className="flex justify-between text-[11px] gap-2">
+      <div className="flex justify-between text-[11px] gap-2 items-center">
         <span className="text-muted-foreground">{label}</span>
-        <span className="text-red-400 tabular-nums shrink-0">
-          −{formatBRL(amount)}
+        <span className="flex items-center gap-1 shrink-0">
+          <span className="text-red-400 tabular-nums">
+            −{formatBRL(amount)}
+          </span>
+          {onExclude != null && (
+            <button
+              type="button"
+              aria-label="Remover custo do dia"
+              className="min-h-[36px] min-w-[36px] flex items-center justify-center text-muted-foreground hover:text-destructive"
+              onClick={onExclude}
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+            </button>
+          )}
         </span>
       </div>
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">

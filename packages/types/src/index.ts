@@ -8,6 +8,7 @@ export * from "./phone";
 export * from "./delivery-entry";
 export * from "./expense-tags";
 export * from "./period-range";
+export * from "./daily-cost";
 
 /** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
 export const brazilWhatsAppFieldSchema = z
@@ -292,6 +293,8 @@ export const todaySummarySchema = z.object({
 export type FuelDayStats = z.infer<typeof fuelDayStatsSchema>;
 export type OdometerDayStats = z.infer<typeof odometerDayStatsSchema>;
 export type TodaySummary = z.infer<typeof todaySummarySchema>;
+
+export { applyDailyCostExclusions } from "./apply-daily-cost-exclusions.js";
 
 const emptyToUndefined = (val: unknown) => {
   if (typeof val === "string" && val.trim() === "") return undefined;

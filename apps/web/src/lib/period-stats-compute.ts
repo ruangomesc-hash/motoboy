@@ -7,6 +7,7 @@ import {
   type PeriodStats,
 } from "@motoboy/types";
 import type { DeliveryListItem } from "@/lib/app-persist-cache";
+import type { ExcludedDailyCostRegistry } from "@/lib/excluded-daily-cost-tombstones";
 
 const SOURCE_ORDER: DeliverySource[] = [
   "IFOOD",
@@ -121,6 +122,7 @@ export function mergeLivePeriodStats(
   period: "week" | "month",
   anchorDate: string,
   tombstoneIds: ReadonlySet<string> = new Set(),
+  excludedDailyCosts?: ExcludedDailyCostRegistry | null,
 ): PeriodStats {
   const live = computePeriodDeliveryMetrics(
     deliveries,
@@ -137,7 +139,7 @@ export function mergeLivePeriodStats(
 
   if (!api) {
     const totalExpenses = live.manualExpensesTotal;
-    return {
+    const base = {
       ...live,
       totalNet: live.totalGross - totalExpenses,
       totalExpenses,
@@ -147,9 +149,16 @@ export function mergeLivePeriodStats(
       netPerHour: null,
       activeShift: null,
     };
+    return excludedDailyCosts
+      ? excludedDailyCosts.adjustPeriodStats(base, period, anchorDate)
+      : base;
   }
 
-  const configExpenses = (api.expenses ?? []).filter(
+  const apiAdjusted = excludedDailyCosts
+    ? excludedDailyCosts.adjustPeriodStats(api, period, anchorDate)
+    : api;
+
+  const configExpenses = (apiAdjusted.expenses ?? []).filter(
     (e) => !e.key.startsWith("manual:"),
   );
   const configTotal = configExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -160,7 +169,7 @@ export function mergeLivePeriodStats(
   );
 
   return {
-    ...api,
+    ...apiAdjusted,
     ...live,
     totalNet,
     totalExpenses,

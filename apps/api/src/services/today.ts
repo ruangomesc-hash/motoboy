@@ -7,6 +7,7 @@ import {
   buildWeeklyGoalProgress,
   getUserGoalsContext,
 } from "./goals-plan.js";
+import { getExcludedKeysForDate } from "./daily-cost-exclusion.js";
 import { computeDayExpenses } from "./day-expenses.js";
 import { dayRangeFromDateInput } from "../lib/local-day-range.js";
 
@@ -16,7 +17,7 @@ function toNumber(d: { toString(): string } | number | null | undefined): number
 }
 
 /** Hoje no calendário BRT (YYYY-MM-DD). */
-function todayDateInputBrt(now = new Date()): string {
+export function todayDateInputBrt(now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
@@ -84,6 +85,9 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     estimatedFuelCost,
   );
 
+  const dateKey = todayDateInputBrt(now);
+  const excludedKeys = await getExcludedKeysForDate(userId, dateKey);
+
   const hasActivity = deliveries.length > 0;
   const expenses = computeDayExpenses({
     costsConfigured: Boolean(costs?.costsConfiguredAt),
@@ -92,6 +96,7 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     hasActivity,
     dailyOther,
     maintenancePerKm,
+    excludedKeys,
   });
   const { fuelCost, maintenanceCost, otherCost, totalExpenses: configExpenses } =
     expenses;

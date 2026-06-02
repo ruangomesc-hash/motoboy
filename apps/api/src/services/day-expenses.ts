@@ -1,4 +1,4 @@
-import type { FuelDayStats } from "@motoboy/types";
+import type { DailyCostKey, FuelDayStats } from "@motoboy/types";
 
 export type DayExpenseBreakdown = {
   fuelCost: number;
@@ -16,6 +16,7 @@ export function computeDayExpenses(input: {
   hasActivity: boolean;
   dailyOther: number;
   maintenancePerKm: number;
+  excludedKeys?: ReadonlySet<DailyCostKey>;
 }): DayExpenseBreakdown {
   if (!input.costsConfigured) {
     const fuelCost = input.fuel.isActual ? input.fuel.cost : 0;
@@ -28,12 +29,18 @@ export function computeDayExpenses(input: {
     };
   }
 
-  const fuelCost = input.fuel.cost;
-  const maintenanceCost =
-    input.hasActivity && input.totalKm > 0
+  const excluded = input.excludedKeys ?? new Set<DailyCostKey>();
+  const fuelCost = excluded.has("fuel") ? 0 : input.fuel.cost;
+  const maintenanceCost = excluded.has("maintenance")
+    ? 0
+    : input.hasActivity && input.totalKm > 0
       ? input.totalKm * input.maintenancePerKm
       : 0;
-  const otherCost = input.hasActivity ? input.dailyOther : 0;
+  const otherCost = excluded.has("other")
+    ? 0
+    : input.hasActivity
+      ? input.dailyOther
+      : 0;
 
   return {
     fuelCost,

@@ -12,7 +12,12 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useSession } from "next-auth/react";
-import { resolvePeriodRange, type PeriodStats, type TodaySummary } from "@motoboy/types";
+import {
+  resolvePeriodRange,
+  type DailyCostKey,
+  type PeriodStats,
+  type TodaySummary,
+} from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import {
   buildAppSyncKey,
@@ -62,6 +67,7 @@ import { DEMO_USER_ID } from "@/lib/demo-data";
 import { normalizePeriodStats } from "@/lib/stats-preview";
 import { mergeLivePeriodStats } from "@/lib/period-stats-compute";
 import { createDeletedDeliveryRegistry } from "@/lib/deleted-delivery-tombstones";
+import { createExcludedDailyCostRegistry } from "@/lib/excluded-daily-cost-tombstones";
 import { createPendingDeliveryRegistry } from "@/lib/pending-delivery-registry";
 import { clearInflightCreates } from "@/lib/inflight-delivery-create";
 import {
@@ -123,6 +129,16 @@ type AppDataContextValue = {
   scheduleDeliveryReconcile: () => void;
   markDeliveryCancelled: (localId: string) => void;
   isDeliveryCancelled: (localId: string) => boolean;
+  excludeDailyCostOptimistic: (
+    costKey: DailyCostKey,
+    dateKey: string,
+    amount: number,
+  ) => void;
+  restoreDailyCostOptimistic: (
+    costKey: DailyCostKey,
+    dateKey: string,
+    amount: number,
+  ) => void;
 };
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
@@ -195,6 +211,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletedDeliveries = useRef(createDeletedDeliveryRegistry());
+  const excludedDailyCosts = useRef(createExcludedDailyCostRegistry());
   const pendingDeliveries = useRef(createPendingDeliveryRegistry());
 
   const stateRef = useRef({
@@ -233,6 +250,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       profileName: s.profileName,
       configComplete: s.configComplete,
       deletedDeliveryIds: deletedDeliveries.current.toArray(),
+      excludedDailyCosts: excludedDailyCosts.current.toArray(),
     });
   }, []);
 
@@ -303,8 +321,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (cached.deletedDeliveryIds?.length) {
       deletedDeliveries.current.hydrate(cached.deletedDeliveryIds);
     }
+    if (cached.excludedDailyCosts?.length) {
+      excludedDailyCosts.current.hydrate(cached.excludedDailyCosts);
+    }
     if (cached.today) {
-      setToday(deletedDeliveries.current.applyToTodaySummary(cached.today));
+      const todayKey = cached.deliveriesDate || todayDateInputValue();
+      let mergedToday = deletedDeliveries.current.applyToTodaySummary(
+        cached.today,
+      );
+      mergedToday = excludedDailyCosts.current.applyToTodaySummary(
+        mergedToday,
+        todayKey,
+      );
+      setToday(mergedToday);
     }
     if (cached.meSettings) {
       setMeSettings(cached.meSettings);
@@ -366,11 +395,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         }
 
         const tomb = deletedDeliveries.current;
+        const costs = excludedDailyCosts.current;
         const todayKey = todayDateInputValue();
         const tombSet = new Set(tomb.toArray());
 
         setToday((prev) => {
-          const fromServer = tomb.applyToTodaySummary(data);
+          const fromServer = costs.applyToTodaySummary(
+            tomb.applyToTodaySummary(data),
+            todayKey,
+          );
           const merged = mergeTodayFromServer(
             fromServer,
             options?.background ? null : prev,
@@ -587,6 +620,57 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
+  );
+
+  const excludeDailyCostOptimistic = useCallback(
+    (costKey: DailyCostKey, dateKey: string, amount: number) => {
+      excludedDailyCosts.current.mark(dateKey, costKey, amount);
+      const todayKey = todayDateInputValue();
+      if (dateKey === todayKey) {
+        setToday((prev) => {
+          const base = prev ?? emptyTodaySummary();
+          return excludedDailyCosts.current.applyToTodaySummary(base, todayKey);
+        });
+      }
+      if (userId) persistCacheNow(userId);
+      scheduleStatsRefresh();
+    },
+    [userId, persistCacheNow, scheduleStatsRefresh],
+  );
+
+  const restoreDailyCostOptimistic = useCallback(
+    (costKey: DailyCostKey, dateKey: string, amount: number) => {
+      excludedDailyCosts.current.unmark(dateKey, costKey);
+      const todayKey = todayDateInputValue();
+      if (dateKey === todayKey) {
+        setToday((prev) => {
+          if (!prev) return prev;
+          const patch: Partial<TodaySummary> = {};
+          if (costKey === "fuel") patch.fuelCost = amount;
+          if (costKey === "maintenance") patch.maintenanceCost = amount;
+          if (costKey === "other") patch.otherCost = amount;
+          const manual = prev.manualExpensesTotal ?? 0;
+          const fuelCost = patch.fuelCost ?? prev.fuelCost;
+          const maintenanceCost = patch.maintenanceCost ?? prev.maintenanceCost;
+          const otherCost = patch.otherCost ?? prev.otherCost;
+          const totalExpenses =
+            fuelCost + maintenanceCost + otherCost + manual;
+          const netProfit = prev.grossTotal - totalExpenses;
+          const profitPerKm =
+            prev.totalKm > 0 ? netProfit / prev.totalKm : prev.profitPerKm;
+          return {
+            ...prev,
+            ...patch,
+            totalExpenses,
+            netProfit,
+            profitPerKm,
+          };
+        });
+      }
+      if (userId) persistCacheNow(userId);
+      scheduleStatsRefresh();
+    },
+    [userId, persistCacheNow, scheduleStatsRefresh],
   );
 
   const patchDeliveryInList = useCallback(
@@ -826,6 +910,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     bumpDeliveryMutation();
   }, [bumpDeliveryMutation]);
 
+  const refreshDailyCostExclusions = useCallback(async () => {
+    try {
+      const todayKey = todayDateInputValue();
+      const monthRange = resolvePeriodRange("month", todayKey);
+      const r = await api<{ items: { dateKey: string; costKey: DailyCostKey }[] }>(
+        `/me/daily-cost-exclusions?from=${encodeURIComponent(monthRange.periodStart)}&to=${encodeURIComponent(todayKey)}`,
+      );
+      excludedDailyCosts.current.hydrate(r.items);
+      setToday((prev) =>
+        prev
+          ? excludedDailyCosts.current.applyToTodaySummary(prev, todayKey)
+          : prev,
+      );
+    } catch {
+      /* mantém tombstones locais */
+    }
+  }, [api]);
+
   const reconcileDeliveriesIfIdle = useCallback(async () => {
     if (reconcileInFlight.current) {
       reconcileQueued.current = true;
@@ -837,6 +939,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       await Promise.all([
         refreshDeliveries(undefined, background),
         refreshToday(undefined, background),
+        refreshDailyCostExclusions(),
       ]);
       void refreshPeriodDeliveries(undefined, background);
     } finally {
@@ -846,7 +949,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         void reconcileDeliveriesIfIdle();
       }
     }
-  }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
+  }, [
+    refreshDeliveries,
+    refreshPeriodDeliveries,
+    refreshToday,
+    refreshDailyCostExclusions,
+  ]);
 
   const scheduleSyncReconcile = useCallback(() => {
     if (syncReconcileTimer.current) clearTimeout(syncReconcileTimer.current);
@@ -872,6 +980,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       notifyAppSync(topics, {
         ...extra,
         deletedDeliveryIds: deletedDeliveries.current.toArray(),
+        excludedDailyCosts: excludedDailyCosts.current.toArray(),
       });
     },
     [userId, persistCacheNow],
@@ -884,6 +993,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       if (detail.deletedDeliveryIds?.length) {
         deletedDeliveries.current.hydrate(detail.deletedDeliveryIds);
+      }
+      if (detail.excludedDailyCosts?.length) {
+        excludedDailyCosts.current.hydrate(detail.excludedDailyCosts);
       }
 
       const isOwnEvent =
@@ -900,6 +1012,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery, {
             skipMutationBump: true,
           });
+        } else if (detail.excludedDailyCost) {
+          const { dateKey, costKey, amount } = detail.excludedDailyCost;
+          excludeDailyCostOptimistic(
+            costKey,
+            dateKey,
+            amount ?? 0,
+          );
+        } else if (detail.restoredDailyCost) {
+          const { dateKey, costKey, amount } = detail.restoredDailyCost;
+          const tomb = excludedDailyCosts.current
+            .toArray()
+            .find((e) => e.dateKey === dateKey && e.costKey === costKey);
+          restoreDailyCostOptimistic(
+            costKey,
+            dateKey,
+            amount ?? tomb?.amount ?? 0,
+          );
         }
       }
 
@@ -910,7 +1039,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        if (detail.delivery || detail.removedDeliveryId) {
+        if (
+          detail.delivery ||
+          detail.removedDeliveryId ||
+          detail.excludedDailyCost ||
+          detail.restoredDailyCost
+        ) {
           scheduleSyncReconcile();
         } else {
           scheduleDeliveryReconcile();
@@ -923,7 +1057,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [
       persistCacheNow,
       queueConfigRefresh,
+      excludeDailyCostOptimistic,
       removeDeliveryOptimistic,
+      restoreDailyCostOptimistic,
       scheduleDeliveryReconcile,
       scheduleSyncReconcile,
       upsertDeliveryOptimistic,
@@ -1075,6 +1211,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       hydratedUser.current = null;
       clearConfigSavedOnce();
       deletedDeliveries.current.clear();
+      excludedDailyCosts.current.clear();
       pendingDeliveries.current.clear();
       clearInflightCreates();
       setIsBootstrapped(false);
@@ -1200,14 +1337,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       todayKey,
       tombSet,
     );
-    setToday((prev) =>
-      recomputeTodayFromDeliveries(
+    setToday((prev) => {
+      const recomputed = recomputeTodayFromDeliveries(
         forToday,
         prev ?? emptyTodaySummary(),
         todayKey,
         tombSet,
-      ),
-    );
+      );
+      return excludedDailyCosts.current.applyToTodaySummary(
+        recomputed,
+        todayKey,
+      );
+    });
   }, [deliveries, periodDeliveries, isBootstrapped]);
 
   const anchorDate = deliveriesDate || todayDateInputValue();
@@ -1236,8 +1377,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         "week",
         anchorDate,
         tombSet,
+        excludedDailyCosts.current,
       ),
-    [statsWeek, periodDeliveries, anchorDate, tombSet],
+    [statsWeek, periodDeliveries, anchorDate, tombSet, today],
   );
 
   const liveStatsMonth = useMemo(
@@ -1248,8 +1390,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         "month",
         anchorDate,
         tombSet,
+        excludedDailyCosts.current,
       ),
-    [statsMonth, periodDeliveries, anchorDate, tombSet],
+    [statsMonth, periodDeliveries, anchorDate, tombSet, today],
   );
 
   const value = useMemo(
@@ -1284,6 +1427,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       scheduleDeliveryReconcile,
       markDeliveryCancelled,
       isDeliveryCancelled,
+      excludeDailyCostOptimistic,
+      restoreDailyCostOptimistic,
     }),
     [
       today,
@@ -1315,6 +1460,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       scheduleDeliveryReconcile,
       markDeliveryCancelled,
       isDeliveryCancelled,
+      excludeDailyCostOptimistic,
+      restoreDailyCostOptimistic,
     ],
   );
 

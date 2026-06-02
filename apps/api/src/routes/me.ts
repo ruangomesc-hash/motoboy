@@ -12,6 +12,7 @@ import {
   profileUpdateSchema,
   goalsPlanUpdateSchema,
   clientErrorReportSchema,
+  dailyCostExclusionBodySchema,
 } from "@motoboy/types";
 import { ensureTrialEndsAtPolicy } from "../services/trial.js";
 import {
@@ -42,7 +43,12 @@ import {
   requireAuth,
   requireSessionUser,
 } from "../lib/auth.js";
-import { getTodaySummary } from "../services/today.js";
+import { getTodaySummary, todayDateInputBrt } from "../services/today.js";
+import {
+  excludeDailyCost,
+  listDailyCostExclusions,
+  restoreDailyCost,
+} from "../services/daily-cost-exclusion.js";
 import { getFuelDayStats } from "../services/fuel.js";
 import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
@@ -429,6 +435,35 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     );
 
     emitDeliveryDeleted(userId, id);
+    return reply.status(200).send({ ok: true });
+  });
+
+  app.get("/me/daily-cost-exclusions", async (request) => {
+    const userId = request.sessionUser!.id;
+    const q = request.query as { from?: string; to?: string };
+    const from =
+      typeof q.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.from)
+        ? q.from
+        : todayDateInputBrt();
+    const to =
+      typeof q.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.to)
+        ? q.to
+        : from;
+    const items = await listDailyCostExclusions(userId, from, to);
+    return { items };
+  });
+
+  app.post("/me/daily-cost-exclusions", async (request, reply) => {
+    const userId = request.sessionUser!.id;
+    const body = dailyCostExclusionBodySchema.parse(request.body);
+    await excludeDailyCost(userId, body.dateKey, body.costKey);
+    return reply.status(201).send({ ok: true });
+  });
+
+  app.delete("/me/daily-cost-exclusions", async (request, reply) => {
+    const userId = request.sessionUser!.id;
+    const body = dailyCostExclusionBodySchema.parse(request.body);
+    await restoreDailyCost(userId, body.dateKey, body.costKey);
     return reply.status(200).send({ ok: true });
   });
 
