@@ -47,6 +47,8 @@ function dayBounds() {
 
 export interface WhatsAppJobData {
   fromNumber: string;
+  /** Destino Evolution (telefone 55… ou JID @lid quando não há número). */
+  replyTarget?: string;
   messageType: string;
   rawContent: unknown;
   text?: string;
@@ -55,6 +57,18 @@ export interface WhatsAppJobData {
   mediaMime?: string;
   latitude?: number;
   longitude?: number;
+}
+
+function jobReplyTo(job: Job<WhatsAppJobData>): string {
+  return job.data.replyTarget?.trim() || job.data.fromNumber;
+}
+
+function jobStoredPhone(job: Job<WhatsAppJobData>): string | null {
+  try {
+    return normalizePhone(job.data.fromNumber);
+  } catch {
+    return null;
+  }
 }
 
 export function startWhatsAppWorker(
@@ -69,16 +83,25 @@ export function startWhatsAppWorker(
   return new Worker<WhatsAppJobData>(
     "whatsapp-process",
     async (job: Job<WhatsAppJobData>) => {
-      const { fromNumber, messageType, rawContent } = job.data;
-      const phone = normalizePhone(fromNumber);
+      const { messageType, rawContent } = job.data;
+      const replyTo = jobReplyTo(job);
+      const phone = jobStoredPhone(job);
       let userId: string | undefined;
 
       try {
+        if (!phone) {
+          await evolution.sendText(
+            replyTo,
+            "❌ Não identifiquei seu número de WhatsApp. Em Configurações, confira o campo WhatsApp (mesmo celular que manda mensagem no Zap).",
+          );
+          return;
+        }
+
         const user = await findUserByPhone(phone);
         if (!user) {
           await evolution.sendText(
-            phone,
-            "❌ WhatsApp não cadastrado. Entre no app e use o mesmo número em Configurações.",
+            replyTo,
+            "❌ WhatsApp não cadastrado. Entre no app → Configurações e confira o número de WhatsApp (DDD + 9 dígitos).",
           );
           return;
         }
@@ -95,7 +118,7 @@ export function startWhatsAppWorker(
 
         if (isTrialExpired(user) && user.status !== "ACTIVE") {
           await evolution.sendText(
-            phone,
+            replyTo,
             `Trial encerrado. Assine em: ${env.APP_URL}/assinar`,
           );
           return;
@@ -107,7 +130,7 @@ export function startWhatsAppWorker(
           const buffer = Buffer.from(job.data.mediaBuffer, "base64");
           if (buffer.length > 5_000_000) {
             await evolution.sendText(
-              phone,
+              replyTo,
               "Áudio muito longo. Fala mais curto, fica mais rápido 🙂",
             );
             return;
@@ -137,7 +160,7 @@ export function startWhatsAppWorker(
 
         if (!text.trim()) {
           await evolution.sendText(
-            phone,
+            replyTo,
             "Não entendi. Manda texto, áudio ou foto da comanda.",
           );
           return;
@@ -157,7 +180,7 @@ export function startWhatsAppWorker(
           log,
         );
       } catch (err) {
-        log.error({ err, jobId: job.id, phone }, "WhatsApp job falhou");
+        log.error({ err, jobId: job.id, replyTo, phone }, "WhatsApp job falhou");
         void recordClientErrorSafe({
           userId: userId ?? null,
           errorCode: "WHATSAPP_PROCESS_ERROR",
@@ -167,9 +190,9 @@ export function startWhatsAppWorker(
           source: "whatsapp",
         });
         try {
-          await evolution.sendText(phone, formatWhatsAppProcessingError(err));
+          await evolution.sendText(replyTo, formatWhatsAppProcessingError(err));
         } catch (sendErr) {
-          log.error({ sendErr, phone }, "Falha ao enviar erro no WhatsApp");
+          log.error({ sendErr, replyTo }, "Falha ao enviar erro no WhatsApp");
         }
         throw err;
       }
@@ -188,6 +211,7 @@ async function processImageMessage(
   io: SocketServer | null,
   env: Env,
 ): Promise<void> {
+  const replyTo = jobReplyTo(job);
   const imageUrl =
     job.data.mediaUrl ??
     `data:${job.data.mediaMime ?? "image/jpeg"};base64,${job.data.mediaBuffer}`;
@@ -205,7 +229,7 @@ async function processImageMessage(
     const stats = await getFuelDayStats(user.id, start, end, 0);
     io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
     await evolution.sendText(
-      phone,
+      replyTo,
       formatFuelConfirmation(
         vision.totalAmount,
         vision.liters,
@@ -228,7 +252,7 @@ async function processImageMessage(
       km: vision.odometerKm,
     });
     await evolution.sendText(
-      phone,
+      replyTo,
       formatOdometerConfirmation(vision.odometerKm, stats),
     );
     return;
@@ -251,7 +275,7 @@ async function processImageMessage(
     });
     emitDeliveryCreated(user.id, delivery);
     const msg = await buildDeliveryConfirmation(user.id);
-    await evolution.sendText(phone, msg);
+    await evolution.sendText(replyTo, msg);
     return;
   }
 
@@ -271,10 +295,10 @@ async function processImageMessage(
         },
       });
       emitDeliveryUpdated(user.id, delivery);
-      await evolution.sendText(phone, "✅ Foto de prova anexada à última entrega.");
+      await evolution.sendText(replyTo, "✅ Foto de prova anexada à última entrega.");
     } else {
       await evolution.sendText(
-        phone,
+        replyTo,
         "Não achei entrega recente pra anexar a foto. Registra a entrega primeiro.",
       );
     }
@@ -282,7 +306,7 @@ async function processImageMessage(
   }
 
   await evolution.sendText(
-    phone,
+    replyTo,
     "Não reconheci a foto. Envie comanda, cupom de posto ou painel (KM).",
   );
 }
@@ -300,6 +324,7 @@ async function processTextMessage(
   env: Env,
   log: FastifyBaseLogger,
 ): Promise<void> {
+  const replyTo = jobReplyTo(job);
   const extraction = await ai.extractFromText(text);
 
   if (extraction.type === "fuel_refuel") {
@@ -312,7 +337,7 @@ async function processTextMessage(
         const stats = await getFuelDayStats(user.id, start, end, 0);
         io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
         await evolution.sendText(
-          phone,
+          replyTo,
           formatFuelConfirmation(
             extraction.totalAmount,
             extraction.liters,
@@ -334,7 +359,7 @@ async function processTextMessage(
           km: extraction.odometerKm,
         });
         await evolution.sendText(
-          phone,
+          replyTo,
           formatOdometerConfirmation(extraction.odometerKm, stats),
         );
         return;
@@ -369,7 +394,7 @@ async function processTextMessage(
         });
         emitDeliveryCreated(user.id, delivery);
         const msg = await buildDeliveryConfirmation(user.id);
-        await evolution.sendText(phone, msg);
+        await evolution.sendText(replyTo, msg);
         return;
       }
 
@@ -389,7 +414,7 @@ async function processTextMessage(
             .map((a, i) => `${i + 1}. ${a}`)
             .join("\n");
           await evolution.sendText(
-            phone,
+            replyTo,
             `🗺️ Rota otimizada (${route.totalKm.toFixed(1)} km, ~${route.totalMin} min):\n${lines}\n\nGoogle Maps: ${route.googleMapsUrl}\nWaze (1º ponto): ${route.wazeUrl}`,
           );
         } catch (err) {
@@ -399,7 +424,7 @@ async function processTextMessage(
                 ? `${err.message}\n${err.details.join("\n")}`
                 : err.message
               : "Não consegui montar a rota. Confira os endereços e tente de novo.";
-          await evolution.sendText(phone, `⚠️ ${msg}`);
+          await evolution.sendText(replyTo, `⚠️ ${msg}`);
         }
         return;
       }
@@ -422,7 +447,7 @@ async function processTextMessage(
           const kmNote =
             startKm != null ? ` KM inicial: ${startKm.toLocaleString("pt-BR")}.` : "";
           await evolution.sendText(
-            phone,
+            replyTo,
             `✅ Turno iniciado.${kmNote} Boa corrida!`,
           );
           return;
@@ -440,7 +465,7 @@ async function processTextMessage(
           }
           const summary = await getTodaySummary(user.id);
           await evolution.sendText(
-            phone,
+            replyTo,
             `🏁 Turno encerrado.\nLucro do dia: ${formatCurrency(summary.netProfit)}`,
           );
           return;
@@ -448,7 +473,7 @@ async function processTextMessage(
         if (extraction.action === "today_summary") {
           const summary = await getTodaySummary(user.id);
           await evolution.sendText(
-            phone,
+            replyTo,
             `Hoje: ${formatCurrency(summary.netProfit)} líquido | ${summary.deliveryCount} entregas | ${summary.totalKm.toFixed(0)} km`,
           );
           return;
@@ -460,7 +485,7 @@ async function processTextMessage(
           });
           if (last) {
             await prisma.delivery.delete({ where: { id: last.id } });
-            await evolution.sendText(phone, "🗑️ Última entrega removida.");
+            await evolution.sendText(replyTo, "🗑️ Última entrega removida.");
             emitDeliveryDeleted(user.id, last.id);
           }
           return;
@@ -475,7 +500,7 @@ async function processTextMessage(
             update: { fuelPricePerLiter: extraction.value },
           });
           await evolution.sendText(
-            phone,
+            replyTo,
             `⛽ Gasolina atualizada: R$ ${extraction.value.toFixed(2)}/L`,
           );
           return;
@@ -493,7 +518,7 @@ async function processTextMessage(
             },
           });
           await evolution.sendText(
-            phone,
+            replyTo,
             `🎯 Meta do dia: R$ ${extraction.value.toFixed(2)}`,
           );
           return;
@@ -501,7 +526,7 @@ async function processTextMessage(
       }
 
   await evolution.sendText(
-    phone,
+    replyTo,
     "Não entendi. Exemplos:\n• entrega farmácia 25 reais\n• abasteci 40 reais 6 litros\n• foto do cupom do posto\n• foto do painel da moto (KM)",
   );
 }

@@ -210,6 +210,10 @@ export async function createApp(
     }
     const adminTable = await isAdminTableReady();
     const userPasswordColumn = await isUserPasswordColumnReady();
+    const { getWhatsAppQueueCounts } = await import("./lib/whatsapp-queue.js");
+    const whatsappQueue = await getWhatsAppQueueCounts(env);
+    const runWhatsAppWorker =
+      process.env.RUN_WHATSAPP_WORKER === "true" && isRedisEnabled(env);
     const migrationsHint = !adminTable
       ? "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build"
       : !userPasswordColumn
@@ -222,6 +226,8 @@ export async function createApp(
       userPasswordColumn,
       migrationsHint,
       redis: isRedisEnabled(env),
+      whatsappWorker: runWhatsAppWorker,
+      whatsappQueue,
       asaas: {
         configured: isAsaasConfigured(env),
         sandbox: Boolean(env.ASAAS_SANDBOX),

@@ -80,7 +80,7 @@ export const authOptions: NextAuthOptions = {
         if (!data.userId || !data.token) return null;
         return {
           id: data.userId,
-          phone: credentials.phone,
+          phone: parseBrazilWhatsAppDigits(credentials.phone),
           accessToken: data.token,
           demo: false,
         };
@@ -109,7 +109,7 @@ export const authOptions: NextAuthOptions = {
         if (!data.userId || !data.token) return null;
         return {
           id: data.userId,
-          phone: credentials.phone,
+          phone: parseBrazilWhatsAppDigits(credentials.phone),
           accessToken: data.token,
           demo: false,
         };
@@ -210,6 +210,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.accessToken = (user as { accessToken?: string }).accessToken;
         token.userId = user.id;
+        token.phone = (user as { phone?: string }).phone;
         token.demo = (user as { demo?: boolean }).demo ?? false;
         token.isAdmin = (user as { isAdmin?: boolean }).isAdmin ?? false;
         token.adminDemo = (user as { adminDemo?: boolean }).adminDemo ?? false;
@@ -219,6 +220,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
       session.userId = token.userId as string;
+      session.phone = token.phone as string | undefined;
       session.demo = Boolean(token.demo);
       session.isAdmin = Boolean(token.isAdmin);
       session.adminDemo = Boolean(token.adminDemo);

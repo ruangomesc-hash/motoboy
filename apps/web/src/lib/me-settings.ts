@@ -1,5 +1,9 @@
 import type { GoalsPlan, UserProfile } from "@motoboy/types";
-import { toStoredWhatsApp } from "@motoboy/types";
+import {
+  parseBrazilWhatsAppDigits,
+  toStoredWhatsApp,
+  maskBrazilWhatsAppInput,
+} from "@motoboy/types";
 import type { ProfileFormState } from "@/components/profile-form";
 import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 import type { MeConfigSnapshot } from "@/lib/onboarding";
@@ -41,6 +45,21 @@ export type ConfigSavePayload = {
   costs: ConfigFormSnapshot["costs"];
   saveCosts?: boolean;
 };
+
+export function whatsappStoredToLocalInput(
+  stored: string | null | undefined,
+): string {
+  if (!stored?.trim()) return "";
+  let digits = stored.replace(/\D/g, "");
+  if (digits.startsWith("55") && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+  if (digits.length > 11) {
+    digits = digits.slice(-11);
+  }
+  if (digits.length !== 11) return "";
+  return maskBrazilWhatsAppInput(digits);
+}
 
 export function parseMeSettings(data: MeApiResponse): MeSettingsSnapshot {
   return {
@@ -93,6 +112,7 @@ export function buildInitialConfigForm(): ConfigFormSnapshot {
     profile: {
       name: "",
       email: "",
+      whatsappPhone: "",
       city: "",
       workApps: [],
       subscriptionPaymentMethod: "PIX",
@@ -110,13 +130,18 @@ export function buildInitialConfigForm(): ConfigFormSnapshot {
 
 export function meToConfigForm(
   me: MeSettingsSnapshot,
-  pending?: { name: string; email: string } | null,
+  pending?: { name: string; email: string; phone?: string } | null,
+  sessionPhone?: string | null,
 ): ConfigFormSnapshot {
   const serverName = me.profile.name?.trim() ?? "";
   const serverEmail = me.profile.email?.trim() ?? "";
   const profile: ProfileFormState = {
     name: serverName || pending?.name || "",
     email: serverEmail || pending?.email || "",
+    whatsappPhone:
+      whatsappStoredToLocalInput(me.profile.whatsappNumber) ||
+      (pending?.phone ? maskBrazilWhatsAppInput(pending.phone) : "") ||
+      (sessionPhone ? maskBrazilWhatsAppInput(sessionPhone) : ""),
     city: me.profile.city ?? "",
     workApps: me.profile.workApps ?? [],
     subscriptionPaymentMethod: me.profile.subscriptionPaymentMethod ?? "PIX",
@@ -156,7 +181,15 @@ export function buildConfigSavePayload(
 }
 
 export function toProfilePutBody(profile: ProfileFormState) {
-  return {
+  const body: {
+    name: string;
+    email: string;
+    city: string | null;
+    workApps: ProfileFormState["workApps"];
+    subscriptionPaymentMethod: ProfileFormState["subscriptionPaymentMethod"];
+    workDays: number[];
+    whatsapp?: string;
+  } = {
     name: profile.name.trim(),
     email: profile.email.trim(),
     city: profile.city.trim() || null,
@@ -164,6 +197,11 @@ export function toProfilePutBody(profile: ProfileFormState) {
     subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
     workDays: profile.workDays,
   };
+  const localDigits = profile.whatsappPhone.replace(/\D/g, "");
+  if (localDigits.length === 11) {
+    body.whatsapp = parseBrazilWhatsAppDigits(profile.whatsappPhone);
+  }
+  return body;
 }
 
 export function toGoalsPutBody(form: ConfigFormSnapshot) {

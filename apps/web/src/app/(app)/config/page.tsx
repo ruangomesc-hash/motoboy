@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import type { FuelDayStats } from "@motoboy/types";
+import { toStoredWhatsApp } from "@motoboy/types";
 import { Check, Fuel, Gauge, History, Target } from "lucide-react";
 import Link from "next/link";
 import {
@@ -41,7 +42,7 @@ function ConfigPageInner() {
     meSettingsLoading,
     configComplete,
   } = useAppData();
-  const { status: sessionStatus } = useSession();
+  const { status: sessionStatus, data: session } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isSetup = searchParams.get("setup") === "1";
@@ -95,6 +96,7 @@ function ConfigPageInner() {
       const next = meToConfigForm(
         meSettings ?? buildOptimisticMeFromPending(pending),
         pending,
+        session?.phone,
       );
       setForm(next);
       setInitialCosts(next.costs);
@@ -113,7 +115,7 @@ function ConfigPageInner() {
   useEffect(() => {
     if (!meSettings || saving) return;
     const pending = readPendingRegistrationProfile();
-    const next = meToConfigForm(meSettings, pending);
+    const next = meToConfigForm(meSettings, pending, session?.phone);
     setForm(next);
     setInitialCosts(next.costs);
     if (next.profile.name?.trim() && next.profile.email?.trim()) {
@@ -141,6 +143,7 @@ function ConfigPageInner() {
     const blocker = getConfigSaveBlockers({
       name: profile.name,
       email: profile.email,
+      whatsappPhone: profile.whatsappPhone,
       workApps: profile.workApps,
       workDays: profile.workDays,
       monthlyGoal,
@@ -248,7 +251,14 @@ function ConfigPageInner() {
       )}
 
       <div id="onboarding-profile" className="scroll-mt-4 rounded-xl transition-shadow">
-        <ProfileForm value={profile} onChange={setProfile} />
+        <ProfileForm
+          value={profile}
+          onChange={setProfile}
+          storedWhatsApp={
+            meSettings?.profile.whatsappNumber ??
+            (session?.phone ? toStoredWhatsApp(session.phone) : null)
+          }
+        />
       </div>
 
       <section

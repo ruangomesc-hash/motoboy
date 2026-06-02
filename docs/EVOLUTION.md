@@ -160,7 +160,8 @@ Webhook local: ngrok → `http://localhost:3001/webhooks/whatsapp`
 | Sintoma | Solução |
 |---------|---------|
 | 401 webhook | Conferir `apikey` = `EVOLUTION_WEBHOOK_SECRET` |
-| `queued` mas nada no app | Ligar worker + `REDIS_URL` |
+| `queued` mas Zap não responde | Railway: `RUN_WHATSAPP_WORKER=true`, mesma `REDIS_URL`, logs do worker |
+| Webhook com `@lid` sem telefone | Atualize Evolution 2.3.7+; `WPP_LID_MODE=false`; confira `remoteJidAlt` no payload |
 | “Não cadastrado” | Mesmo número no app (Configurações) |
 | Evolution cai | Reescanear QR |
 

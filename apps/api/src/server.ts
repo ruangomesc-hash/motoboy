@@ -71,9 +71,11 @@ if (runWorker) {
       const maxAttempts = job.opts.attempts ?? 3;
       if ((job.attemptsMade ?? 0) < maxAttempts) return;
       try {
-        const phone = normalizePhone(job.data.fromNumber);
+        const replyTo =
+          job.data.replyTarget?.trim() ||
+          normalizePhone(job.data.fromNumber);
         const evolution = new EvolutionService(env, app.log);
-        await evolution.sendText(phone, formatWhatsAppProcessingError(err));
+        await evolution.sendText(replyTo, formatWhatsAppProcessingError(err));
       } catch (sendErr) {
         app.log.error({ sendErr }, "Falha ao notificar erro final no WhatsApp");
       }

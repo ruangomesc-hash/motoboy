@@ -1,4 +1,5 @@
 import type { GoalsPlan, UserProfile } from "@motoboy/types";
+import { parseBrazilWhatsAppDigits } from "@motoboy/types";
 
 /** Tour do app — só na primeira vez (localStorage). */
 const TOUR_SEEN_KEY = "motocopiloto_app_tour_seen_v1";
@@ -46,6 +47,7 @@ export type MeConfigSnapshot = {
 export function getConfigSaveBlockers(input: {
   name: string;
   email: string;
+  whatsappPhone: string;
   workApps: unknown[];
   workDays: unknown[];
   monthlyGoal: string;
@@ -53,6 +55,11 @@ export function getConfigSaveBlockers(input: {
   if (!input.name.trim()) return "Informe seu nome.";
   if (!input.email.trim() || !input.email.includes("@")) {
     return "Informe um e-mail válido.";
+  }
+  try {
+    parseBrazilWhatsAppDigits(input.whatsappPhone);
+  } catch (err) {
+    return err instanceof Error ? err.message : "Informe um WhatsApp válido.";
   }
   if (input.workApps.length === 0) {
     return "Marque pelo menos um app em que você trabalha.";

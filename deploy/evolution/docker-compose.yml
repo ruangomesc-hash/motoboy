@@ -45,6 +45,8 @@ services:
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: redis://evolution-redis:6379/2
       CACHE_REDIS_PREFIX_KEY: motoboy_evolution
+      # Preferir JID com telefone real no webhook (Evolution 2.3.7+)
+      WPP_LID_MODE: "false"
     volumes:
       - evolution_instances:/evolution/instances
 

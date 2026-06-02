@@ -1,9 +1,10 @@
 "use client";
 
-import { User } from "lucide-react";
+import { User, MessageCircle } from "lucide-react";
 import type { DeliverySource, SubscriptionPaymentMethod } from "@motoboy/types";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { maskPhone, formatPhoneDisplay } from "@/lib/phone-mask";
 import {
   SUBSCRIPTION_PAYMENT_OPTIONS,
   WORK_APP_OPTIONS,
@@ -13,6 +14,8 @@ import { WorkDaysPicker } from "@/components/work-days-picker";
 export interface ProfileFormState {
   name: string;
   email: string;
+  /** 11 dígitos locais com máscara (DDD + 9 + número). */
+  whatsappPhone: string;
   city: string;
   workApps: DeliverySource[];
   subscriptionPaymentMethod: SubscriptionPaymentMethod;
@@ -22,10 +25,23 @@ export interface ProfileFormState {
 export function ProfileForm({
   value,
   onChange,
+  storedWhatsApp,
 }: {
   value: ProfileFormState;
   onChange: (next: ProfileFormState) => void;
+  /** Número salvo no servidor (55 + 11 dígitos) — exibido mesmo antes do input sincronizar. */
+  storedWhatsApp?: string | null;
 }) {
+  const registeredLabel =
+    storedWhatsApp?.trim() && formatPhoneDisplay(storedWhatsApp);
+  const inputLabel =
+    value.whatsappPhone.replace(/\D/g, "").length === 11
+      ? formatPhoneDisplay(value.whatsappPhone)
+      : null;
+  const showRegistered =
+    registeredLabel &&
+    (!inputLabel || registeredLabel.replace(/\D/g, "") === inputLabel.replace(/\D/g, ""));
+
   return (
     <section className="space-y-4">
       <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -46,6 +62,43 @@ export function ProfileForm({
         placeholder="seu@email.com"
         type="email"
       />
+      <div>
+        <label className="text-sm text-muted-foreground flex items-center gap-1.5">
+          <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+          WhatsApp
+        </label>
+        {showRegistered ? (
+          <p className="mt-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2.5 text-sm">
+            <span className="text-muted-foreground">Número cadastrado: </span>
+            <span className="font-semibold text-foreground tabular-nums">
+              {registeredLabel}
+            </span>
+          </p>
+        ) : registeredLabel ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Cadastrado no app:{" "}
+            <span className="font-medium text-foreground tabular-nums">
+              {registeredLabel}
+            </span>
+          </p>
+        ) : null}
+        <Input
+          type="tel"
+          inputMode="numeric"
+          autoComplete="tel"
+          value={value.whatsappPhone}
+          onChange={(e) =>
+            onChange({ ...value, whatsappPhone: maskPhone(e.target.value) })
+          }
+          placeholder="(31) 99999-8888"
+          className="mt-1"
+        />
+        <p className="text-xs text-muted-foreground mt-2">
+          {showRegistered
+            ? "Para mudar o número, edite o campo abaixo e salve. Use o mesmo celular que manda mensagens no Zap do Motocopiloto."
+            : "Obrigatório no cadastro. Mesmo celular que você usa no Zap (11 dígitos, com 9 após o DDD)."}
+        </p>
+      </div>
       <Field
         label="Cidade (opcional)"
         value={value.city}

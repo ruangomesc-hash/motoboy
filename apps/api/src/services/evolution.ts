@@ -39,7 +39,8 @@ export class EvolutionService {
       this.log.info({ to, text }, "Evolution mock send");
       return;
     }
-    const number = to.replace(/\D/g, "");
+    /** Aceita dígitos (55…) ou JID completo (@s.whatsapp.net / @lid). */
+    const number = to.includes("@") ? to.trim() : to.replace(/\D/g, "");
     await withRetry(async () => {
       const res = await fetch(
         `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,
@@ -53,7 +54,10 @@ export class EvolutionService {
         },
       );
       if (!res.ok) {
-        throw new Error(`Evolution send failed: ${res.status}`);
+        const body = await res.text().catch(() => "");
+        throw new Error(
+          `Evolution send failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ""}`,
+        );
       }
     }, this.log);
   }

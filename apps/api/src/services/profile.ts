@@ -7,6 +7,7 @@ import {
 } from "@motoboy/types";
 import { z } from "zod";
 import { parseWorkDays } from "../lib/work-calendar.js";
+import { normalizePhone } from "../lib/phone.js";
 import {
   diffValues,
   profileDiffFields,
@@ -63,6 +64,7 @@ export async function updateUserProfile(
     email?: string;
     city?: string | null;
     vehiclePlate?: string | null;
+    whatsappNumber?: string;
     workApps?: string[];
     subscriptionPaymentMethod?: string;
     workDays?: number[];
@@ -72,6 +74,19 @@ export async function updateUserProfile(
   if (input.email !== undefined) data.email = input.email.trim().toLowerCase();
   if (input.city !== undefined) data.city = input.city;
   if (input.vehiclePlate !== undefined) data.vehiclePlate = input.vehiclePlate;
+  if (input.whatsapp !== undefined) {
+    const normalized = normalizePhone(input.whatsapp);
+    const taken = await prisma.user.findFirst({
+      where: { whatsappNumber: normalized, NOT: { id: userId } },
+    });
+    if (taken) {
+      throw Object.assign(new Error("Este WhatsApp já está em outra conta"), {
+        statusCode: 409,
+        code: "WHATSAPP_TAKEN",
+      });
+    }
+    data.whatsappNumber = normalized;
+  }
   if (input.workApps !== undefined) data.workApps = input.workApps;
   if (input.subscriptionPaymentMethod !== undefined) {
     data.subscriptionPaymentMethod = input.subscriptionPaymentMethod;
@@ -84,7 +99,7 @@ export async function updateUserProfile(
   });
 
   const profile = toUserProfile(user);
-  const changes = diffValues(
+  let changes = diffValues(
     (
       Object.keys(profileDiffFields) as (keyof typeof profileDiffFields)[]
     )
@@ -97,6 +112,23 @@ export async function updateUserProfile(
         format: profileDiffFields[key].format,
       })),
   );
+
+  if (
+    input.whatsapp !== undefined &&
+    beforeProfile &&
+    beforeProfile.whatsappNumber !== profile.whatsappNumber
+  ) {
+    changes = [
+      ...changes,
+      {
+        field: "whatsappNumber",
+        label: profileDiffFields.whatsappNumber.label,
+        before: beforeProfile.whatsappNumber,
+        after: profile.whatsappNumber,
+        format: profileDiffFields.whatsappNumber.format,
+      },
+    ];
+  }
 
   if (changes.length > 0) {
     await recordActivity(userId, {

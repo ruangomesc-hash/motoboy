@@ -72,6 +72,8 @@ export const profileUpdateSchema = z.object({
   workApps: z.array(deliverySourceSchema).optional(),
   subscriptionPaymentMethod: subscriptionPaymentMethodSchema.optional(),
   workDays: z.array(workDaySchema).min(1).max(7).optional(),
+  /** 11 dígitos locais (DDD + celular) — mesmo formato do cadastro. */
+  whatsapp: brazilWhatsAppFieldSchema.optional(),
 });
 
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;

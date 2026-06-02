@@ -48,6 +48,7 @@ import {
   toProfilePutBody,
 } from "@/lib/me-settings";
 import type { GoalsPlan, UserProfile } from "@motoboy/types";
+import { parseBrazilWhatsAppDigits, toStoredWhatsApp } from "@motoboy/types";
 import {
   appCacheStorageKey,
   clearAppCache,
@@ -813,6 +814,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           profile: {
             ...current.profile,
             ...toProfilePutBody(payload.profile),
+            whatsappNumber:
+              payload.profile.whatsappPhone.replace(/\D/g, "").length === 11
+                ? toStoredWhatsApp(payload.profile.whatsappPhone)
+                : current.profile.whatsappNumber,
             workApps: payload.profile.workApps,
             workDays: payload.profile.workDays,
             subscriptionPaymentMethod:

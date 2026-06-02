@@ -1,7 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { Queue } from "bullmq";
 import type { WhatsAppJobData } from "../workers/whatsapp-processor.js";
-import { normalizePhone } from "../lib/phone.js";
 import { AsaasService } from "../services/asaas.js";
 import {
   verifyAsaasWebhook,
@@ -9,29 +7,20 @@ import {
 } from "../lib/webhook-auth.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
-import { getBullMQConnection } from "../lib/bullmq-connection.js";
-import { parseEvolutionInboundMessage } from "../lib/evolution-webhook.js";
+import { resolveEvolutionContact } from "../lib/evolution-contact.js";
+import {
+  extractEvolutionMessageText,
+  inferEvolutionMessageType,
+  parseEvolutionInboundMessage,
+} from "../lib/evolution-webhook.js";
+import { getWhatsAppQueue } from "../lib/whatsapp-queue.js";
 import {
   WHATSAPP_INVALID_PAYLOAD_MESSAGE,
   WHATSAPP_QUEUE_DOWN_MESSAGE,
 } from "../lib/whatsapp-user-message.js";
 
-function extractPhone(remoteJid?: string): string | null {
-  if (!remoteJid) return null;
-  const jidUser = remoteJid.split("@")[0] ?? remoteJid;
-  const digits = jidUser.replace(/\D/g, "");
-  try {
-    return normalizePhone(digits);
-  } catch {
-    return null;
-  }
-}
-
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
-  const queue = new Queue<WhatsAppJobData>("whatsapp-process", {
-    connection: getBullMQConnection(env.REDIS_URL),
-  });
   const asaas = new AsaasService(env);
 
   app.addHook("preHandler", authRateLimit);
@@ -48,57 +37,54 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         { body: request.body },
         "Webhook WhatsApp: evento ignorado ou payload inválido",
       );
-      return reply.send({ ok: true, skipped: true });
+      return reply.send({ ok: true, skipped: true, reason: "parse_failed" });
     }
 
     if (!data.key || data.key.fromMe) {
-      return reply.send({ ok: true, skipped: true });
+      return reply.send({ ok: true, skipped: true, reason: "from_me" });
     }
 
-    const fromNumber = extractPhone(data.key.remoteJid);
-    if (!fromNumber) {
+    const contact = resolveEvolutionContact(data.key);
+    if (!contact) {
       request.log.warn(
-        { remoteJid: data.key.remoteJid },
-        "Webhook WhatsApp: JID/telefone inválido (use 11 dígitos BR com 9 após DDD)",
+        { key: data.key },
+        "Webhook WhatsApp: não foi possível resolver remetente (JID/@lid)",
       );
       return reply.status(400).send({
         error:
-          "Telefone do remetente inválido. Cadastre no app com DDD + 9 dígitos (ex.: 31999998888).",
-        code: "INVALID_PHONE",
+          "Remetente sem número válido. Atualize a Evolution para v2.3.7+ ou confira remoteJidAlt no webhook.",
+        code: "INVALID_SENDER_JID",
       });
     }
 
-    const msg = data.message;
-    let messageType = "text";
-    let text =
-      msg?.conversation ??
-      msg?.extendedTextMessage?.text ??
-      msg?.imageMessage?.caption ??
-      "";
+    const { replyTo } = contact;
+    const fromNumber = contact.storedPhone ?? replyTo;
 
-    if (data.messageType?.toLowerCase().includes("audio") || msg?.audioMessage) {
-      messageType = "audio";
-      if ((msg?.audioMessage?.seconds ?? 0) > 60) {
+    const msg = data.message;
+    const text = extractEvolutionMessageText(msg);
+    let messageType = inferEvolutionMessageType(msg, data.messageType);
+
+    if (messageType === "audio" && (msg?.audioMessage as { seconds?: number })?.seconds) {
+      const seconds = (msg.audioMessage as { seconds?: number }).seconds ?? 0;
+      if (seconds > 60) {
         await app.evolution.sendText(
-          fromNumber,
+          replyTo,
           "Áudio muito longo. Fala mais curto, fica mais rápido 🙂",
         );
         return reply.send({ ok: true });
       }
-    } else if (
-      data.messageType?.toLowerCase().includes("image") ||
-      msg?.imageMessage
-    ) {
-      messageType = "image";
     }
 
     const jobData: WhatsAppJobData = {
       fromNumber,
+      replyTarget: replyTo,
       messageType,
       rawContent: request.body as object,
       text,
-      latitude: msg?.locationMessage?.degreesLatitude,
-      longitude: msg?.locationMessage?.degreesLongitude,
+      latitude: (msg?.locationMessage as { degreesLatitude?: number })
+        ?.degreesLatitude,
+      longitude: (msg?.locationMessage as { degreesLongitude?: number })
+        ?.degreesLongitude,
     };
 
     if (messageType === "audio" || messageType === "image") {
@@ -108,27 +94,41 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       });
       if (buffer) {
         jobData.mediaBuffer = buffer.toString("base64");
+        const audio = msg?.audioMessage as { mimetype?: string } | undefined;
+        const image = msg?.imageMessage as { mimetype?: string } | undefined;
         jobData.mediaMime =
-          msg?.audioMessage?.mimetype ??
-          msg?.imageMessage?.mimetype ??
-          "application/octet-stream";
+          audio?.mimetype ?? image?.mimetype ?? "application/octet-stream";
       }
     }
 
     if (!text.trim() && messageType === "text") {
-      await app.evolution.sendText(fromNumber, WHATSAPP_INVALID_PAYLOAD_MESSAGE);
+      await app.evolution.sendText(replyTo, WHATSAPP_INVALID_PAYLOAD_MESSAGE);
       return reply.send({ ok: true, skipped: true, reason: "empty_text" });
     }
 
+    const redisUrl = env.REDIS_URL?.trim();
+    if (!redisUrl) {
+      request.log.error("REDIS_URL ausente — fila WhatsApp indisponível");
+      try {
+        await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
+      } catch (sendErr) {
+        request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+      }
+      return reply.status(503).send({
+        error: "REDIS_URL não configurado",
+        code: "REDIS_QUEUE_ERROR",
+      });
+    }
+
     try {
-      await queue.add("process", jobData, {
+      await getWhatsAppQueue(redisUrl).add("process", jobData, {
         attempts: 3,
         backoff: { type: "exponential", delay: 2000 },
       });
     } catch (err) {
       request.log.error({ err }, "Falha ao enfileirar job WhatsApp (Redis)");
       try {
-        await app.evolution.sendText(fromNumber, WHATSAPP_QUEUE_DOWN_MESSAGE);
+        await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
       } catch (sendErr) {
         request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
       }
@@ -136,11 +136,13 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         error: "Fila indisponível. Confira REDIS_URL (Upstash TCP rediss://).",
         code: "REDIS_QUEUE_ERROR",
       });
-    } finally {
-      await queue.close();
     }
 
-    return reply.send({ ok: true, queued: true });
+    return reply.send({
+      ok: true,
+      queued: true,
+      hasStoredPhone: Boolean(contact.storedPhone),
+    });
   });
 
   app.post("/webhooks/asaas", async (request, reply) => {
