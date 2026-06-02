@@ -6,6 +6,7 @@ import {
   type VisionResult,
 } from "@motoboy/types";
 import { buildExtractionPrompt, VISION_PROMPT } from "./prompts.js";
+import { normalizeMotoboyMessage } from "./normalize-message.js";
 import { tryParseDeliveryFromText } from "./parse-delivery-text.js";
 
 const visionCache = new Map<string, VisionResult>();
@@ -47,8 +48,10 @@ export class AiService {
     const quick = tryParseDeliveryFromText(text);
     if (quick) return quick;
 
+    const normalized = normalizeMotoboyMessage(text);
+
     if (!this.client) {
-      const lower = text.toLowerCase();
+      const lower = normalized || text.toLowerCase();
       if (
         /abastec|gasolina|posto|litro|litros|combustível|combustivel/.test(
           lower,
@@ -118,4 +121,5 @@ export class AiService {
 }
 
 export { buildExtractionPrompt, VISION_PROMPT };
+export { normalizeMotoboyMessage } from "./normalize-message.js";
 export { tryParseDeliveryFromText } from "./parse-delivery-text.js";

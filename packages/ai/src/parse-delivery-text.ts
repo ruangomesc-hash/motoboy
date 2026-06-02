@@ -1,37 +1,76 @@
-import type { DeliverySource } from "@motoboy/types";
-import type { ExtractionResult } from "@motoboy/types";
+import type { DeliverySource, ExtractionResult } from "@motoboy/types";
+import {
+  detectPlatform,
+  hasDeliveryIntent,
+  hasNonDeliveryIntent,
+} from "./delivery-lexicon.js";
+import { normalizeMotoboyMessage } from "./normalize-message.js";
 
 /** Extrai entrega de texto informal antes da IA (evita R$ 25 / PARTICULAR fixos). */
 export function tryParseDeliveryFromText(
   text: string,
 ): Extract<ExtractionResult, { type: "delivery" }> | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
+  const normalized = normalizeMotoboyMessage(text);
+  if (!normalized) return null;
 
-  const lower = trimmed.toLowerCase();
-  const grossValue = parseMoneyAmount(lower);
+  if (hasNonDeliveryIntent(normalized)) return null;
+
+  const grossValue = parseMoneyAmount(normalized);
   if (grossValue == null) return null;
 
-  if (!looksLikeDeliveryRegistration(lower)) return null;
+  const intent = classifyDeliveryIntent(normalized);
+  if (!intent.isDelivery) return null;
+
+  const platform = detectPlatform(normalized);
+  const source = platform?.source ?? "PARTICULAR";
+
+  let confidence = 0.92;
+  if (intent.fuzzyIntent) confidence -= 0.08;
+  if (!platform) confidence -= 0.05;
+  else if (platform.strength < 1) confidence -= 0.1;
+  if (intent.amountPattern === "loose") confidence -= 0.06;
+  confidence = Math.max(0.65, Math.min(0.95, confidence));
 
   return {
     type: "delivery",
-    source: parseDeliverySource(lower),
+    source,
     grossValue,
     originName: null,
     destinationAddr: null,
     distanceKm: null,
-    confidence: 0.92,
+    confidence: Number(confidence.toFixed(2)),
   };
 }
 
-function looksLikeDeliveryRegistration(lower: string): boolean {
-  if (/\bentrega\b/.test(lower)) return true;
-  if (/\b(ifood|99food|rappi|particular)\b/.test(lower)) return true;
-  if (/\b(farmácia|farmacia|padaria|restaurante|loja|mercado)\b/.test(lower)) {
-    return true;
+function classifyDeliveryIntent(normalized: string): {
+  isDelivery: boolean;
+  fuzzyIntent: boolean;
+  amountPattern: "strict" | "loose";
+} {
+  const platform = detectPlatform(normalized);
+  const explicitIntent = hasDeliveryIntent(normalized);
+
+  if (explicitIntent) {
+    return {
+      isDelivery: true,
+      fuzzyIntent: !/\bentrega\b/.test(normalized),
+      amountPattern: "strict",
+    };
   }
-  return /\br\$\s*\d/.test(lower) && /\bentrega\b/.test(lower);
+
+  if (platform) {
+    return {
+      isDelivery: true,
+      fuzzyIntent: false,
+      amountPattern: "loose",
+    };
+  }
+
+  if (/\br\$\s*\d/.test(normalized) && /entreg[a-z]{0,4}/.test(normalized)) {
+    return { isDelivery: true, fuzzyIntent: true, amountPattern: "strict" };
+  }
+
+  return { isDelivery: false, fuzzyIntent: false, amountPattern: "strict" };
 }
 
 function amountFromMatch(...groups: (string | undefined)[]): number | null {
@@ -44,36 +83,62 @@ function amountFromMatch(...groups: (string | undefined)[]): number | null {
   return null;
 }
 
-function parseMoneyAmount(lower: string): number | null {
-  const brl = lower.match(/r\$\s*(\d{1,5}(?:[.,]\d{1,2})?)/);
+function parseMoneyAmount(normalized: string): number | null {
+  const brl = normalized.match(/r\$\s*(\d{1,5}(?:\.\d{1,2})?)/);
   const fromBrl = amountFromMatch(brl?.[1]);
   if (fromBrl != null) return fromBrl;
 
-  const reais = lower.match(
-    /(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:reais|real|conto|pila)\b/,
+  const reais = normalized.match(
+    /(\d{1,5}(?:\.\d{1,2})?)\s*(?:reais|real|conto|pila)\b/,
   );
   const fromReais = amountFromMatch(reais?.[1]);
   if (fromReais != null) return fromReais;
 
-  const nearEntrega = lower.match(
-    /entrega\s+(?:da\s+|de\s+|no\s+)?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s+entrega\b/,
+  const nearEntrega = normalized.match(
+    /entreg[a-z]{0,4}\s+(?:da\s+|de\s+|no\s+)?(\d{1,5}(?:\.\d{1,2})?)|(\d{1,5}(?:\.\d{1,2})?)\s+entreg[a-z]{0,4}(?:\s|$)/,
   );
-  return amountFromMatch(nearEntrega?.[1], nearEntrega?.[2]);
+  const fromEntrega = amountFromMatch(nearEntrega?.[1], nearEntrega?.[2]);
+  if (fromEntrega != null) return fromEntrega;
+
+  const platform = detectPlatform(normalized);
+  if (platform) {
+    const paired = normalized.match(
+      /(\d{1,5}(?:\.\d{1,2})?)\s+(?:ifood|ifud|ifod|i food|99|rappi|rapi|particular|part)\b|(?:ifood|ifud|ifod|i food|99food|99|rappi|rapi|particular|part)\s+(\d{1,5}(?:\.\d{1,2})?)/,
+    );
+    const fromPair = amountFromMatch(paired?.[1], paired?.[2]);
+    if (fromPair != null) return fromPair;
+  }
+
+  if (hasDeliveryIntent(normalized) || platform) {
+    return parseLooseAmount(normalized, platform?.source ?? null);
+  }
+
+  return null;
+}
+
+/** Ex.: "30 entrg 99" — valor antes da plataforma. */
+function parseLooseAmount(
+  normalized: string,
+  platform: DeliverySource | null,
+): number | null {
+  const nums: number[] = [];
+  for (const m of normalized.matchAll(/\b(\d{1,5}(?:\.\d{1,2})?)\b/g)) {
+    const n = normalizeAmount(m[1] ?? "");
+    if (n != null) nums.push(n);
+  }
+  if (!nums.length) return null;
+  if (nums.length === 1) return nums[0] ?? null;
+
+  if (platform === "NINETY_NINE") {
+    const without99 = nums.filter((n) => n !== 99);
+    if (without99.length) return without99[0] ?? null;
+  }
+
+  return nums[0] ?? null;
 }
 
 function normalizeAmount(raw: string): number | null {
   const n = Number(raw.replace(",", "."));
   if (!Number.isFinite(n) || n <= 0 || n > 99_999) return null;
   return Number(n.toFixed(2));
-}
-
-function parseDeliverySource(lower: string): DeliverySource {
-  if (/\bifood\b/.test(lower)) return "IFOOD";
-  if (/\b(99\s*food|99food|noventa\s*e\s*nove)\b/.test(lower)) {
-    return "NINETY_NINE";
-  }
-  if (/\b99\b/.test(lower) && /\bentrega\b/.test(lower)) return "NINETY_NINE";
-  if (/\brappi\b/.test(lower)) return "RAPPI";
-  if (/\bparticular\b/.test(lower)) return "PARTICULAR";
-  return "PARTICULAR";
 }

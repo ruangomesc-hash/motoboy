@@ -68,8 +68,11 @@ REGRAS:
 - "painel", "hodômetro", "km na moto", número grande tipo 45000 → odometer.
 - "25 conto" = R$ 25. Motoboy fala informal.
 - Use o valor em reais EXATAMENTE como na mensagem (ex: "R$ 40" → grossValue 40).
-- "ifood" / "i food" → source IFOOD; "99" / "99 food" → NINETY_NINE; "rappi" → RAPPI.
+- "ifood" / "i food" / "ifud" (typo) → source IFOOD; "99" / "99 food" → NINETY_NINE; "rappi" → RAPPI.
+- "40 ifood" ou "ifood 40" sem a palavra entrega ainda é delivery.
+- "4o" ou "3O" costuma ser 40 / 30 (zero trocado por letra).
 - Não invente valor nem plataforma que não aparecem no texto.
+- confidence baixa (0.5-0.7) se a mensagem for ambígua; não chute R$ 25 nem PARTICULAR por padrão.
 
 Mensagem do motoboy: """${input}"""
 JSON:`;
