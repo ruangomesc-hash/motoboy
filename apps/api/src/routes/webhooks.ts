@@ -64,8 +64,9 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const text = extractEvolutionMessageText(msg);
     let messageType = inferEvolutionMessageType(msg, data.messageType);
 
-    if (messageType === "audio" && (msg?.audioMessage as { seconds?: number })?.seconds) {
-      const seconds = (msg.audioMessage as { seconds?: number }).seconds ?? 0;
+    if (messageType === "audio") {
+      const seconds =
+        (msg?.audioMessage as { seconds?: number } | undefined)?.seconds ?? 0;
       if (seconds > 60) {
         await app.evolution.sendText(
           replyTo,
