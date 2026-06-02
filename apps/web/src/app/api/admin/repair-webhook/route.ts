@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { resolveApiBase } from "@/lib/api-base";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const secret = process.env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
     return NextResponse.json(

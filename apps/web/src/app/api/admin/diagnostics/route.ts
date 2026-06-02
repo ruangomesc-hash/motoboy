@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import type { IntegrationsHealthReport, PlatformHealthReport } from "@motoboy/types";
 import { resolveApiBase } from "@/lib/api-base";
@@ -28,7 +28,7 @@ async function backendGet<T>(
   return (text.trim() ? JSON.parse(text) : {}) as T;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const secret = process.env.NEXTAUTH_SECRET?.trim();
   if (!secret) {
     return NextResponse.json(
