@@ -32,6 +32,7 @@ import {
   getOdometerDayStats,
   formatOdometerConfirmation,
 } from "../services/odometer.js";
+import { coerceBrazilStoredPhone } from "../lib/evolution-contact.js";
 import { normalizePhone } from "../lib/phone.js";
 import { getBullMQConnection } from "../lib/bullmq-connection.js";
 import { recordClientErrorSafe } from "../services/client-error-log.js";
@@ -69,7 +70,7 @@ function jobStoredPhone(job: Job<WhatsAppJobData>): string | null {
   try {
     return normalizePhone(job.data.fromNumber);
   } catch {
-    return null;
+    return coerceBrazilStoredPhone(job.data.fromNumber);
   }
 }
 

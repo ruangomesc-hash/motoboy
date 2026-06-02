@@ -95,8 +95,8 @@ export function ProfileForm({
         />
         <p className="text-xs text-muted-foreground mt-2">
           {showRegistered
-            ? "Para mudar o número, edite o campo abaixo e salve. Use o mesmo celular que manda mensagens no Zap do Motocopiloto."
-            : "Obrigatório no cadastro. Mesmo celular que você usa no Zap (11 dígitos, com 9 após o DDD)."}
+            ? "Deve ser o mesmo número do login (Entrar / Cadastro) e do celular que manda mensagem no Zap."
+            : "Mesmo número do login e do Zap (11 dígitos, com 9 após o DDD). Salve em Configurações após o cadastro."}
         </p>
       </div>
       <Field

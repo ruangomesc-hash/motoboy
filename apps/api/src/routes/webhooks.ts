@@ -177,6 +177,8 @@ async function handleWhatsAppWebhook(
     if (redisUrl && messageId) {
       const acquired = await acquireWhatsAppMessageLock(redisUrl, messageId);
       if (!acquired) {
+        request.log.info({ messageId }, "Webhook WhatsApp: duplicate ignorado");
+        await logWhatsAppWebhookHit(body, "duplicate_ignored", fromNumber);
         return reply.send({ ok: true, duplicate: true });
       }
     }

@@ -56,6 +56,34 @@ export async function findUserByPhone(whatsappNumber: string) {
   return null;
 }
 
+/**
+ * Garante que o WhatsApp salvo no banco é o mesmo do login/cadastro (55 + 11 dígitos).
+ * Evita conta criada no app com número diferente do que manda mensagem no Zap.
+ */
+export async function syncUserWhatsAppOnLogin(
+  userId: string,
+  loginPhone: string,
+): Promise<string> {
+  const normalized = normalizePhone(loginPhone);
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { whatsappNumber: true },
+  });
+  if (!user) return normalized;
+  if (user.whatsappNumber === normalized) return normalized;
+
+  const conflict = await prisma.user.findFirst({
+    where: { whatsappNumber: normalized, NOT: { id: userId } },
+  });
+  if (conflict) return user.whatsappNumber;
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { whatsappNumber: normalized },
+  });
+  return normalized;
+}
+
 export async function createUserWithProfile(input: {
   whatsappNumber: string;
   name: string;

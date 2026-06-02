@@ -30,6 +30,7 @@ import {
   applyRegistrationInVerify,
   createUserWithProfile,
   findUserByPhone,
+  syncUserWhatsAppOnLogin,
 } from "../services/user.js";
 import { authRateLimit, strictAuthRateLimit } from "../lib/rate-limit.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
@@ -84,8 +85,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           "WhatsApp ou senha incorretos. Se ainda não definiu senha, use Criar conta.",
       });
     }
+    const whatsappNumber = await syncUserWhatsAppOnLogin(user.id, phone);
     const token = signToken(
-      { userId: user.id, whatsappNumber: user.whatsappNumber },
+      { userId: user.id, whatsappNumber },
       env.JWT_SECRET,
     );
     return reply
@@ -206,8 +208,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         passwordHash,
         affiliateCode: body.affiliateCode,
       });
+      const whatsappNumber = await syncUserWhatsAppOnLogin(user.id, phone);
       const token = signToken(
-        { userId: user.id, whatsappNumber: user.whatsappNumber },
+        { userId: user.id, whatsappNumber },
         env.JWT_SECRET,
       );
       return reply
@@ -351,8 +354,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     await redisDel(app.redis, registerPendingRedisKey(phone));
 
+    const whatsappNumber = await syncUserWhatsAppOnLogin(user.id, phone);
     const token = signToken(
-      { userId: user.id, whatsappNumber: user.whatsappNumber },
+      { userId: user.id, whatsappNumber },
       env.JWT_SECRET,
     );
 

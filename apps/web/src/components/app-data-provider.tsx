@@ -831,16 +831,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const saveMeSettings = useCallback(
     async (payload: ConfigSavePayload) => {
+      const loginPhone = session?.phone ?? null;
       const current = meSettingsRef.current;
       if (current) {
         const optimistic: MeSettingsSnapshot = {
           profile: {
             ...current.profile,
-            ...toProfilePutBody(payload.profile),
+            ...toProfilePutBody(payload.profile, loginPhone),
             whatsappNumber:
               payload.profile.whatsappPhone.replace(/\D/g, "").length === 11
                 ? toStoredWhatsApp(payload.profile.whatsappPhone)
-                : current.profile.whatsappNumber,
+                : loginPhone
+                  ? toStoredWhatsApp(loginPhone)
+                  : current.profile.whatsappNumber,
             workApps: payload.profile.workApps,
             workDays: payload.profile.workDays,
             subscriptionPaymentMethod:
@@ -864,7 +867,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           "/me/profile",
           {
             method: "PUT",
-            body: JSON.stringify(toProfilePutBody(payload.profile)),
+            body: JSON.stringify(toProfilePutBody(payload.profile, loginPhone)),
           },
           { skipSync: true },
         ),
@@ -913,7 +916,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         me: snap,
       };
     },
-    [api, applyMeSnapshot, persistNow, publishAppSync, userId],
+    [api, applyMeSnapshot, persistNow, publishAppSync, session?.phone, userId],
   );
 
   const bootstrap = useCallback(() => {

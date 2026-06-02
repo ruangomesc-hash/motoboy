@@ -180,7 +180,10 @@ export function buildConfigSavePayload(
   return form;
 }
 
-export function toProfilePutBody(profile: ProfileFormState) {
+export function toProfilePutBody(
+  profile: ProfileFormState,
+  loginPhoneLocal?: string | null,
+) {
   const body: {
     name: string;
     email: string;
@@ -197,9 +200,14 @@ export function toProfilePutBody(profile: ProfileFormState) {
     subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
     workDays: profile.workDays,
   };
-  const localDigits = profile.whatsappPhone.replace(/\D/g, "");
+  let phoneInput = profile.whatsappPhone;
+  let localDigits = phoneInput.replace(/\D/g, "");
+  if (localDigits.length !== 11 && loginPhoneLocal) {
+    phoneInput = loginPhoneLocal;
+    localDigits = phoneInput.replace(/\D/g, "");
+  }
   if (localDigits.length === 11) {
-    body.whatsapp = parseBrazilWhatsAppDigits(profile.whatsappPhone);
+    body.whatsapp = parseBrazilWhatsAppDigits(phoneInput);
   }
   return body;
 }
