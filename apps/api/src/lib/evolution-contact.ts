@@ -58,12 +58,48 @@ export function resolveStoredPhoneFromReplyTo(replyTo: string): string | null {
   return coerceBrazilStoredPhone(trimmed);
 }
 
-/** Evolution envia o JID real no topo do payload (ex.: leads de anúncio com key só @lid). */
+/** Campo `sender` no topo do webhook — em inbound costuma ser o número da instância (bot), não o cliente. */
 export function extractEvolutionRootSender(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const sender = (body as { sender?: unknown }).sender;
   if (typeof sender === "string" && sender.trim()) return sender.trim();
   return null;
+}
+
+function phoneVariantKeys(canonical: string): string[] {
+  const keys = new Set<string>([canonical]);
+  if (canonical.length === 13 && canonical.startsWith("55") && canonical[4] === "9") {
+    keys.add(`${canonical.slice(0, 4)}${canonical.slice(5)}`);
+  }
+  if (canonical.length === 12 && canonical.startsWith("55")) {
+    keys.add(`${canonical.slice(0, 4)}9${canonical.slice(4)}`);
+  }
+  return [...keys];
+}
+
+/** Números da linha Motocopiloto (EVOLUTION_BOT_NUMBER) — nunca são o motoboy cadastrado. */
+export function resolveEvolutionBotPhoneKeys(
+  botNumber: string | undefined,
+): Set<string> {
+  const keys = new Set<string>();
+  if (!botNumber?.trim()) return keys;
+  const canonical = coerceBrazilStoredPhone(botNumber);
+  if (!canonical) return keys;
+  for (const k of phoneVariantKeys(canonical)) keys.add(k);
+  return keys;
+}
+
+function isEvolutionBotPhone(
+  raw: string,
+  botPhoneKeys: Set<string>,
+): boolean {
+  if (botPhoneKeys.size === 0) return false;
+  const stored = storedPhoneFromJid(ensureJid(raw));
+  if (stored && botPhoneKeys.has(stored)) return true;
+  if (stored) {
+    return phoneVariantKeys(stored).some((k) => botPhoneKeys.has(k));
+  }
+  return false;
 }
 
 function firstReplyJidFromKey(key: EvolutionMessageKey): string | null {
@@ -116,26 +152,32 @@ export function resolveEvolutionContact(
   return null;
 }
 
+export type EvolutionWebhookContactOptions = {
+  /** `EVOLUTION_BOT_NUMBER` — linha que recebe; não confundir com o motoboy. */
+  botPhoneKeys?: Set<string>;
+};
+
 /**
- * Combina `data.key` com `sender` no root do webhook (comum em mensagens de anúncio Meta).
+ * Identifica o cliente (`data.key`) para busca no banco e resposta no Zap.
+ * O `sender` do root só entra se não for o número da instância (ex.: alguns leads @lid).
  */
 export function resolveEvolutionWebhookContact(
   body: unknown,
   key: EvolutionMessageKey,
+  options?: EvolutionWebhookContactOptions,
 ): EvolutionResolvedContact | null {
+  const botPhoneKeys = options?.botPhoneKeys ?? new Set<string>();
   const rootSender = extractEvolutionRootSender(body);
+  const rootIsBot =
+    rootSender != null && isEvolutionBotPhone(rootSender, botPhoneKeys);
   const fromKey = resolveEvolutionContact(key);
 
-  if (rootSender) {
-    const rootJid = ensureJid(rootSender);
-    const storedFromRoot = storedPhoneFromJid(rootJid);
-    if (storedFromRoot) {
-      return { storedPhone: storedFromRoot, replyTo: storedFromRoot };
-    }
-  }
-
   if (fromKey) {
-    if (!fromKey.storedPhone && rootSender) {
+    if (
+      !fromKey.storedPhone &&
+      rootSender &&
+      !rootIsBot
+    ) {
       const storedFromRoot = storedPhoneFromJid(ensureJid(rootSender));
       if (storedFromRoot) {
         return { storedPhone: storedFromRoot, replyTo: fromKey.replyTo };
@@ -144,7 +186,7 @@ export function resolveEvolutionWebhookContact(
     return fromKey;
   }
 
-  if (rootSender) {
+  if (rootSender && !rootIsBot) {
     const rootJid = ensureJid(rootSender);
     const stored = storedPhoneFromJid(rootJid);
     if (stored) return { storedPhone: stored, replyTo: stored };

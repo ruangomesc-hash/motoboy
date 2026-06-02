@@ -5,12 +5,14 @@ import {
   resolveEvolutionContact,
   resolveEvolutionWebhookContact,
   type EvolutionMessageKey,
+  type EvolutionWebhookContactOptions,
 } from "./evolution-contact.js";
 import { formatWhatsAppProcessingError } from "./whatsapp-user-message.js";
 
 /** Extrai destino de resposta mesmo quando o parse completo falhou. */
 export function extractReplyTargetFromWebhookBody(
   body: unknown,
+  options?: EvolutionWebhookContactOptions,
 ): string | null {
   if (!body || typeof body !== "object") return null;
 
@@ -38,16 +40,17 @@ export function extractReplyTargetFromWebhookBody(
 
   for (const key of keys) {
     if (key.fromMe) continue;
-    const contact = resolveEvolutionWebhookContact(body, key);
+    const contact = resolveEvolutionWebhookContact(body, key, options);
     if (contact?.replyTo) return contact.replyTo;
   }
 
   const rootSender = extractEvolutionRootSender(body);
   if (rootSender) {
-    const contact = resolveEvolutionWebhookContact(body, {
-      remoteJid: rootSender,
-      fromMe: false,
-    });
+    const contact = resolveEvolutionWebhookContact(
+      body,
+      { remoteJid: rootSender, fromMe: false },
+      options,
+    );
     if (contact?.replyTo) return contact.replyTo;
   }
 

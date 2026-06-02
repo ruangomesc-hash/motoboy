@@ -9,6 +9,7 @@ import {
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
 import {
+  resolveEvolutionBotPhoneKeys,
   resolveEvolutionWebhookContact,
   resolveStoredPhoneFromReplyTo,
 } from "../lib/evolution-contact.js";
@@ -52,7 +53,12 @@ async function handleWhatsAppWebhook(
 ): Promise<void> {
   const env = app.config.env;
   const body = request.body;
-  let replyTo: string | null = extractReplyTargetFromWebhookBody(body);
+  const botPhoneKeys = resolveEvolutionBotPhoneKeys(env.EVOLUTION_BOT_NUMBER);
+  const contactOptions = { botPhoneKeys };
+  let replyTo: string | null = extractReplyTargetFromWebhookBody(
+    body,
+    contactOptions,
+  );
 
   try {
     if (!evolutionWebhookAuthorized(env, request)) {
@@ -81,7 +87,11 @@ async function handleWhatsAppWebhook(
       return reply.send({ ok: true, skipped: true, reason: "from_me" });
     }
 
-    const contact = resolveEvolutionWebhookContact(body, data.key);
+    const contact = resolveEvolutionWebhookContact(
+      body,
+      data.key,
+      contactOptions,
+    );
     if (!contact) {
       request.log.warn({ key: data.key }, "Webhook: invalid_sender_jid");
       await logWhatsAppWebhookHit(body, "invalid_sender_jid", replyTo ?? "unknown");

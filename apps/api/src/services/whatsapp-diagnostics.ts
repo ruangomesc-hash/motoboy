@@ -8,6 +8,7 @@ import {
 } from "../lib/app-url.js";
 import { evolutionWebhookSecrets } from "../lib/webhook-auth.js";
 import { isRedisEnabled } from "../lib/redis.js";
+import { resolveEvolutionBotPhoneKeys } from "../lib/evolution-contact.js";
 import { diagnosePhoneUserLink } from "./user.js";
 
 export type WhatsAppPipelineIssue = {
@@ -153,6 +154,18 @@ export async function getWhatsAppPipelineDiagnostics(
     hasApikeyHeader: false,
     events: [] as string[],
   };
+
+  const botPhoneKeys = resolveEvolutionBotPhoneKeys(env.EVOLUTION_BOT_NUMBER);
+  if (evolutionConfigured && botPhoneKeys.size === 0) {
+    issues.push({
+      severity: "warning",
+      code: "EVOLUTION_BOT_NUMBER_MISSING",
+      message:
+        "EVOLUTION_BOT_NUMBER não configurado — risco de confundir a linha que recebe (ex. 5531992907578) com o celular do motoboy.",
+      action:
+        "Na Vercel, EVOLUTION_BOT_NUMBER=5531992907578 (linha Motocopiloto). Cadastro do motoboy usa o celular pessoal dele.",
+    });
+  }
 
   if (!evolutionConfigured) {
     issues.push({
@@ -458,18 +471,37 @@ export async function getWhatsAppPipelineDiagnostics(
       registeredAs: d.matchedUser?.whatsappNumber ?? null,
     }));
 
+  const botAsCustomer = recentMessages.filter(
+    (m) =>
+      m.processedAs === "user_not_found" &&
+      botPhoneKeys.size > 0 &&
+      botPhoneKeys.has(m.fromNumber.replace(/@s\.whatsapp\.net$/i, "")),
+  );
+  if (botAsCustomer.length > 0) {
+    issues.push({
+      severity: "critical",
+      code: "BOT_NUMBER_USED_AS_CUSTOMER",
+      message:
+        "Mensagens foram atribuídas ao número da linha Motocopiloto (bot), não ao celular de quem mandou. Corrija EVOLUTION_BOT_NUMBER e redeploy.",
+      action: `EVOLUTION_BOT_NUMBER=${env.EVOLUTION_BOT_NUMBER ?? "5531992907578"} na Vercel. Motoboy cadastra o próprio WhatsApp, não a linha do bot.`,
+    });
+  }
+
   if (unmatchedPhones.length > 0) {
     const sample = unmatchedPhones
+      .filter((p) => !botPhoneKeys.has(p.fromNumber))
       .slice(0, 3)
       .map((p) => p.fromNumber)
       .join(", ");
-    issues.push({
-      severity: "critical",
-      code: "ZAP_PHONE_NOT_IN_USERS_TABLE",
-      message: `${unmatchedPhones.length} número(s) do Zap sem conta: ${sample}${unmatchedPhones.length > 3 ? "…" : ""}.`,
-      action:
-        "No app, Entrar/Cadastro e Configurações devem usar exatamente esse celular (ex.: 31992907578 → salvo 5531992907578).",
-    });
+    if (sample) {
+      issues.push({
+        severity: "critical",
+        code: "ZAP_PHONE_NOT_IN_USERS_TABLE",
+        message: `${unmatchedPhones.length} número(s) do motoboy sem conta: ${sample}${unmatchedPhones.length > 3 ? "…" : ""}.`,
+        action:
+          "No app, Entrar/Cadastro e Configurações com o celular de quem manda mensagem para a linha Motocopiloto (não o número 5531992907578).",
+      });
+    }
   }
 
   return {
