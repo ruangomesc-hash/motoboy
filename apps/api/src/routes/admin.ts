@@ -10,7 +10,6 @@ import {
   envAdminCredentialsConfigured,
   isAdminConfigured,
   isAdminTableReady,
-  getDatabaseHealth,
   resetAdminAccountWithToken,
   setupAdminAccount,
   verifyAdminLoginWithEnvFallback,
