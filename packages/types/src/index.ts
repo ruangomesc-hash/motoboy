@@ -334,6 +334,14 @@ export const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true"),
+  CARTPANDA_CHECKOUT_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url().optional(),
+  ),
+  CARTPANDA_WEBHOOK_SECRET: z.preprocess(
+    emptyToUndefined,
+    z.string().optional(),
+  ),
   JWT_SECRET: z.string().min(16),
   API_URL: z.string().default("http://localhost:3001"),
   APP_URL: z.string().default("http://localhost:3002"),
@@ -401,10 +409,10 @@ export const affiliateValidateResponseSchema = z.object({
 
 export const subscribeResponseSchema = z.object({
   checkoutUrl: z.string(),
-  chargeId: z.string(),
-  invoiceUrl: z.string(),
-  pixCopyPaste: z.string().nullable(),
   amount: z.number(),
+  chargeId: z.string().optional(),
+  invoiceUrl: z.string().optional(),
+  pixCopyPaste: z.string().nullable().optional(),
   subscriptionId: z.string().optional(),
 });
 
@@ -426,9 +434,9 @@ export const subscriptionStatusSchema = z.object({
       paidAt: z.string().nullable(),
     })
     .nullable(),
-  asaas: z.object({
+  cartpanda: z.object({
     configured: z.boolean(),
-    sandbox: z.boolean(),
+    checkoutUrl: z.string(),
     webhookPath: z.string(),
   }),
 });

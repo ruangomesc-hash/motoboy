@@ -52,8 +52,11 @@ import {
 import { getFuelDayStats } from "../services/fuel.js";
 import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
-import { AsaasApiError } from "../lib/asaas-client.js";
-import { AsaasService } from "../services/asaas.js";
+import {
+  cartpandaConnectionStatus,
+  createCheckoutForUser,
+  isCartpandaConfigured,
+} from "../services/cartpanda.js";
 import {
   toPublicDeliveries,
   toPublicDelivery,
@@ -783,8 +786,6 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       where: { userId: request.sessionUser!.id },
       orderBy: { createdAt: "desc" },
     });
-    const asaas = new AsaasService(env);
-
     let trialEndsAt = user?.trialEndsAt ?? null;
     if (user?.status === "TRIAL" && user.trialEndsAt) {
       trialEndsAt = await ensureTrialEndsAtPolicy({
@@ -810,7 +811,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
             paidAt: lastPayment.paidAt?.toISOString() ?? null,
           }
         : null,
-      asaas: asaas.connectionStatus(),
+      cartpanda: cartpandaConnectionStatus(env),
     };
   });
 
@@ -824,21 +825,33 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     if (user.status === "ACTIVE") {
       return reply.status(400).send({ error: "Assinatura já está ativa." });
     }
+    if (!user.email?.trim()) {
+      return reply.status(400).send({
+        error:
+          "Cadastre seu e-mail no perfil antes de assinar (precisa ser o mesmo do checkout).",
+      });
+    }
 
-    const asaas = new AsaasService(env);
+    if (!isCartpandaConfigured(env)) {
+      return reply.status(503).send({
+        error: "Pagamento temporariamente indisponível. Tente mais tarde.",
+      });
+    }
+
     try {
-      const result = await asaas.createSubscription(
-        request.sessionUser!.id,
-        user.subscriptionPaymentMethod ?? "PIX",
-      );
-      return result;
+      const result = await createCheckoutForUser(env, request.sessionUser!.id);
+      return {
+        checkoutUrl: result.checkoutUrl,
+        invoiceUrl: result.checkoutUrl,
+        amount: result.amount,
+        chargeId: result.chargeId,
+        pixCopyPaste: null,
+      };
     } catch (err) {
-      if (err instanceof AsaasApiError) {
-        return reply.status(502).send({
-          error: err.message || "Erro ao conectar com Asaas",
-        });
-      }
-      throw err;
+      request.log.error({ err }, "CartPanda checkout");
+      return reply.status(502).send({
+        error: "Não foi possível abrir o checkout. Tente novamente.",
+      });
     }
   });
 }

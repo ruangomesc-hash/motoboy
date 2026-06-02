@@ -142,10 +142,10 @@ export const demoSubscription: SubscriptionStatus = {
   subscribedAt: null,
   subscriptionPaymentMethod: "PIX",
   lastPayment: null,
-  asaas: {
-    configured: false,
-    sandbox: true,
-    webhookPath: "/api/backend/webhooks/asaas",
+  cartpanda: {
+    configured: true,
+    checkoutUrl: "https://pagamento.motocopiloto.com.br",
+    webhookPath: "/api/backend/webhooks/cartpanda",
   },
 };
 

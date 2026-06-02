@@ -702,14 +702,22 @@ export default function AdminStatusPage() {
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
             <CreditCard className="h-4 w-4 text-emerald-400" />
-            Asaas (pagamentos)
+            CartPanda (pagamentos)
           </h2>
           <DetailRow
-            label="Integração configurada"
-            value={boolLabel(h?.asaas?.configured)}
+            label="Checkout configurado"
+            value={boolLabel(h?.cartpanda?.configured)}
           />
-          <DetailRow label="Sandbox" value={boolLabel(h?.asaas?.sandbox)} />
-          <DetailRow label="Webhook" value={h?.asaas?.webhook ?? "—"} mono />
+          <DetailRow
+            label="URL checkout"
+            value={h?.cartpanda?.checkoutUrl ?? "—"}
+            mono
+          />
+          <DetailRow
+            label="Webhook"
+            value={h?.cartpanda?.webhookPath ?? "—"}
+            mono
+          />
         </div>
       </section>
 

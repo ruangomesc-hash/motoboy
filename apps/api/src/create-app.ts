@@ -235,6 +235,9 @@ export async function createApp(
   app.get("/health", async (_request, reply) => {
     const { prisma } = await import("@motoboy/db");
     const { isAsaasConfigured } = await import("./lib/asaas-client.js");
+    const { cartpandaConnectionStatus } = await import(
+      "./services/cartpanda.js"
+    );
     const { isAdminTableReady, isUserPasswordColumnReady } = await import(
       "./services/admin-auth-store.js"
     );
@@ -274,6 +277,7 @@ export async function createApp(
       whatsappProcessing,
       vercelServerless: isVercelServerless(),
       whatsappQueue,
+      cartpanda: cartpandaConnectionStatus(env),
       asaas: {
         configured: isAsaasConfigured(env),
         sandbox: Boolean(env.ASAAS_SANDBOX),
