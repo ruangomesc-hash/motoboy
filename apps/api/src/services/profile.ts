@@ -120,13 +120,15 @@ export async function updateUserProfile(
   ) {
     changes = [
       ...changes,
-      {
-        field: "whatsappNumber",
-        label: profileDiffFields.whatsappNumber.label,
-        before: beforeProfile.whatsappNumber,
-        after: profile.whatsappNumber,
-        format: profileDiffFields.whatsappNumber.format,
-      },
+      ...diffValues([
+        {
+          field: "whatsappNumber",
+          label: profileDiffFields.whatsappNumber.label,
+          before: beforeProfile.whatsappNumber,
+          after: profile.whatsappNumber,
+          format: profileDiffFields.whatsappNumber.format,
+        },
+      ]),
     ];
   }
 
