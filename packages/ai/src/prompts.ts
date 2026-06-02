@@ -3,6 +3,7 @@ export function buildExtractionPrompt(input: string): string {
 
 A mensagem pode ser:
 - Registro de entrega ("entrega da farmácia 25 reais")
+- Despesa manual ("despesa 25 almoço", "gastei 30 no lanche", "paguei 40 gasolina" sem litros)
 - Abastecimento ("abasteci 30 reais 5 litros", "coloquei 20 pila 3 litro de gasolina")
 - Hodômetro ("painel 45820 km", "to com 45.820 na moto")
 - Múltiplos endereços para rota
@@ -30,40 +31,41 @@ Responda APENAS com JSON válido seguindo um dos schemas abaixo.
   "confidence": 0-1
 }
 
-## Schema 3: Hodômetro / KM do painel
+## Schema 4: Hodômetro / KM do painel
 {
   "type": "odometer",
   "odometerKm": number (km total do painel, ex: 45820.5),
   "confidence": 0-1
 }
 
-## Schema 4: Múltiplos endereços (rota)
+## Schema 5: Múltiplos endereços (rota)
 {
   "type": "route_request",
   "addresses": string[]
 }
 
-## Schema 5: Comando
+## Schema 6: Comando
 {
   "type": "command",
   "action": "start_shift" | "end_shift" | "today_summary" | "week_summary" | "delete_last"
 }
 
-## Schema 6: Configuração
+## Schema 7: Configuração
 {
   "type": "config",
   "key": "fuel_price" | "daily_goal" | "weekly_goal",
   "value": number
 }
 
-## Schema 7: Não entendi
+## Schema 8: Não entendi
 {
   "type": "unknown",
   "originalText": string
 }
 
 REGRAS:
-- "abasteci", "enchi o tanque", "gasolina" com valor E litros → fuel_refuel.
+- "despesa", "gastei", "paguei" + valor → expense (grossValue positivo). originName: Almoço, Lanche, Gasolina, etc.
+- "abasteci", "enchi o tanque", "gasolina" com valor E litros → fuel_refuel (não expense).
 - Só valor sem litros: estime litros = totalAmount / 6.0 e confidence baixa.
 - "painel", "hodômetro", "km na moto", número grande tipo 45000 → odometer.
 - "25 conto" = R$ 25. Motoboy fala informal.

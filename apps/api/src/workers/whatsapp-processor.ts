@@ -1,6 +1,10 @@
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@motoboy/db";
-import { AiService, tryParseDeliveryFromText } from "@motoboy/ai";
+import {
+  AiService,
+  tryParseDeliveryFromText,
+  tryParseExpenseFromText,
+} from "@motoboy/ai";
 import type { Env, ExtractionResult } from "@motoboy/types";
 import type { Server as SocketServer } from "socket.io";
 import type { FastifyBaseLogger } from "fastify";
@@ -8,7 +12,9 @@ import { findUserByPhone, isTrialExpired } from "../services/user.js";
 import { EvolutionService } from "../services/evolution.js";
 import {
   createDeliveryFromExtraction,
+  createExpenseFromExtraction,
   formatDeliveryConfirmationMessage,
+  formatExpenseConfirmationMessage,
 } from "../services/delivery.js";
 import {
   formatDeliverySource,
@@ -46,6 +52,102 @@ function dayBounds() {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start, end };
+}
+
+async function finalizeWhatsAppExpense(
+  user: { id: string },
+  job: Job<WhatsAppJobData>,
+  extraction: Extract<ExtractionResult, { type: "expense" }>,
+  text: string,
+  messageType: string,
+  rawContent: unknown,
+  evolution: EvolutionService,
+  _io: SocketServer | null,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const replyTo = jobReplyTo(job);
+  const expense = await createExpenseFromExtraction(
+    user.id,
+    extraction,
+    { messageType, text, rawContent },
+  );
+  void recordActivitySafe(
+    user.id,
+    {
+      category: "DELIVERY",
+      action: "CREATED",
+      title: "Despesa via WhatsApp",
+      entityId: expense.id,
+      source: "whatsapp",
+      changes: [
+        {
+          field: "grossValue",
+          label: "Valor",
+          from: null,
+          to: formatMoney(expense.grossValue),
+        },
+        {
+          field: "originName",
+          label: "Descrição",
+          from: null,
+          to: expense.originName ?? "Despesa",
+        },
+      ],
+    },
+    log,
+  );
+  await evolution.sendText(
+    replyTo,
+    formatExpenseConfirmationMessage({
+      grossValue: expense.grossValue,
+      originName: expense.originName,
+    }),
+    { fast: true },
+  );
+  emitDeliveryCreated(user.id, expense);
+}
+
+async function tryFastParseWhatsAppMessage(
+  user: NonNullable<Awaited<ReturnType<typeof findUserByPhone>>>,
+  job: Job<WhatsAppJobData>,
+  text: string,
+  messageType: string,
+  rawContent: unknown,
+  evolution: EvolutionService,
+  io: SocketServer | null,
+  log: FastifyBaseLogger,
+): Promise<boolean> {
+  const expense = tryParseExpenseFromText(text);
+  if (expense) {
+    await finalizeWhatsAppExpense(
+      user,
+      job,
+      expense,
+      text,
+      messageType,
+      rawContent,
+      evolution,
+      io,
+      log,
+    );
+    return true;
+  }
+  const delivery = tryParseDeliveryFromText(text);
+  if (delivery) {
+    await finalizeWhatsAppDelivery(
+      user,
+      job,
+      delivery,
+      text,
+      messageType,
+      rawContent,
+      evolution,
+      io,
+      log,
+    );
+    return true;
+  }
+  return false;
 }
 
 async function finalizeWhatsAppDelivery(
@@ -254,26 +356,21 @@ async function processWhatsAppJobInternal(
           return;
         }
 
-        if (messageType === "text") {
-          const quick = tryParseDeliveryFromText(text);
-          if (quick) {
-            await finalizeWhatsAppDelivery(
-              user,
-              job,
-              quick,
-              text,
-              messageType,
-              rawContent,
-              evolution,
-              io,
-              log,
-            );
-            await prisma.whatsAppMessage.update({
-              where: { id: inbound.id },
-              data: { processedAs: "processed" },
-            });
-            return;
-          }
+        if (await tryFastParseWhatsAppMessage(
+          user,
+          job,
+          text,
+          messageType,
+          rawContent,
+          evolution,
+          io,
+          log,
+        )) {
+          await prisma.whatsAppMessage.update({
+            where: { id: inbound.id },
+            data: { processedAs: "processed" },
+          });
+          return;
         }
 
         await processTextMessage(
@@ -447,19 +544,18 @@ async function processTextMessage(
   env: Env,
   log: FastifyBaseLogger,
 ): Promise<void> {
-  const quick = tryParseDeliveryFromText(text);
-  if (quick) {
-    await finalizeWhatsAppDelivery(
+  if (
+    await tryFastParseWhatsAppMessage(
       user,
       job,
-      quick,
       text,
       messageType,
       rawContent,
       evolution,
       io,
       log,
-    );
+    )
+  ) {
     return;
   }
 
@@ -507,6 +603,21 @@ async function processTextMessage(
         await evolution.sendText(
           replyTo,
           formatOdometerConfirmation(extraction.odometerKm, stats),
+        );
+        return;
+      }
+
+      if (extraction.type === "expense") {
+        await finalizeWhatsAppExpense(
+          user,
+          job,
+          extraction,
+          text,
+          messageType,
+          rawContent,
+          evolution,
+          io,
+          log,
         );
         return;
       }

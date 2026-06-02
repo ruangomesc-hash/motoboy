@@ -137,6 +137,14 @@ export const extractionOdometerSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/** Despesa manual via Zap — valor positivo no JSON; API grava negativo. */
+export const extractionExpenseSchema = z.object({
+  type: z.literal("expense"),
+  grossValue: z.number().positive(),
+  originName: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+});
+
 export const extractionUnknownSchema = z.object({
   type: z.literal("unknown"),
   originalText: z.string(),
@@ -144,6 +152,7 @@ export const extractionUnknownSchema = z.object({
 
 export const extractionResultSchema = z.discriminatedUnion("type", [
   extractionDeliverySchema,
+  extractionExpenseSchema,
   extractionRouteSchema,
   extractionCommandSchema,
   extractionConfigSchema,

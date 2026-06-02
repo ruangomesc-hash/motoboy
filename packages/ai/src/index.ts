@@ -7,6 +7,7 @@ import {
 } from "@motoboy/types";
 import { buildExtractionPrompt, VISION_PROMPT } from "./prompts.js";
 import { normalizeMotoboyMessage } from "./normalize-message.js";
+import { tryParseExpenseFromText } from "./parse-expense-text.js";
 import { tryParseDeliveryFromText } from "./parse-delivery-text.js";
 
 const visionCache = new Map<string, VisionResult>();
@@ -122,4 +123,5 @@ export class AiService {
 
 export { buildExtractionPrompt, VISION_PROMPT };
 export { normalizeMotoboyMessage } from "./normalize-message.js";
+export { tryParseExpenseFromText } from "./parse-expense-text.js";
 export { tryParseDeliveryFromText } from "./parse-delivery-text.js";

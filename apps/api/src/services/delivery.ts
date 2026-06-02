@@ -4,6 +4,7 @@ import type {
   ExpenseCreateInput,
   ExtractionResult,
 } from "@motoboy/types";
+import { formatExpenseDisplayLabel } from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
 import { formatDeliverySource } from "./activity-labels.js";
 
@@ -104,6 +105,45 @@ export async function createDeliveryFromExtraction(
       rawInput: rawInput as object,
     },
   });
+}
+
+export async function createExpenseFromExtraction(
+  userId: string,
+  data: Extract<ExtractionResult, { type: "expense" }>,
+  rawInput: unknown,
+) {
+  const grossValue = normalizeExpenseMoney(data.grossValue);
+  return prisma.delivery.create({
+    data: {
+      userId,
+      source: "OTHER",
+      grossValue,
+      originName: data.originName ?? null,
+      distanceKm: null,
+      occurredAt: new Date(),
+      rawInput: {
+        channel: "whatsapp",
+        kind: "expense",
+        extraction: data,
+        ...(typeof rawInput === "object" && rawInput ? rawInput : {}),
+      },
+    },
+  });
+}
+
+export function formatExpenseConfirmationMessage(created: {
+  grossValue: number | { toString(): string };
+  originName: string | null;
+}): string {
+  const value = Math.abs(
+    Number(
+      typeof created.grossValue === "number"
+        ? created.grossValue
+        : created.grossValue.toString(),
+    ),
+  );
+  const label = formatExpenseDisplayLabel(created.originName);
+  return `✅ Despesa ${formatCurrency(value)} — ${label} registrada.`;
 }
 
 export type DeliveryConfirmationSlice = {

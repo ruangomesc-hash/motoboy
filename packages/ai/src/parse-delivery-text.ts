@@ -1,4 +1,4 @@
-import type { DeliverySource, ExtractionResult } from "@motoboy/types";
+import type { ExtractionResult } from "@motoboy/types";
 import {
   APP_AMOUNT_PLATFORM_PATTERN,
   detectAppPlatform,
@@ -6,6 +6,8 @@ import {
   hasNonDeliveryIntent,
   resolveDeliverySource,
 } from "./delivery-lexicon.js";
+import { hasExpenseIntent } from "./expense-lexicon.js";
+import { parseLooseAmount, parseMoneyAmount } from "./message-money.js";
 import { normalizeMotoboyMessage } from "./normalize-message.js";
 
 /** Extrai entrega de texto informal antes da IA (evita R$ 25 / PARTICULAR fixos). */
@@ -15,15 +17,23 @@ export function tryParseDeliveryFromText(
   const normalized = normalizeMotoboyMessage(text);
   if (!normalized) return null;
 
+  if (hasExpenseIntent(normalized)) return null;
   if (hasNonDeliveryIntent(normalized)) return null;
 
-  const grossValue = parseMoneyAmount(normalized);
-  if (grossValue == null) return null;
-
+  const platform = detectAppPlatform(normalized);
   const intent = classifyDeliveryIntent(normalized);
   if (!intent.isDelivery) return null;
 
-  const platform = detectAppPlatform(normalized);
+  const grossValue = parseMoneyAmount(normalized, {
+    nearWordPattern:
+      /entreg[a-z]{0,4}\s+(?:da\s+|de\s+|no\s+)?(\d{1,5}(?:\.\d{1,2})?)|(\d{1,5}(?:\.\d{1,2})?)\s+entreg[a-z]{0,4}(?:\s|$)/,
+    pairedPlatformPattern: APP_AMOUNT_PLATFORM_PATTERN,
+    looseIf: (t) => hasDeliveryIntent(t) || Boolean(detectAppPlatform(t)),
+    loosePlatform: platform?.source ?? null,
+  });
+
+  if (grossValue == null) return null;
+
   const source = resolveDeliverySource(normalized);
 
   let confidence = 0.92;
@@ -73,76 +83,4 @@ function classifyDeliveryIntent(normalized: string): {
   }
 
   return { isDelivery: false, fuzzyIntent: false, amountPattern: "strict" };
-}
-
-function amountFromMatch(...groups: (string | undefined)[]): number | null {
-  for (const g of groups) {
-    if (g) {
-      const n = normalizeAmount(g);
-      if (n != null) return n;
-    }
-  }
-  return null;
-}
-
-function parseMoneyAmount(normalized: string): number | null {
-  const brl = normalized.match(/r\$\s*(\d{1,5}(?:\.\d{1,2})?)/);
-  const fromBrl = amountFromMatch(brl?.[1]);
-  if (fromBrl != null) return fromBrl;
-
-  const reais = normalized.match(
-    /(\d{1,5}(?:\.\d{1,2})?)\s*(?:reais|real|conto|pila)\b/,
-  );
-  const fromReais = amountFromMatch(reais?.[1]);
-  if (fromReais != null) return fromReais;
-
-  const nearEntrega = normalized.match(
-    /entreg[a-z]{0,4}\s+(?:da\s+|de\s+|no\s+)?(\d{1,5}(?:\.\d{1,2})?)|(\d{1,5}(?:\.\d{1,2})?)\s+entreg[a-z]{0,4}(?:\s|$)/,
-  );
-  const fromEntrega = amountFromMatch(nearEntrega?.[1], nearEntrega?.[2]);
-  if (fromEntrega != null) return fromEntrega;
-
-  const platform = detectAppPlatform(normalized);
-  if (platform) {
-    const paired = normalized.match(
-      new RegExp(
-        `(\\d{1,5}(?:\\.\\d{1,2})?)\\s+(?:${APP_AMOUNT_PLATFORM_PATTERN})\\b|(?:${APP_AMOUNT_PLATFORM_PATTERN})\\s+(\\d{1,5}(?:\\.\\d{1,2})?)`,
-      ),
-    );
-    const fromPair = amountFromMatch(paired?.[1], paired?.[2]);
-    if (fromPair != null) return fromPair;
-  }
-
-  if (hasDeliveryIntent(normalized) || platform) {
-    return parseLooseAmount(normalized, platform?.source ?? null);
-  }
-
-  return null;
-}
-
-/** Ex.: "30 entrg 99" — valor antes da plataforma. */
-function parseLooseAmount(
-  normalized: string,
-  platform: DeliverySource | null,
-): number | null {
-  const nums: number[] = [];
-  for (const m of normalized.matchAll(/\b(\d{1,5}(?:\.\d{1,2})?)\b/g)) {
-    const n = normalizeAmount(m[1] ?? "");
-    if (n != null) nums.push(n);
-  }
-  if (!nums.length) return null;
-  if (nums.length === 1) return nums[0] ?? null;
-
-  if (platform === "NINETY_NINE") {
-    const without99 = nums.filter((n) => n !== 99);
-    if (without99.length) return without99[0] ?? null;
-  }
-
-  return nums[0] ?? null;
-}
-
-function normalizeAmount(raw: string): number | null {
-  const n = Number(raw.replace(",", "."));
-  if (!Number.isFinite(n) || n <= 0 || n > 99_999) return null;
-  return Number(n.toFixed(2));
 }
