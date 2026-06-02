@@ -8,7 +8,7 @@ import {
   shouldHandleSync,
 } from "@/lib/app-sync";
 
-const POLL_MS = 1_000;
+const POLL_MS = 500;
 
 export function useAppSync(
   refresh: () => void | Promise<void>,

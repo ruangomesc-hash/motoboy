@@ -125,11 +125,11 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
 /** Atualização do app sem socket — poll com aba visível. */
-const POLL_MS = 1_000;
+const POLL_MS = 500;
 /** Reconciliação após edição local no app (debounce curto). */
 const MUTATION_SETTLE_MS = 400;
-/** Após entrega via Zap/socket: busca servidor em ~250ms. */
-const SYNC_RECONCILE_MS = 250;
+/** Após entrega via Zap/socket: busca servidor em ~100ms. */
+const SYNC_RECONCILE_MS = 100;
 const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
 
@@ -185,6 +185,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     null,
   );
   const syncReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconcileInFlight = useRef(false);
   const statsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,10 +368,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           const fromServer = tomb.applyToTodaySummary(data);
           const merged = mergeTodayFromServer(
             fromServer,
-            prev,
+            options?.background ? null : prev,
             tombSet,
             todayKey,
           );
+
+          if (options?.background) {
+            return {
+              ...merged,
+              recentDeliveries: dedupeRecentDeliveries(
+                merged.recentDeliveries,
+              ).slice(0, 3),
+            };
+          }
+
           const recentFromList = mergeDeliveryLists(
             [],
             stateRef.current.deliveries,
@@ -569,7 +580,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
       const date = deliveriesDate || todayDateInputValue();
       const seq = ++deliveriesFetchSeq.current;
-      const q = `?date=${date}`;
+      const q = `?date=${date}&limit=100`;
       try {
         const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
         if (seq !== deliveriesFetchSeq.current) return;
@@ -768,11 +779,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     bumpDeliveryMutation();
   }, [bumpDeliveryMutation]);
 
-  const reconcileDeliveriesIfIdle = useCallback(() => {
+  const reconcileDeliveriesIfIdle = useCallback(async () => {
+    if (reconcileInFlight.current) return;
+    reconcileInFlight.current = true;
     const background = { background: true as const };
-    void refreshToday(undefined, background);
-    void refreshDeliveries(undefined, background);
-    void refreshPeriodDeliveries(undefined, background);
+    try {
+      await refreshDeliveries(undefined, background);
+      await refreshToday(undefined, background);
+      void refreshPeriodDeliveries(undefined, background);
+    } finally {
+      reconcileInFlight.current = false;
+    }
   }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
 
   const scheduleSyncReconcile = useCallback(() => {
@@ -1065,13 +1082,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const burstRefreshFromExternal = () => {
+      void reconcileDeliveriesIfIdle();
+      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 280);
+      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 650);
+    };
+
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       syncDeliveriesFilterDate();
-      const cached = readAppCache(userId);
-      if (!cached || isCacheStale(cached.savedAt, POLL_MS)) {
-        reconcileDeliveriesIfIdle();
-      }
+      burstRefreshFromExternal();
     };
 
     window.addEventListener("storage", onStorage);
