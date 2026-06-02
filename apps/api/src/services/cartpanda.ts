@@ -125,33 +125,35 @@ function walkObjects(
 export function parseCartpandaWebhookPayload(
   body: unknown,
 ): CartpandaOrderIdentity {
-  let orderId: string | null = null;
-  let email: string | null = null;
-  let phone: string | null = null;
-  let amount: number | null = null;
-  let status: string | null = null;
-  let event: string | null = null;
+  const found: CartpandaOrderIdentity = {
+    orderId: null,
+    email: null,
+    phone: null,
+    amount: null,
+    status: null,
+    event: null,
+  };
 
   if (body && typeof body === "object") {
     const root = body as Record<string, unknown>;
-    event = pickString(root.event, root.type, root.name, root.action);
+    found.event = pickString(root.event, root.type, root.name, root.action);
   }
 
   walkObjects(body, (obj) => {
-    orderId ??= pickString(
+    found.orderId ??= pickString(
       obj.id,
       obj.order_id,
       obj.orderId,
       obj.transaction_id,
       obj.transactionId,
     );
-    email ??= pickString(
+    found.email ??= pickString(
       obj.email,
       obj.customer_email,
       obj.buyer_email,
       obj.client_email,
     );
-    phone ??= pickString(
+    found.phone ??= pickString(
       obj.phone,
       obj.phone_number,
       obj.customer_phone,
@@ -159,35 +161,36 @@ export function parseCartpandaWebhookPayload(
       obj.mobile,
       obj.whatsapp,
     );
-    status ??= pickString(obj.status, obj.payment_status, obj.order_status);
-    if (amount == null) {
+    found.status ??= pickString(
+      obj.status,
+      obj.payment_status,
+      obj.order_status,
+    );
+    if (found.amount == null) {
       const raw = obj.amount ?? obj.total ?? obj.total_price ?? obj.value;
-      if (typeof raw === "number" && Number.isFinite(raw)) amount = raw;
+      if (typeof raw === "number" && Number.isFinite(raw)) found.amount = raw;
       else if (typeof raw === "string") {
         const n = Number(raw.replace(",", "."));
-        if (Number.isFinite(n)) amount = n;
+        if (Number.isFinite(n)) found.amount = n;
       }
     }
   });
 
-  const normalizedEmail = email ? email.toLowerCase() : null;
-  let normalizedPhone = phone;
-  if (normalizedPhone) {
-    try {
-      normalizedPhone = normalizePhone(normalizedPhone);
-    } catch {
-      normalizedPhone = digitsOnly(normalizedPhone);
-    }
-  }
-
   return {
-    orderId,
-    email: normalizedEmail,
-    phone: normalizedPhone,
-    amount,
-    status,
-    event,
+    ...found,
+    email: found.email?.toLowerCase() ?? null,
+    phone: normalizeCartpandaPhone(found.phone),
   };
+}
+
+function normalizeCartpandaPhone(phone: string | null): string | null {
+  if (!phone) return null;
+  try {
+    return normalizePhone(phone);
+  } catch {
+    const digits = digitsOnly(phone);
+    return digits.length >= 10 ? digits : null;
+  }
 }
 
 export function isCartpandaPaidEvent(identity: CartpandaOrderIdentity): boolean {
