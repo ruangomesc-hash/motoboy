@@ -1,8 +1,10 @@
 import type { DeliverySource, ExtractionResult } from "@motoboy/types";
 import {
-  detectPlatform,
+  APP_AMOUNT_PLATFORM_PATTERN,
+  detectAppPlatform,
   hasDeliveryIntent,
   hasNonDeliveryIntent,
+  resolveDeliverySource,
 } from "./delivery-lexicon.js";
 import { normalizeMotoboyMessage } from "./normalize-message.js";
 
@@ -21,13 +23,13 @@ export function tryParseDeliveryFromText(
   const intent = classifyDeliveryIntent(normalized);
   if (!intent.isDelivery) return null;
 
-  const platform = detectPlatform(normalized);
-  const source = platform?.source ?? "PARTICULAR";
+  const platform = detectAppPlatform(normalized);
+  const source = resolveDeliverySource(normalized);
 
   let confidence = 0.92;
   if (intent.fuzzyIntent) confidence -= 0.08;
-  if (!platform) confidence -= 0.05;
-  else if (platform.strength < 1) confidence -= 0.1;
+  if (!platform && source === "PARTICULAR") confidence -= 0.04;
+  else if (platform && platform.strength < 1) confidence -= 0.1;
   if (intent.amountPattern === "loose") confidence -= 0.06;
   confidence = Math.max(0.65, Math.min(0.95, confidence));
 
@@ -47,7 +49,7 @@ function classifyDeliveryIntent(normalized: string): {
   fuzzyIntent: boolean;
   amountPattern: "strict" | "loose";
 } {
-  const platform = detectPlatform(normalized);
+  const platform = detectAppPlatform(normalized);
   const explicitIntent = hasDeliveryIntent(normalized);
 
   if (explicitIntent) {
@@ -100,10 +102,12 @@ function parseMoneyAmount(normalized: string): number | null {
   const fromEntrega = amountFromMatch(nearEntrega?.[1], nearEntrega?.[2]);
   if (fromEntrega != null) return fromEntrega;
 
-  const platform = detectPlatform(normalized);
+  const platform = detectAppPlatform(normalized);
   if (platform) {
     const paired = normalized.match(
-      /(\d{1,5}(?:\.\d{1,2})?)\s+(?:ifood|ifud|ifod|i food|99|rappi|rapi|particular|part)\b|(?:ifood|ifud|ifod|i food|99food|99|rappi|rapi|particular|part)\s+(\d{1,5}(?:\.\d{1,2})?)/,
+      new RegExp(
+        `(\\d{1,5}(?:\\.\\d{1,2})?)\\s+(?:${APP_AMOUNT_PLATFORM_PATTERN})\\b|(?:${APP_AMOUNT_PLATFORM_PATTERN})\\s+(\\d{1,5}(?:\\.\\d{1,2})?)`,
+      ),
     );
     const fromPair = amountFromMatch(paired?.[1], paired?.[2]);
     if (fromPair != null) return fromPair;

@@ -54,6 +54,42 @@ describe("tryParseDeliveryFromText", () => {
     expect(tryParseDeliveryFromText("abasteci 50 reais")).toBeNull();
   });
 
+  it("entende 99 e rappi como no áudio (Whisper)", () => {
+    expect(tryParseDeliveryFromText("35 noventa e nove")).toMatchObject({
+      grossValue: 35,
+      source: "NINETY_NINE",
+    });
+    expect(tryParseDeliveryFromText("28 rapi entrega")).toMatchObject({
+      grossValue: 28,
+      source: "RAPPI",
+    });
+    expect(tryParseDeliveryFromText("32 repi")).toMatchObject({
+      grossValue: 32,
+      source: "RAPPI",
+    });
+    expect(tryParseDeliveryFromText("entrega 40 noventa nove")).toMatchObject({
+      grossValue: 40,
+      source: "NINETY_NINE",
+    });
+  });
+
+  it("comércio local sem app é particular", () => {
+    expect(
+      tryParseDeliveryFromText("25 entrega da farmacia santa maria"),
+    ).toMatchObject({
+      grossValue: 25,
+      source: "PARTICULAR",
+    });
+    expect(tryParseDeliveryFromText("30 padaria central")).toMatchObject({
+      grossValue: 30,
+      source: "PARTICULAR",
+    });
+    expect(tryParseDeliveryFromText("40 entrega no mercado bom preco")).toMatchObject({
+      grossValue: 40,
+      source: "PARTICULAR",
+    });
+  });
+
   it("does not invent 25 for unrelated text", () => {
     expect(tryParseDeliveryFromText("oi")).toBeNull();
     expect(tryParseDeliveryFromText("valeu")).toBeNull();

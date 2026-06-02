@@ -2,11 +2,12 @@ import type { DeliverySource } from "@motoboy/types";
 
 export type PlatformMatch = {
   source: DeliverySource;
-  /** 1 = alias exato; menor distância Levenshtein = mais fraco */
   strength: number;
 };
 
-const PLATFORM_ALIASES: { source: DeliverySource; terms: string[] }[] = [
+type AppSource = Exclude<DeliverySource, "PARTICULAR" | "OTHER">;
+
+const APP_PLATFORM_ALIASES: { source: AppSource; terms: string[] }[] = [
   {
     source: "IFOOD",
     terms: ["ifood", "i food", "i-food", "ifud", "ifod", "ifoo", "aifood"],
@@ -19,18 +20,28 @@ const PLATFORM_ALIASES: { source: DeliverySource; terms: string[] }[] = [
       "99",
       "noventa e nove",
       "noventa nove",
+      "nove nove",
+      "noventa e 9",
       "ninetynine",
     ],
   },
   {
     source: "RAPPI",
-    terms: ["rappi", "rapi", "rapp", "rapii"],
-  },
-  {
-    source: "PARTICULAR",
-    terms: ["particular", "part", "avulsa", "avulso", "direto"],
+    terms: [
+      "rappi",
+      "rapi",
+      "repi",
+      "rappy",
+      "hapi",
+      "wrapi",
+      "rafi",
+      "rapp",
+      "rapii",
+    ],
   },
 ];
+
+const PARTICULAR_TERMS = ["particular", "part", "avulsa", "avulso", "direto"];
 
 const DELIVERY_INTENT_TERMS = [
   "entrega",
@@ -41,13 +52,27 @@ const DELIVERY_INTENT_TERMS = [
   "mais uma",
 ];
 
-const PLACE_HINTS = [
+/** Comércio local (não app) → source PARTICULAR. */
+const COMMERCE_PLACE_HINTS = [
   "farmacia",
-  "farmácia",
   "padaria",
   "restaurante",
   "loja",
   "mercado",
+  "drogaria",
+  "pizzaria",
+  "lanchonete",
+  "acougue",
+  "petshop",
+  "pet shop",
+  "hortifruti",
+  "mercearia",
+  "sorveteria",
+  "conveniencia",
+  "escritorio",
+  "atacadao",
+  "supermercado",
+  "shopping",
 ];
 
 export function levenshtein(a: string, b: string): number {
@@ -75,7 +100,6 @@ function tokenize(text: string): string[] {
   return text.split(/[^a-z0-9]+/).filter((t) => t.length > 0);
 }
 
-/** Palavra inteira ou token com até `maxDist` de edição. */
 export function fuzzyContainsTerm(
   text: string,
   term: string,
@@ -94,34 +118,96 @@ export function fuzzyContainsTerm(
   return false;
 }
 
-export function detectPlatform(text: string): PlatformMatch | null {
+/** Só apps (iFood / 99 / Rappi) — inclui como o Whisper costuma transcrever. */
+export function detectAppPlatform(text: string): PlatformMatch | null {
   let best: PlatformMatch | null = null;
 
-  for (const { source, terms } of PLATFORM_ALIASES) {
+  for (const { source, terms } of APP_PLATFORM_ALIASES) {
     for (const term of terms) {
       if (text.includes(term)) {
-        const strength = term.length >= 4 ? 1 : 0.85;
-        if (!best || strength > best.strength) {
+        if (!best || best.strength < 1) {
           best = { source, strength: 1 };
         }
         continue;
       }
       const maxDist = term.length <= 3 ? 0 : term.length <= 5 ? 1 : 2;
       if (maxDist > 0 && fuzzyContainsTerm(text, term, maxDist)) {
-        if (!best || best.strength < 0.8) {
-          best = { source, strength: 0.8 };
+        if (!best || best.strength < 0.82) {
+          best = { source, strength: 0.82 };
         }
       }
     }
   }
 
-  if (/\b99\b/.test(text) && /\b(entrega|entreg|corrida)\b/.test(text)) {
-    if (!best || best.strength < 0.85) {
-      return { source: "NINETY_NINE", strength: 0.85 };
-    }
+  if (
+    /noventa\s+e\s+nove|noventa\s+nove|nove\s+nove|noventa\s+e\s+9\b/.test(
+      text,
+    )
+  ) {
+    return { source: "NINETY_NINE", strength: 0.95 };
+  }
+
+  if (/\b99\b/.test(text) && hasAnotherAmountBesides99(text)) {
+    return { source: "NINETY_NINE", strength: 0.88 };
   }
 
   return best;
+}
+
+function hasAnotherAmountBesides99(text: string): boolean {
+  const nums: number[] = [];
+  for (const m of text.matchAll(/\b(\d{1,5}(?:\.\d{1,2})?)\b/g)) {
+    const n = Number(m[1]?.replace(",", "."));
+    if (Number.isFinite(n) && n > 0) nums.push(n);
+  }
+  return nums.some((n) => n !== 99);
+}
+
+/** @deprecated Use detectAppPlatform — mantido para diagnósticos. */
+export function detectPlatform(text: string): PlatformMatch | null {
+  return detectAppPlatform(text);
+}
+
+/** Nome de comércio / lugar sem app de delivery. */
+export function hasCommercePlaceContext(text: string): boolean {
+  if (detectAppPlatform(text)) return false;
+
+  for (const hint of COMMERCE_PLACE_HINTS) {
+    if (text.includes(hint)) return true;
+  }
+  if (/\bbar\b/.test(text)) return true;
+
+  if (
+    /entreg[a-z]{0,4}\s+(?:da|de|do|no|na)\s+[a-z0-9]{3,}/.test(text) ||
+    /(?:da|de|do|no|na)\s+(?:farmacia|padaria|restaurante|loja|mercado|drogaria|pizzaria|lanchonete|acougue|petshop|hortifruti)/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /\d{1,5}(?:\.\d{1,2})?\s+(?:farmacia|padaria|restaurante|loja|mercado|drogaria|pizzaria)\b/.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function resolveDeliverySource(text: string): DeliverySource {
+  const app = detectAppPlatform(text);
+  if (app) return app.source;
+
+  for (const term of PARTICULAR_TERMS) {
+    if (text.includes(term)) return "PARTICULAR";
+  }
+
+  if (hasCommercePlaceContext(text)) return "PARTICULAR";
+
+  return "PARTICULAR";
 }
 
 export function hasDeliveryIntent(text: string): boolean {
@@ -129,9 +215,8 @@ export function hasDeliveryIntent(text: string): boolean {
     if (text.includes(term)) return true;
     if (fuzzyContainsTerm(text, term, term.length <= 6 ? 2 : 1)) return true;
   }
-  for (const hint of PLACE_HINTS) {
-    if (text.includes(hint)) return true;
-  }
+  if (hasCommercePlaceContext(text)) return true;
+  if (detectAppPlatform(text)) return true;
   return false;
 }
 
@@ -144,3 +229,7 @@ export function hasNonDeliveryIntent(text: string): boolean {
     /quanto ganhei|resumo de hoje|meta de hoje/.test(text)
   );
 }
+
+/** Padrão para parear valor + app na regex de dinheiro. */
+export const APP_AMOUNT_PLATFORM_PATTERN =
+  "ifood|ifud|ifod|i food|99food|99 food|99|noventa e nove|noventa nove|nove nove|rappi|rapi|repi|rappy|hapi|wrapi";

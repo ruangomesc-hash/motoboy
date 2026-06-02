@@ -1,3 +1,16 @@
+/** Corrige transcrição de áudio (Whisper) para nomes de app. */
+export function applyWhisperPlatformAliases(text: string): string {
+  return text
+    .replace(
+      /noventa\s+e\s+nove|noventa\s+nove|nove\s+nove|noventa\s+e\s+9\b/g,
+      " 99 ",
+    )
+    .replace(/\b(?:rapi|repi|rappy|hapi|wrapi|rafi)\b/g, " rappi ")
+    .replace(/\bi\s*food\b/g, " ifood ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Limpa mensagem informal do Zap antes de regras / IA. */
 export function normalizeMotoboyMessage(text: string): string {
   let s = text.trim().toLowerCase();
@@ -19,5 +32,5 @@ export function normalizeMotoboyMessage(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return s;
+  return applyWhisperPlatformAliases(s);
 }
