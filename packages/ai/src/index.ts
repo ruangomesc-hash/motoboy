@@ -6,6 +6,7 @@ import {
   type VisionResult,
 } from "@motoboy/types";
 import { buildExtractionPrompt, VISION_PROMPT } from "./prompts.js";
+import { tryParseDeliveryFromText } from "./parse-delivery-text.js";
 
 const visionCache = new Map<string, VisionResult>();
 
@@ -31,7 +32,7 @@ export class AiService {
 
   async transcribeAudio(buffer: Buffer, mimeType: string): Promise<string> {
     if (!this.client) {
-      return "entrega particular 25 reais";
+      throw new Error("OPENAI_API_KEY não configurada para transcrever áudio");
     }
     const file = new File([new Uint8Array(buffer)], "audio.ogg", { type: mimeType });
     const response = await this.client.audio.transcriptions.create({
@@ -43,6 +44,9 @@ export class AiService {
   }
 
   async extractFromText(text: string): Promise<ExtractionResult> {
+    const quick = tryParseDeliveryFromText(text);
+    if (quick) return quick;
+
     if (!this.client) {
       const lower = text.toLowerCase();
       if (
@@ -63,15 +67,7 @@ export class AiService {
         const km = Number(lower.match(/(\d{4,6}([.,]\d)?)/)?.[1]?.replace(",", ".")) || 45000;
         return { type: "odometer", odometerKm: km, confidence: 0.6 };
       }
-      return {
-        type: "delivery",
-        source: "PARTICULAR",
-        grossValue: 25,
-        originName: null,
-        destinationAddr: null,
-        distanceKm: null,
-        confidence: 0.5,
-      };
+      return { type: "unknown", originalText: text };
     }
     const response = await this.client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -122,3 +118,4 @@ export class AiService {
 }
 
 export { buildExtractionPrompt, VISION_PROMPT };
+export { tryParseDeliveryFromText } from "./parse-delivery-text.js";

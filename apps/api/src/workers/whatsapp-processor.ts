@@ -1,19 +1,19 @@
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@motoboy/db";
-import { AiService } from "@motoboy/ai";
-import type { Env } from "@motoboy/types";
+import { AiService, tryParseDeliveryFromText } from "@motoboy/ai";
+import type { Env, ExtractionResult } from "@motoboy/types";
 import type { Server as SocketServer } from "socket.io";
 import type { FastifyBaseLogger } from "fastify";
 import { findUserByPhone, isTrialExpired } from "../services/user.js";
 import { EvolutionService } from "../services/evolution.js";
 import {
   createDeliveryFromExtraction,
-  buildDeliveryConfirmation,
+  formatDeliveryConfirmationMessage,
 } from "../services/delivery.js";
 import {
   formatDeliverySource,
   formatMoney,
-  recordActivity,
+  recordActivitySafe,
 } from "../services/activity-log.js";
 import { getTodaySummary, formatCurrency } from "../services/today.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
@@ -46,6 +46,57 @@ function dayBounds() {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start, end };
+}
+
+async function finalizeWhatsAppDelivery(
+  user: { id: string },
+  job: Job<WhatsAppJobData>,
+  extraction: Extract<ExtractionResult, { type: "delivery" }>,
+  text: string,
+  messageType: string,
+  rawContent: unknown,
+  evolution: EvolutionService,
+  _io: SocketServer | null,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const replyTo = jobReplyTo(job);
+  const delivery = await createDeliveryFromExtraction(
+    user.id,
+    extraction,
+    { messageType, text, rawContent },
+  );
+  void recordActivitySafe(
+    user.id,
+    {
+      category: "DELIVERY",
+      action: "CREATED",
+      title: "Entrega via WhatsApp",
+      entityId: delivery.id,
+      source: "whatsapp",
+      changes: [
+        {
+          field: "grossValue",
+          label: "Valor",
+          from: null,
+          to: formatMoney(delivery.grossValue),
+        },
+        {
+          field: "source",
+          label: "Origem",
+          from: null,
+          to: formatDeliverySource(delivery.source),
+        },
+      ],
+    },
+    log,
+  );
+  emitDeliveryCreated(user.id, delivery);
+  const msg = formatDeliveryConfirmationMessage({
+    grossValue: delivery.grossValue,
+    source: delivery.source,
+    originName: delivery.originName,
+  });
+  await evolution.sendText(replyTo, msg, { fast: true });
 }
 
 export interface WhatsAppJobData {
@@ -316,8 +367,12 @@ async function processImageMessage(
       },
     });
     emitDeliveryCreated(user.id, delivery);
-    const msg = await buildDeliveryConfirmation(user.id);
-    await evolution.sendText(replyTo, msg);
+    const msg = formatDeliveryConfirmationMessage({
+      grossValue: delivery.grossValue,
+      source: delivery.source,
+      originName: delivery.originName,
+    });
+    await evolution.sendText(replyTo, msg, { fast: true });
     return;
   }
 
@@ -366,6 +421,22 @@ async function processTextMessage(
   env: Env,
   log: FastifyBaseLogger,
 ): Promise<void> {
+  const quick = tryParseDeliveryFromText(text);
+  if (quick) {
+    await finalizeWhatsAppDelivery(
+      user,
+      job,
+      quick,
+      text,
+      messageType,
+      rawContent,
+      evolution,
+      io,
+      log,
+    );
+    return;
+  }
+
   const replyTo = jobReplyTo(job);
   let extraction: Awaited<ReturnType<AiService["extractFromText"]>>;
   try {
@@ -415,35 +486,17 @@ async function processTextMessage(
       }
 
       if (extraction.type === "delivery") {
-        const delivery = await createDeliveryFromExtraction(
-          user.id,
+        await finalizeWhatsAppDelivery(
+          user,
+          job,
           extraction,
-          { messageType, text, rawContent },
+          text,
+          messageType,
+          rawContent,
+          evolution,
+          io,
+          log,
         );
-        await recordActivity(user.id, {
-          category: "DELIVERY",
-          action: "CREATED",
-          title: "Entrega via WhatsApp",
-          entityId: delivery.id,
-          source: "whatsapp",
-          changes: [
-            {
-              field: "grossValue",
-              label: "Valor",
-              from: null,
-              to: formatMoney(delivery.grossValue),
-            },
-            {
-              field: "source",
-              label: "Origem",
-              from: null,
-              to: formatDeliverySource(delivery.source),
-            },
-          ],
-        });
-        emitDeliveryCreated(user.id, delivery);
-        const msg = await buildDeliveryConfirmation(user.id);
-        await evolution.sendText(replyTo, msg);
         return;
       }
 

@@ -65,46 +65,62 @@ export class EvolutionService {
     );
   }
 
-  async sendText(to: string, text: string): Promise<void> {
+  async sendText(
+    to: string,
+    text: string,
+    options?: { fast?: boolean },
+  ): Promise<void> {
     if (!this.configured) {
       this.log.info({ to, text }, "Evolution mock send");
       return;
     }
 
+    const fast = options?.fast === true;
     const candidates = buildSendCandidates(to);
+    const bodiesFor = (number: string) =>
+      fast ? [{ number, text }] : sendBodies(number, text);
+    const maxAttempts = fast ? 1 : 3;
+    const timeoutMs = fast ? 4_500 : 12_000;
     let lastError: unknown;
 
     for (const number of candidates) {
-      for (const body of sendBodies(number, text)) {
+      for (const body of bodiesFor(number)) {
         try {
-          await withRetry(async () => {
-            const res = await fetch(
-              `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  apikey: this.env.EVOLUTION_API_KEY!,
+          await withRetry(
+            async () => {
+              const res = await fetch(
+                `${this.env.EVOLUTION_API_URL}/message/sendText/${this.env.EVOLUTION_INSTANCE}`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    apikey: this.env.EVOLUTION_API_KEY!,
+                  },
+                  body: JSON.stringify(body),
+                  signal: AbortSignal.timeout(timeoutMs),
                 },
-                body: JSON.stringify(body),
-              },
-            );
-            if (!res.ok) {
-              const responseBody = await res.text().catch(() => "");
-              throw new Error(
-                `Evolution send failed: ${res.status}${responseBody ? ` — ${responseBody.slice(0, 200)}` : ""}`,
               );
-            }
-          }, this.log);
+              if (!res.ok) {
+                const responseBody = await res.text().catch(() => "");
+                throw new Error(
+                  `Evolution send failed: ${res.status}${responseBody ? ` — ${responseBody.slice(0, 200)}` : ""}`,
+                );
+              }
+            },
+            this.log,
+            maxAttempts,
+          );
           return;
         } catch (err) {
           lastError = err;
+          if (fast) break;
           this.log.warn(
             { err, number, bodyKeys: Object.keys(body) },
             "Evolution sendText tentativa falhou",
           );
         }
       }
+      if (fast) break;
     }
 
     throw lastError;

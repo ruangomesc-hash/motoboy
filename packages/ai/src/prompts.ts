@@ -67,6 +67,9 @@ REGRAS:
 - Só valor sem litros: estime litros = totalAmount / 6.0 e confidence baixa.
 - "painel", "hodômetro", "km na moto", número grande tipo 45000 → odometer.
 - "25 conto" = R$ 25. Motoboy fala informal.
+- Use o valor em reais EXATAMENTE como na mensagem (ex: "R$ 40" → grossValue 40).
+- "ifood" / "i food" → source IFOOD; "99" / "99 food" → NINETY_NINE; "rappi" → RAPPI.
+- Não invente valor nem plataforma que não aparecem no texto.
 
 Mensagem do motoboy: """${input}"""
 JSON:`;

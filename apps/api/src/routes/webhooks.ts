@@ -142,6 +142,15 @@ async function handleWhatsAppWebhook(
       }
     }
 
+    if (messageType === "audio" || messageType === "image") {
+      void safeWhatsAppReply(
+        app.evolution,
+        replyTo,
+        "⏳ Registrando…",
+        request.log,
+      );
+    }
+
     const jobData: WhatsAppJobData = {
       fromNumber,
       replyTarget: replyTo,

@@ -5,6 +5,7 @@ import type {
   ExtractionResult,
 } from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
+import { formatDeliverySource } from "./activity-labels.js";
 
 function parseOccurredAt(iso?: string): Date {
   if (!iso) return new Date();
@@ -105,12 +106,34 @@ export async function createDeliveryFromExtraction(
   });
 }
 
-export async function buildDeliveryConfirmation(userId: string): Promise<string> {
+export type DeliveryConfirmationSlice = {
+  grossValue: number | { toString(): string };
+  source: string;
+  originName: string | null;
+};
+
+function formatConfirmLine(d: DeliveryConfirmationSlice): string {
+  const value =
+    typeof d.grossValue === "number"
+      ? d.grossValue
+      : Number(d.grossValue.toString());
+  const name =
+    d.originName?.trim() || formatDeliverySource(String(d.source));
+  return `✅ ${formatCurrency(value)} da ${name} registrado.`;
+}
+
+/** Resposta no Zap sem consultar o banco (alvo: menos de 2s). */
+export function formatDeliveryConfirmationMessage(
+  created: DeliveryConfirmationSlice,
+): string {
+  return formatConfirmLine(created);
+}
+
+/** Confirma a entrega recém-criada (não outra do dia). */
+export async function buildDeliveryConfirmation(
+  userId: string,
+  created: DeliveryConfirmationSlice,
+): Promise<string> {
   const summary = await getTodaySummary(userId);
-  const last = summary.recentDeliveries[0];
-  if (!last) {
-    return `✅ Entrega registrada.\nLucro de hoje: ${formatCurrency(summary.netProfit)}`;
-  }
-  const name = last.originName ?? last.source;
-  return `✅ ${formatCurrency(last.grossValue)} da ${name} registrado.\nLucro de hoje: ${formatCurrency(summary.netProfit)}`;
+  return `${formatConfirmLine(created)}\nLucro de hoje: ${formatCurrency(summary.netProfit)}`;
 }

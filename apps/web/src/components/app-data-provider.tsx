@@ -125,7 +125,10 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
 /** Atualização do app sem socket — 2s com aba visível. */
 const POLL_MS = 2_000;
-const MUTATION_SETTLE_MS = 8_000;
+/** Reconciliação após edição local no app (debounce curto). */
+const MUTATION_SETTLE_MS = 400;
+/** Após entrega via Zap/socket: busca servidor em ~250ms. */
+const SYNC_RECONCILE_MS = 250;
 const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
 
@@ -180,6 +183,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const mutationSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const syncReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -766,6 +770,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     void refreshPeriodDeliveries(undefined, background);
   }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
 
+  const scheduleSyncReconcile = useCallback(() => {
+    if (syncReconcileTimer.current) clearTimeout(syncReconcileTimer.current);
+    syncReconcileTimer.current = setTimeout(() => {
+      syncReconcileTimer.current = null;
+      reconcileDeliveriesIfIdle();
+    }, SYNC_RECONCILE_MS);
+  }, [reconcileDeliveriesIfIdle]);
+
   const publishAppSync = useCallback(
     (
       topics: AppSyncTopic | AppSyncTopic[],
@@ -817,7 +829,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        scheduleDeliveryReconcile();
+        if (detail.delivery || detail.removedDeliveryId) {
+          scheduleSyncReconcile();
+        } else {
+          scheduleDeliveryReconcile();
+        }
       }
       if (topicsMatch(["profile", "all"], incoming)) {
         queueConfigRefresh();
@@ -828,6 +844,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       queueConfigRefresh,
       removeDeliveryOptimistic,
       scheduleDeliveryReconcile,
+      scheduleSyncReconcile,
       upsertDeliveryOptimistic,
       userId,
     ],
