@@ -335,6 +335,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const complete = isServerConfigComplete(snap);
     setConfigComplete(complete);
     setProfileName(snap.profile?.name ?? null);
+    setIsBootstrapped(true);
     return complete;
   }, []);
 
@@ -713,7 +714,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (userId) schedulePersist(userId);
         return snap;
       } catch {
-        if (seq === meLoadSeq.current && !cached) setConfigComplete(false);
+        if (seq === meLoadSeq.current && !cached) {
+          setConfigComplete(false);
+          if (pending) setIsBootstrapped(true);
+        }
         return cached;
       } finally {
         if (seq === meLoadSeq.current) setMeSettingsLoading(false);

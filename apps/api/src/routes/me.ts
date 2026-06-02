@@ -94,7 +94,6 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/me", async (request) => {
     const userId = request.sessionUser!.id;
-    await migrateUserWhatsAppToCanonical(userId);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

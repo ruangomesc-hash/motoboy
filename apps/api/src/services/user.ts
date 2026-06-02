@@ -168,18 +168,19 @@ export async function diagnosePhoneUserLink(
     };
   }
 
-  const user = await findUserByPhone(trimmed);
-  if (user) {
-    return {
-      incoming: trimmed,
-      lookupKeys,
-      matchedUser: {
-        id: user.id,
-        name: user.name,
-        whatsappNumber: user.whatsappNumber,
-      },
-      linkStatus: "linked",
-    };
+  for (const key of lookupKeys) {
+    const user = await prisma.user.findUnique({
+      where: { whatsappNumber: key },
+      select: { id: true, name: true, whatsappNumber: true },
+    });
+    if (user) {
+      return {
+        incoming: trimmed,
+        lookupKeys,
+        matchedUser: user,
+        linkStatus: "linked",
+      };
+    }
   }
 
   return {
