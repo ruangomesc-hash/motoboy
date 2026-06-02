@@ -1,5 +1,11 @@
 import { prisma } from "@motoboy/db";
 import type { Env } from "@motoboy/types";
+import {
+  normalizeAppOrigin,
+  resolvePublicAppUrl,
+  webhookUrlsMatch,
+  whatsappWebhookUrl,
+} from "../lib/app-url.js";
 import { isRedisEnabled } from "../lib/redis.js";
 
 export type WhatsAppPipelineIssue = {
@@ -49,11 +55,6 @@ export type WhatsAppPipelineDiagnostics = {
   };
   issues: WhatsAppPipelineIssue[];
 };
-
-function expectedWebhookUrl(env: Env): string {
-  const base = env.APP_URL.replace(/\/$/, "");
-  return `${base}/api/backend/webhooks/whatsapp`;
-}
 
 async function evolutionGet(
   env: Env,
@@ -115,7 +116,13 @@ export async function getWhatsAppPipelineDiagnostics(
   env: Env,
 ): Promise<WhatsAppPipelineDiagnostics> {
   const issues: WhatsAppPipelineIssue[] = [];
-  const expected = expectedWebhookUrl(env);
+  const publicOrigin = resolvePublicAppUrl(env);
+  const expected = whatsappWebhookUrl(publicOrigin);
+  const envOnlyWebhook = whatsappWebhookUrl(env.APP_URL);
+  const appUrlMisconfigured = !webhookUrlsMatch(
+    normalizeAppOrigin(env.APP_URL),
+    publicOrigin,
+  );
   const runWhatsAppWorker = process.env.RUN_WHATSAPP_WORKER === "true";
   const processing = runWhatsAppWorker ? "queue" : "inline";
   const evolutionConfigured = Boolean(
@@ -172,15 +179,29 @@ export async function getWhatsAppPipelineDiagnostics(
 
     const wh = await evolutionGet(env, `/webhook/find/${env.EVOLUTION_INSTANCE}`);
     const parsed = parseWebhookConfig(wh.json);
+    const configured = parsed.url;
+    const urlMatches = Boolean(
+      configured &&
+        (webhookUrlsMatch(configured, expected) ||
+          webhookUrlsMatch(configured, envOnlyWebhook)),
+    );
     webhook = {
       enabled: parsed.enabled,
-      configuredUrl: parsed.url,
-      urlMatches:
-        Boolean(parsed.url) &&
-        parsed.url!.replace(/\/$/, "") === expected.replace(/\/$/, ""),
+      configuredUrl: configured,
+      urlMatches,
       hasApikeyHeader: parsed.hasApikeyHeader,
       events: parsed.events,
     };
+
+    if (appUrlMisconfigured && configured && webhookUrlsMatch(configured, expected)) {
+      issues.push({
+        severity: "critical",
+        code: "APP_URL_MISCONFIGURED",
+        message: `APP_URL na Vercel está como "${env.APP_URL}", mas o app público é ${publicOrigin}. O webhook na Evolution já está correto.`,
+        action:
+          "Vercel → Settings → Environment Variables: APP_URL, NEXTAUTH_URL e NEXT_PUBLIC_APP_URL = https://app.motocopiloto.com.br → redeploy.",
+      });
+    }
 
     if (!wh.ok) {
       issues.push({
@@ -201,9 +222,9 @@ export async function getWhatsAppPipelineDiagnostics(
         issues.push({
           severity: "critical",
           code: "WEBHOOK_URL_MISMATCH",
-          message: `Webhook aponta para ${webhook.configuredUrl}, mas deveria ser ${expected}.`,
+          message: `Webhook na Evolution: ${webhook.configuredUrl}. Esperado: ${expected}.`,
           action:
-            "Mensagens não chegam na Vercel. Repare o webhook ou corrija no manager Evolution.",
+            "Admin → Reparar webhook, ou confira o manager Evolution (URL + apikey).",
         });
       }
       if (!webhook.hasApikeyHeader) {
@@ -302,14 +323,20 @@ export async function getWhatsAppPipelineDiagnostics(
     where: { occurredAt: { gte: since48 } },
   });
 
-  if (messagesLast24h === 0 && evolutionConfigured && apiReachable) {
+  if (
+    messagesLast24h === 0 &&
+    evolutionConfigured &&
+    apiReachable &&
+    connectionState?.toLowerCase().includes("open")
+  ) {
     issues.push({
-      severity: "critical",
+      severity: webhook.urlMatches ? "warning" : "critical",
       code: "NO_MESSAGES_IN_DB",
       message:
-        "Nenhuma mensagem WhatsApp no banco nas últimas 24h — o webhook não está entregando na API.",
-      action:
-        "Corrija URL/secret do webhook na Evolution (veja WEBHOOK_URL_MISMATCH acima).",
+        "Nenhuma mensagem WhatsApp gravada nas últimas 24h. Pode ser: Zap ainda não testado, apikey errado (401), ou número do Zap diferente do cadastro no app.",
+      action: webhook.urlMatches
+        ? "Envie um texto de teste no Zap; confira Configurações → WhatsApp e EVOLUTION_WEBHOOK_SECRET na Vercel."
+        : "Corrija o webhook na Evolution primeiro.",
     });
   }
 
@@ -378,7 +405,7 @@ export async function repairEvolutionWebhook(env: Env): Promise<{
       statusCode: 503,
     });
   }
-  const webhookUrl = expectedWebhookUrl(env);
+  const webhookUrl = whatsappWebhookUrl(resolvePublicAppUrl(env));
   const res = await fetch(`${base}/webhook/set/${instance}`, {
     method: "POST",
     headers: { apikey: key, "Content-Type": "application/json" },
