@@ -94,6 +94,8 @@ export type CartpandaOrderIdentity = {
   amount: number | null;
   status: string | null;
   event: string | null;
+  /** utm_content / referência externa (id do usuário no app). */
+  userRef: string | null;
 };
 
 function pickString(...values: unknown[]): string | null {
@@ -132,6 +134,7 @@ export function parseCartpandaWebhookPayload(
     amount: null,
     status: null,
     event: null,
+    userRef: null,
   };
 
   if (body && typeof body === "object") {
@@ -174,6 +177,12 @@ export function parseCartpandaWebhookPayload(
         if (Number.isFinite(n)) found.amount = n;
       }
     }
+    found.userRef ??= pickString(
+      obj.utm_content,
+      obj.utmContent,
+      obj.external_reference,
+      obj.externalReference,
+    );
   });
 
   return {
@@ -250,28 +259,18 @@ export async function resolveUserFromCartpandaIdentity(
 
 async function resolveUserWithUtmFallback(
   identity: CartpandaOrderIdentity,
-  body: unknown,
 ): Promise<{ id: string } | null> {
   const direct = await resolveUserFromCartpandaIdentity(identity);
   if (direct) return direct;
 
-  let utmContent: string | null = null;
-  walkObjects(body, (obj) => {
-    utmContent ??= pickString(
-      obj.utm_content,
-      obj.utmContent,
-      obj.external_reference,
-      obj.externalReference,
-    );
+  const userRef = identity.userRef?.trim();
+  if (!userRef) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userRef },
+    select: { id: true },
   });
-  if (utmContent?.trim()) {
-    const user = await prisma.user.findUnique({
-      where: { id: utmContent.trim() },
-      select: { id: true },
-    });
-    if (user) return user;
-  }
-  return null;
+  return user;
 }
 
 export async function createCheckoutForUser(
@@ -311,7 +310,7 @@ export async function handleCartpandaWebhook(
   const identity = parseCartpandaWebhookPayload(body);
 
   if (isCartpandaRefundEvent(identity)) {
-    const user = await resolveUserWithUtmFallback(identity, body);
+    const user = await resolveUserWithUtmFallback(identity);
     if (!user) return { handled: false, reason: "user_not_found_refund" };
     const payment = identity.orderId
       ? await prisma.payment.findFirst({
@@ -334,7 +333,7 @@ export async function handleCartpandaWebhook(
     return { handled: false, reason: "ignored_event" };
   }
 
-  const user = await resolveUserWithUtmFallback(identity, body);
+  const user = await resolveUserWithUtmFallback(identity);
   if (!user) {
     return { handled: false, reason: "user_not_match" };
   }

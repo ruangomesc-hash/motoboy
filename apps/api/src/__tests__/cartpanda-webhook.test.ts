@@ -46,4 +46,13 @@ describe("cartpanda webhook parse", () => {
     expect(identity.phone).toMatch(/61993781810/);
     expect(isCartpandaPaidEvent(identity)).toBe(true);
   });
+
+  it("extracts utm_content as userRef", () => {
+    const identity = parseCartpandaWebhookPayload({
+      event: "order.paid",
+      utm_content: "clxyz_user_id",
+      order: { status: "paid", email: "a@b.com" },
+    });
+    expect(identity.userRef).toBe("clxyz_user_id");
+  });
 });
