@@ -39,9 +39,11 @@ function phoneLookupCandidates(whatsappNumber: string): string[] {
   const candidates = new Set<string>([normalized]);
   if (normalized.length === 13 && normalized.startsWith("55") && normalized[4] === "9") {
     candidates.add(`${normalized.slice(0, 4)}${normalized.slice(5)}`);
+    candidates.add(normalized.slice(2));
   }
   if (normalized.length === 12 && normalized.startsWith("55")) {
     candidates.add(`${normalized.slice(0, 4)}9${normalized.slice(4)}`);
+    candidates.add(normalized.slice(2));
   }
   return [...candidates];
 }
@@ -210,7 +212,7 @@ export async function createUserWithProfile(input: {
   const email = input.email.trim().toLowerCase();
 
   const [phoneTaken, emailTaken] = await Promise.all([
-    prisma.user.findUnique({ where: { whatsappNumber: normalized } }),
+    findUserByPhone(input.whatsappNumber),
     prisma.user.findUnique({ where: { email } }),
   ]);
   if (phoneTaken) {

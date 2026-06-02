@@ -185,10 +185,14 @@ async function processWhatsAppJobInternal(
             where: { id: inbound.id },
             data: { processedAs: "user_not_found" },
           });
+          const hint =
+            phone.length >= 4
+              ? ` (recebemos …${phone.slice(-4)})`
+              : "";
           await safeWhatsAppReply(
             evolution,
             replyTo,
-            "❌ WhatsApp não cadastrado. Entre no app → Configurações e confira o número de WhatsApp (DDD + 9 dígitos).",
+            `❌ WhatsApp não cadastrado${hint}. Abra o app → Configurações e use o mesmo celular que envia mensagem aqui (DDD + 9 dígitos).`,
             log,
           );
           return;

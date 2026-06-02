@@ -8,6 +8,7 @@ import {
 import { z } from "zod";
 import { parseWorkDays } from "../lib/work-calendar.js";
 import { normalizePhone } from "../lib/phone.js";
+import { findUserByPhone } from "./user.js";
 import {
   diffValues,
   profileDiffFields,
@@ -76,10 +77,8 @@ export async function updateUserProfile(
   if (input.vehiclePlate !== undefined) data.vehiclePlate = input.vehiclePlate;
   if (input.whatsapp !== undefined) {
     const normalized = normalizePhone(input.whatsapp);
-    const taken = await prisma.user.findFirst({
-      where: { whatsappNumber: normalized, NOT: { id: userId } },
-    });
-    if (taken) {
+    const taken = await findUserByPhone(normalized);
+    if (taken && taken.id !== userId) {
       throw Object.assign(new Error("Este WhatsApp já está em outra conta"), {
         statusCode: 409,
         code: "WHATSAPP_TAKEN",

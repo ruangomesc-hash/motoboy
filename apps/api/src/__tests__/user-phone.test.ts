@@ -18,4 +18,15 @@ describe("resolvePhoneLookupKeys", () => {
     const keys = resolvePhoneLookupKeys("5531999988888@s.whatsapp.net");
     expect(keys).toContain("5531999988888");
   });
+
+  it("inclui 11 dígitos locais sem 55 (cadastro antigo no banco)", () => {
+    const keys = resolvePhoneLookupKeys("5531999988888");
+    expect(keys).toContain("31999988888");
+  });
+
+  it("encontra conta legada (11 dígitos) a partir do Zap (55+11)", () => {
+    const legacy = resolvePhoneLookupKeys("31999988888");
+    const fromZap = resolvePhoneLookupKeys("5531999988888");
+    expect(legacy.some((k) => fromZap.includes(k))).toBe(true);
+  });
 });

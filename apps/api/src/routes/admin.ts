@@ -46,6 +46,7 @@ import {
   getAdminUsersList,
   setAdminUserPassword,
 } from "../services/admin-metrics.js";
+import { normalizeAllUsersWhatsAppNumbers } from "../services/user.js";
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
@@ -337,6 +338,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/whatsapp/pipeline", async () => {
     return getWhatsAppPipelineDiagnostics(env);
+  });
+
+  app.post("/admin/users/normalize-phones", async (_request, reply) => {
+    const result = await normalizeAllUsersWhatsAppNumbers();
+    return reply.send({ ok: true, ...result });
   });
 
   app.post("/admin/whatsapp/repair-webhook", async (_request, reply) => {

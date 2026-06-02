@@ -211,6 +211,24 @@ export async function createApp(
       });
   }
 
+  if (isProductionRuntime()) {
+    void import("./services/user.js")
+      .then(async ({ normalizeAllUsersWhatsAppNumbers }) => {
+        const result = await normalizeAllUsersWhatsAppNumbers();
+        app.log.info(
+          {
+            scanned: result.scanned,
+            updated: result.updated,
+            errors: result.errors.length,
+          },
+          "WhatsApp normalizado para todas as contas",
+        );
+      })
+      .catch((err) => {
+        app.log.warn({ err }, "Normalização em lote de WhatsApp falhou");
+      });
+  }
+
   /** Liveness — Railway healthcheck (sem DB). */
   app.get("/health/live", async () => ({ ok: true }));
 

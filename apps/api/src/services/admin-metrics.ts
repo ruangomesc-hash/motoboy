@@ -14,6 +14,7 @@ import { attachReferralToUser } from "./affiliate.js";
 import {
   assertAffiliateCodeValid,
   defaultUserNestedCreate,
+  findUserByPhone,
 } from "./user.js";
 
 import { SUBSCRIPTION_PRICE_BRL, TRIAL_DAYS } from "@motoboy/types";
@@ -255,9 +256,7 @@ export async function createAdminUser(
 ): Promise<AdminUserRow> {
   const now = new Date();
   const normalized = normalizePhone(input.whatsappNumber);
-  const existing = await prisma.user.findUnique({
-    where: { whatsappNumber: normalized },
-  });
+  const existing = await findUserByPhone(normalized);
   if (existing) {
     throw Object.assign(new Error("WhatsApp já cadastrado"), {
       statusCode: 409,
