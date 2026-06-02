@@ -127,13 +127,13 @@ type AppDataContextValue = {
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
-const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-/** Atualização do app sem socket — poll com aba visível. */
-const POLL_MS = 500;
+const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET !== "false";
+/** Atualização do app sem socket — poll com aba visível (todos os usuários). */
+const POLL_MS = 400;
 /** Reconciliação após edição local no app (debounce curto). */
 const MUTATION_SETTLE_MS = 400;
-/** Após entrega via Zap/socket: busca servidor em ~100ms. */
-const SYNC_RECONCILE_MS = 100;
+/** Após entrega via Zap/socket: busca servidor quase na hora. */
+const SYNC_RECONCILE_MS = 50;
 const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
 
@@ -190,6 +190,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
   const syncReconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconcileInFlight = useRef(false);
+  const reconcileQueued = useRef(false);
   const statsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedUser = useRef<string | null>(null);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -423,7 +424,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   refreshTodayRef.current = refreshToday;
 
   const upsertDeliveryOptimistic = useCallback(
-    (delivery: CreatedDelivery, previous?: CreatedDelivery) => {
+    (
+      delivery: CreatedDelivery,
+      previous?: CreatedDelivery,
+      opts?: { skipMutationBump?: boolean },
+    ) => {
       deletedDeliveries.current.unmark(delivery.id);
       const occurredAt = delivery.occurredAt ?? new Date().toISOString();
       const todayKey = todayDateInputValue();
@@ -485,12 +490,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           removeId,
         );
 
+        const tombSet = new Set(deletedDeliveries.current.toArray());
         const todayBase = stateRef.current.today ?? emptyTodaySummary();
-        const nextToday = recomputeTodayFromDeliveries(
+        const forToday = selectDeliveriesForDate(
           nextDeliveries,
+          nextPeriodDeliveries,
+          todayKey,
+          tombSet,
+        );
+        const nextToday = recomputeTodayFromDeliveries(
+          forToday,
           todayBase,
           todayKey,
-          new Set(deletedDeliveries.current.toArray()),
+          tombSet,
         );
 
         const nextDate = isIsoOnDateInput(occurredAt, todayKey)
@@ -512,7 +524,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       if (userId) persistCacheNow(userId);
       scheduleStatsRefresh();
-      bumpDeliveryMutation();
+      if (!opts?.skipMutationBump) {
+        bumpDeliveryMutation();
+      }
     },
     [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
   );
@@ -525,7 +539,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const removeDeliveryOptimistic = useCallback(
-    (deliveryId: string, fallback?: CreatedDelivery) => {
+    (
+      deliveryId: string,
+      fallback?: CreatedDelivery,
+      opts?: { skipMutationBump?: boolean },
+    ) => {
       deletedDeliveries.current.mark(deliveryId);
       pendingDeliveries.current.unmark(deliveryId);
       const s = stateRef.current;
@@ -564,7 +582,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
       if (userId) persistCacheNow(userId);
       scheduleStatsRefresh();
-      bumpDeliveryMutation();
+      if (!opts?.skipMutationBump) {
+        bumpDeliveryMutation();
+      }
     },
     [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
   );
@@ -807,15 +827,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [bumpDeliveryMutation]);
 
   const reconcileDeliveriesIfIdle = useCallback(async () => {
-    if (reconcileInFlight.current) return;
+    if (reconcileInFlight.current) {
+      reconcileQueued.current = true;
+      return;
+    }
     reconcileInFlight.current = true;
     const background = { background: true as const };
     try {
-      await refreshDeliveries(undefined, background);
-      await refreshPeriodDeliveries(undefined, background);
-      await refreshToday(undefined, background);
+      await Promise.all([
+        refreshDeliveries(undefined, background),
+        refreshToday(undefined, background),
+      ]);
+      void refreshPeriodDeliveries(undefined, background);
     } finally {
       reconcileInFlight.current = false;
+      if (reconcileQueued.current) {
+        reconcileQueued.current = false;
+        void reconcileDeliveriesIfIdle();
+      }
     }
   }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
 
@@ -865,9 +894,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           removeDeliveryOptimistic(
             detail.removedDeliveryId,
             detail.removedDelivery,
+            { skipMutationBump: true },
           );
         } else if (detail.delivery) {
-          upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery);
+          upsertDeliveryOptimistic(detail.delivery, detail.previousDelivery, {
+            skipMutationBump: true,
+          });
         }
       }
 
@@ -1111,8 +1143,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const burstRefreshFromExternal = () => {
       void reconcileDeliveriesIfIdle();
-      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 280);
-      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 650);
+      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 120);
+      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 320);
+      window.setTimeout(() => void reconcileDeliveriesIfIdle(), 700);
     };
 
     const onVisible = () => {

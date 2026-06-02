@@ -7,7 +7,8 @@ import { notifyAppSync } from "@/lib/app-sync";
 import { deliveryFromApiRow } from "@/lib/app-data-cache";
 import { DELIVERY_SYNC_TOPICS } from "@/lib/delivery-sync-topics";
 
-const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
+/** Ativo por padrão; desligue com NEXT_PUBLIC_ENABLE_SOCKET=false */
+const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET !== "false";
 
 /** Socket.io roda na API Railway; em produção use rewrite /socket.io no next.config. */
 function resolveSocketUrl(): string {

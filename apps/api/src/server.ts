@@ -3,6 +3,7 @@ import { loadEnv } from "./lib/env.js";
 import { isRedisEnabled } from "./lib/redis.js";
 import { createApp } from "./create-app.js";
 import { startWhatsAppWorker } from "./workers/whatsapp-processor.js";
+import { startRealtimeBridge } from "./lib/realtime-bridge.js";
 import { setSocketServer } from "./lib/socket.js";
 import { verifyToken } from "./lib/auth.js";
 import { EvolutionService } from "./services/evolution.js";
@@ -18,6 +19,7 @@ const io = new SocketServer(app.server, {
   cors: { origin: env.APP_URL, credentials: true },
 });
 setSocketServer(io);
+startRealtimeBridge(io, app.log);
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token as string | undefined;

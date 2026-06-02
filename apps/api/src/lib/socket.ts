@@ -1,4 +1,5 @@
 import type { Server as SocketServer } from "socket.io";
+import { publishRealtimeEvent } from "./realtime-bridge.js";
 
 let io: SocketServer | null = null;
 
@@ -15,5 +16,9 @@ export function emitToUser(
   event: string,
   payload: unknown,
 ): void {
-  io?.to(`user:${userId}`).emit(event, payload);
+  if (io) {
+    io.to(`user:${userId}`).emit(event, payload);
+    return;
+  }
+  publishRealtimeEvent(userId, event, payload);
 }
