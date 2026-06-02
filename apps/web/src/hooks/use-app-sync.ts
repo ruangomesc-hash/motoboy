@@ -8,8 +8,7 @@ import {
   shouldHandleSync,
 } from "@/lib/app-sync";
 
-const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = 8_000;
+const POLL_MS = 2_000;
 
 export function useAppSync(
   refresh: () => void | Promise<void>,

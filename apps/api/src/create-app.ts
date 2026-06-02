@@ -214,6 +214,7 @@ export async function createApp(
     const whatsappQueue = await getWhatsAppQueueCounts(env);
     const runWhatsAppWorker =
       process.env.RUN_WHATSAPP_WORKER === "true" && isRedisEnabled(env);
+    const whatsappProcessing = runWhatsAppWorker ? "queue" : "inline";
     const migrationsHint = !adminTable
       ? "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build"
       : !userPasswordColumn
@@ -227,6 +228,7 @@ export async function createApp(
       migrationsHint,
       redis: isRedisEnabled(env),
       whatsappWorker: runWhatsAppWorker,
+      whatsappProcessing,
       whatsappQueue,
       asaas: {
         configured: isAsaasConfigured(env),

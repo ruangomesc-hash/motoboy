@@ -18,6 +18,11 @@ import {
   WHATSAPP_INVALID_PAYLOAD_MESSAGE,
   WHATSAPP_QUEUE_DOWN_MESSAGE,
 } from "../lib/whatsapp-user-message.js";
+import { acquireWhatsAppMessageLock } from "../lib/whatsapp-idempotency.js";
+import { getSocketServer } from "../lib/socket.js";
+import {
+  processWhatsAppJobData,
+} from "../workers/whatsapp-processor.js";
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
@@ -108,40 +113,80 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const redisUrl = env.REDIS_URL?.trim();
-    if (!redisUrl) {
-      request.log.error("REDIS_URL ausente — fila WhatsApp indisponível");
-      try {
-        await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
-      } catch (sendErr) {
-        request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+    const messageId = data.key.id;
+    const workerOnHost = process.env.RUN_WHATSAPP_WORKER === "true";
+
+    if (redisUrl && messageId) {
+      const acquired = await acquireWhatsAppMessageLock(redisUrl, messageId);
+      if (!acquired) {
+        return reply.send({ ok: true, duplicate: true });
       }
-      return reply.status(503).send({
-        error: "REDIS_URL não configurado",
-        code: "REDIS_QUEUE_ERROR",
+    }
+
+    if (workerOnHost) {
+      if (!redisUrl) {
+        request.log.error("REDIS_URL ausente — fila WhatsApp indisponível");
+        try {
+          await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
+        } catch (sendErr) {
+          request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+        }
+        return reply.status(503).send({
+          error: "REDIS_URL não configurado",
+          code: "REDIS_QUEUE_ERROR",
+        });
+      }
+
+      try {
+        await getWhatsAppQueue(redisUrl).add("process", jobData, {
+          attempts: 3,
+          backoff: { type: "exponential", delay: 2000 },
+        });
+      } catch (err) {
+        request.log.error({ err }, "Falha ao enfileirar job WhatsApp (Redis)");
+        try {
+          await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
+        } catch (sendErr) {
+          request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+        }
+        return reply.status(503).send({
+          error: "Fila indisponível. Confira REDIS_URL (Upstash TCP rediss://).",
+          code: "REDIS_QUEUE_ERROR",
+        });
+      }
+
+      return reply.send({
+        ok: true,
+        queued: true,
+        hasStoredPhone: Boolean(contact.storedPhone),
       });
     }
 
     try {
-      await getWhatsAppQueue(redisUrl).add("process", jobData, {
-        attempts: 3,
-        backoff: { type: "exponential", delay: 2000 },
+      await processWhatsAppJobData(jobData, {
+        env,
+        log: request.log,
+        io: getSocketServer(),
       });
     } catch (err) {
-      request.log.error({ err }, "Falha ao enfileirar job WhatsApp (Redis)");
+      request.log.error({ err, messageId }, "WhatsApp processamento inline falhou");
       try {
-        await app.evolution.sendText(replyTo, WHATSAPP_QUEUE_DOWN_MESSAGE);
-      } catch (sendErr) {
-        request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+        await app.evolution.sendText(
+          replyTo,
+          "⚠️ Não consegui processar agora. Tente de novo em instantes ou use o app.",
+        );
+      } catch {
+        /* ignore */
       }
-      return reply.status(503).send({
-        error: "Fila indisponível. Confira REDIS_URL (Upstash TCP rediss://).",
-        code: "REDIS_QUEUE_ERROR",
+      return reply.status(500).send({
+        error: "Falha ao processar mensagem",
+        code: "WHATSAPP_PROCESS_ERROR",
       });
     }
 
     return reply.send({
       ok: true,
-      queued: true,
+      processed: true,
       hasStoredPhone: Boolean(contact.storedPhone),
     });
   });

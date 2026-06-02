@@ -127,7 +127,19 @@ export function parseEvolutionInboundMessage(
   if (shouldIgnoreEvent(event)) return null;
 
   const rawData = pickInboundData(root);
-  const parsed = messageDataSchema.safeParse(rawData);
+  let parsed = messageDataSchema.safeParse(rawData);
+  if (!parsed.success && rawData && typeof rawData === "object") {
+    parsed = messageDataSchema.safeParse({
+      ...(rawData as object),
+      key:
+        (rawData as { key?: unknown }).key ??
+        (rawData as { messageKey?: unknown }).messageKey,
+    });
+  }
+  if (!parsed.success) {
+    const asMessage = messageDataSchema.safeParse(root);
+    if (asMessage.success) parsed = asMessage;
+  }
   if (!parsed.success) return null;
 
   const remoteJid =

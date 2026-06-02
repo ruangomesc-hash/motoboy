@@ -123,7 +123,8 @@ type AppDataContextValue = {
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET === "true";
-const POLL_MS = SOCKET_ENABLED ? 120_000 : 45_000;
+/** Atualização do app sem socket — 2s com aba visível. */
+const POLL_MS = 2_000;
 const MUTATION_SETTLE_MS = 8_000;
 const STATS_REFRESH_MS = 400;
 const OWN_SYNC_KEY_TTL_MS = 1_500;
@@ -900,7 +901,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
 
     const cached = userId ? readAppCache(userId) : null;
-    const stale = !cached || isCacheStale(cached.savedAt, 45_000);
+    const stale = !cached || isCacheStale(cached.savedAt, POLL_MS);
 
     void loadMeSettings({
       force: stale || Boolean(pending),
@@ -1017,7 +1018,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== "visible") return;
       syncDeliveriesFilterDate();
       const cached = readAppCache(userId);
-      if (!cached || isCacheStale(cached.savedAt, 12_000)) {
+      if (!cached || isCacheStale(cached.savedAt, POLL_MS)) {
         reconcileDeliveriesIfIdle();
       }
     };
@@ -1028,12 +1029,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("focus", onVisible);
 
     let poll: ReturnType<typeof setInterval> | undefined;
-    if (!SOCKET_ENABLED) {
-      poll = setInterval(() => {
-        if (document.visibilityState !== "visible") return;
-        reconcileDeliveriesIfIdle();
-      }, POLL_MS);
-    }
+    poll = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      reconcileDeliveriesIfIdle();
+    }, POLL_MS);
 
     return () => {
       unsubscribe();

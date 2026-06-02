@@ -8,7 +8,9 @@ Zap → Evolution (VPS) → POST webhook → Vercel enfileira (Redis)
                     Railway worker processa → Supabase + resposta Zap
 ```
 
-**Vercel nunca roda o worker** (`apps/api/src/server.ts` — só inicia worker se `RUN_WHATSAPP_WORKER=true`).
+**Vercel nunca roda o worker BullMQ** — processa **inline** no webhook (`RUN_WHATSAPP_WORKER=false`).
+
+**Railway** com `RUN_WHATSAPP_WORKER=true` só processa fila se o webhook enfileirar (deploy alternativo); em produção padrão o processamento é na Vercel.
 
 ---
 

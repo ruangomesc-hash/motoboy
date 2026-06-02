@@ -71,24 +71,34 @@ function jobStoredPhone(job: Job<WhatsAppJobData>): string | null {
   }
 }
 
-export function startWhatsAppWorker(
-  env: Env,
-  log: FastifyBaseLogger,
-  io: SocketServer | null,
-): Worker<WhatsAppJobData> {
-  const connection = getBullMQConnection(env.REDIS_URL);
-  const ai = new AiService(env.OPENAI_API_KEY);
+export type WhatsAppProcessContext = {
+  env: Env;
+  log: FastifyBaseLogger;
+  io: SocketServer | null;
+};
+
+/** Processa uma mensagem (Vercel inline ou worker BullMQ). */
+export async function processWhatsAppJobData(
+  data: WhatsAppJobData,
+  ctx: WhatsAppProcessContext,
+): Promise<void> {
+  const fakeJob = { data } as Job<WhatsAppJobData>;
+  await processWhatsAppJobInternal(fakeJob, ctx);
+}
+
+async function processWhatsAppJobInternal(
+  job: Job<WhatsAppJobData>,
+  ctx: WhatsAppProcessContext,
+): Promise<void> {
+  const { env, log, io } = ctx;
   const evolution = new EvolutionService(env, log);
+  const ai = new AiService(env.OPENAI_API_KEY);
+  const { messageType, rawContent } = job.data;
+  const replyTo = jobReplyTo(job);
+  const phone = jobStoredPhone(job);
+  let userId: string | undefined;
 
-  return new Worker<WhatsAppJobData>(
-    "whatsapp-process",
-    async (job: Job<WhatsAppJobData>) => {
-      const { messageType, rawContent } = job.data;
-      const replyTo = jobReplyTo(job);
-      const phone = jobStoredPhone(job);
-      let userId: string | undefined;
-
-      try {
+  try {
         if (!phone) {
           await evolution.sendText(
             replyTo,
@@ -196,6 +206,20 @@ export function startWhatsAppWorker(
         }
         throw err;
       }
+}
+
+export function startWhatsAppWorker(
+  env: Env,
+  log: FastifyBaseLogger,
+  io: SocketServer | null,
+): Worker<WhatsAppJobData> {
+  const connection = getBullMQConnection(env.REDIS_URL);
+  const ctx: WhatsAppProcessContext = { env, log, io };
+
+  return new Worker<WhatsAppJobData>(
+    "whatsapp-process",
+    async (job: Job<WhatsAppJobData>) => {
+      await processWhatsAppJobInternal(job, ctx);
     },
     { connection },
   );
