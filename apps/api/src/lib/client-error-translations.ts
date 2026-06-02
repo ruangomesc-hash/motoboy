@@ -151,6 +151,7 @@ const TRANSLATIONS: Record<
       "Veja logs do worker na Railway e Admin → Erros. Peça ao motoboy tentar de novo.",
     severity: "critical",
   },
+  REDIS_QUEUE_ERROR: {
     title: "Fila WhatsApp (Redis) indisponível",
     detail: "REDIS_URL Upstash inacessível — fila de mensagens parada.",
     action: "Confira Upstash e REDIS_URL na Railway.",
