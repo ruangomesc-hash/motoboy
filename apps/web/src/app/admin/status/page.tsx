@@ -108,6 +108,7 @@ function platformIcon(id: PlatformHealthReport["platforms"][number]["id"]) {
 
 export default function AdminStatusPage() {
   const api = useAdminApi();
+  const adminReady = useAdminSessionReady();
   const [snapshot, setSnapshot] = useState<SystemHealthSnapshot | null>(null);
   const [integrations, setIntegrations] =
     useState<IntegrationsHealthReport | null>(null);
