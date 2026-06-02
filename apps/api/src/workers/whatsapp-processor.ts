@@ -36,6 +36,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { getBullMQConnection } from "../lib/bullmq-connection.js";
 import { recordClientErrorSafe } from "../services/client-error-log.js";
 import { formatWhatsAppProcessingError } from "../lib/whatsapp-user-message.js";
+import { resolvePublicAppUrl } from "../lib/app-url.js";
 
 function dayBounds() {
   const start = new Date();
@@ -99,7 +100,23 @@ async function processWhatsAppJobInternal(
   let userId: string | undefined;
 
   try {
+        const logFrom =
+          phone ??
+          (job.data.fromNumber.replace(/\D/g, "").slice(0, 20) || "unknown");
+        const inbound = await prisma.whatsAppMessage.create({
+          data: {
+            fromNumber: logFrom,
+            messageType,
+            rawContent: rawContent as object,
+            processedAs: "received",
+          },
+        });
+
         if (!phone) {
+          await prisma.whatsAppMessage.update({
+            where: { id: inbound.id },
+            data: { processedAs: "invalid_phone" },
+          });
           await evolution.sendText(
             replyTo,
             "❌ Não identifiquei seu número de WhatsApp. Em Configurações, confira o campo WhatsApp (mesmo celular que manda mensagem no Zap).",
@@ -109,6 +126,10 @@ async function processWhatsAppJobInternal(
 
         const user = await findUserByPhone(phone);
         if (!user) {
+          await prisma.whatsAppMessage.update({
+            where: { id: inbound.id },
+            data: { processedAs: "user_not_found" },
+          });
           await evolution.sendText(
             replyTo,
             "❌ WhatsApp não cadastrado. Entre no app → Configurações e confira o número de WhatsApp (DDD + 9 dígitos).",
@@ -117,19 +138,15 @@ async function processWhatsAppJobInternal(
         }
         userId = user.id;
 
-        await prisma.whatsAppMessage.create({
-          data: {
-            userId: user.id,
-            fromNumber: phone,
-            messageType,
-            rawContent: rawContent as object,
-          },
+        await prisma.whatsAppMessage.update({
+          where: { id: inbound.id },
+          data: { userId: user.id, processedAs: "processing" },
         });
 
         if (isTrialExpired(user) && user.status !== "ACTIVE") {
           await evolution.sendText(
             replyTo,
-            `Trial encerrado. Assine em: ${env.APP_URL}/assinar`,
+            `Trial encerrado. Assine em: ${resolvePublicAppUrl(env)}/assinar`,
           );
           return;
         }

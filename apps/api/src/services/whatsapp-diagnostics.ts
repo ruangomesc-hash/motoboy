@@ -45,6 +45,7 @@ export type WhatsAppPipelineDiagnostics = {
       fromNumber: string;
       messageType: string;
       userId: string | null;
+      processedAs: string | null;
     }>;
     recentWhatsAppErrors: Array<{
       createdAt: string;
@@ -298,6 +299,7 @@ export async function getWhatsAppPipelineDiagnostics(
           fromNumber: true,
           messageType: true,
           userId: true,
+          processedAs: true,
         },
       }),
       prisma.clientErrorLog.findMany({
@@ -375,6 +377,7 @@ export async function getWhatsAppPipelineDiagnostics(
         fromNumber: m.fromNumber,
         messageType: m.messageType,
         userId: m.userId,
+        processedAs: m.processedAs,
       })),
       recentWhatsAppErrors: recentWhatsAppErrors.map((e) => ({
         createdAt: e.createdAt.toISOString(),
