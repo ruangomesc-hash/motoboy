@@ -37,6 +37,7 @@ model User {
   fuelRefuels       FuelRefuel[]
   odometerReadings  OdometerReading[]
   activityLogs      ActivityLog[]
+  clientErrorLogs   ClientErrorLog[]
 
   referredByAffiliateId String?
   referredByAffiliate   Affiliate? @relation(fields: [referredByAffiliateId], references: [id], onDelete: SetNull)
@@ -94,6 +95,24 @@ model ActivityLog {
   createdAt DateTime         @default(now())
 
   @@index([userId, createdAt])
+}
+
+model ClientErrorLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  errorCode   String
+  rawMessage  String
+  httpStatus  Int?
+  route       String?
+  method      String?
+  source      String   @default("app")
+  context     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([errorCode, createdAt])
+  @@index([createdAt])
 }
 
 enum UserStatus {

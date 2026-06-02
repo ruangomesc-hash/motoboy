@@ -11,6 +11,7 @@ import {
   isExpenseEntry,
   profileUpdateSchema,
   goalsPlanUpdateSchema,
+  clientErrorReportSchema,
 } from "@motoboy/types";
 import { ensureTrialEndsAtPolicy } from "../services/trial.js";
 import {
@@ -28,6 +29,7 @@ import {
   recordActivitySafe,
 } from "../services/activity-log.js";
 import { createDeliveryManual, createExpenseManual } from "../services/delivery.js";
+import { recordClientErrorSafe } from "../services/client-error-log.js";
 import { getPeriodStats } from "../services/stats.js";
 import {
   emitDeliveryCreated,
@@ -61,6 +63,25 @@ const routeOptimizeSchema = z.object({
 
 export async function meRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
+
+  app.post(
+    "/me/client-errors",
+    { preHandler: [requireAuth, requireSessionUser] },
+    async (request, reply) => {
+      const body = clientErrorReportSchema.parse(request.body);
+      await recordClientErrorSafe({
+        userId: request.sessionUser!.id,
+        errorCode: body.code,
+        rawMessage: body.message,
+        httpStatus: body.httpStatus,
+        route: body.route,
+        method: body.method,
+        source: "app",
+        context: body.context ?? null,
+      });
+      return reply.code(204).send();
+    },
+  );
 
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", requireSessionUser);

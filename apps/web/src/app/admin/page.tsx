@@ -16,6 +16,7 @@ import {
   RefreshCw,
   DollarSign,
   ScrollText,
+  Bug,
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ export default function AdminDashboardPage() {
             icon: AlertTriangle,
           },
           { href: "/admin/logs", label: "Logs de uso", icon: ScrollText },
+          { href: "/admin/erros", label: "Histórico de erros", icon: Bug },
           { href: "/admin/regioes", label: "Melhores regiões", icon: TrendingUp },
         ].map(({ href, label, icon: Icon }) => (
           <Link

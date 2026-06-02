@@ -7,6 +7,7 @@ import {
   loadSessionUser,
   type SessionUser,
 } from "./session-user.js";
+import { recordClientErrorSafe } from "../services/client-error-log.js";
 
 export interface JwtPayload {
   userId: string;
@@ -54,20 +55,70 @@ export async function requireAuth(
     header?.startsWith("Bearer ") ? header.slice(7) : cookie;
 
   if (!token) {
-    return reply.status(401).send({ error: "Não autenticado" });
+    void recordClientErrorSafe({
+      errorCode: "NOT_AUTHENTICATED",
+      rawMessage: "Não autenticado",
+      httpStatus: 401,
+      route: request.url.split("?")[0],
+      method: request.method,
+      source: "api",
+    });
+    return reply.status(401).send({ error: "Não autenticado", code: "NOT_AUTHENTICATED" });
   }
 
   try {
     const payload = verifyToken(token, env.JWT_SECRET);
     if (payload.role === "admin") {
-      return reply.status(401).send({ error: "Use login de motoboy" });
+      void recordClientErrorSafe({
+        errorCode: "ADMIN_TOKEN_ON_APP",
+        rawMessage: "Use login de motoboy",
+        httpStatus: 401,
+        route: request.url.split("?")[0],
+        method: request.method,
+        source: "api",
+      });
+      return reply.status(401).send({
+        error: "Use login de motoboy",
+        code: "ADMIN_TOKEN_ON_APP",
+      });
     }
     if (!payload.userId) {
-      return reply.status(401).send({ error: "Sessão inválida" });
+      void recordClientErrorSafe({
+        errorCode: "SESSION_INVALID",
+        rawMessage: "Sessão inválida",
+        httpStatus: 401,
+        route: request.url.split("?")[0],
+        method: request.method,
+        source: "api",
+      });
+      return reply.status(401).send({ error: "Sessão inválida", code: "SESSION_INVALID" });
     }
     request.user = payload;
-  } catch {
-    return reply.status(401).send({ error: "Token inválido" });
+  } catch (err) {
+    let userId: string | undefined;
+    try {
+      const decoded = jwt.decode(token) as { userId?: string } | null;
+      userId = decoded?.userId;
+    } catch {
+      userId = undefined;
+    }
+    const isExpired =
+      err instanceof jwt.TokenExpiredError ||
+      (err instanceof Error && err.message.toLowerCase().includes("expired"));
+    const code = isExpired ? "JWT_EXPIRED" : "JWT_INVALID";
+    void recordClientErrorSafe({
+      userId,
+      errorCode: code,
+      rawMessage: err instanceof Error ? err.message : "Token inválido",
+      httpStatus: 401,
+      route: request.url.split("?")[0],
+      method: request.method,
+      source: "api",
+    });
+    return reply.status(401).send({
+      error: isExpired ? "Sessão expirada. Faça login novamente." : "Token inválido",
+      code,
+    });
   }
 }
 
@@ -83,6 +134,15 @@ export async function requireSessionUser(
 
   const sessionUser = await loadSessionUser(userId);
   if (!sessionUser) {
+    void recordClientErrorSafe({
+      userId,
+      errorCode: "USER_NOT_FOUND",
+      rawMessage: "Conta não encontrada. Faça login novamente.",
+      httpStatus: 401,
+      route: request.url.split("?")[0],
+      method: request.method,
+      source: "api",
+    });
     return reply.status(401).send({
       error: "Conta não encontrada. Faça login novamente.",
       code: "USER_NOT_FOUND",
@@ -90,6 +150,15 @@ export async function requireSessionUser(
   }
 
   if (sessionUser.status === "CANCELED") {
+    void recordClientErrorSafe({
+      userId,
+      errorCode: "ACCOUNT_CANCELED",
+      rawMessage: "Conta cancelada. Entre em contato com o suporte.",
+      httpStatus: 403,
+      route: request.url.split("?")[0],
+      method: request.method,
+      source: "api",
+    });
     return reply.status(403).send({
       error: "Conta cancelada. Entre em contato com o suporte.",
       code: "ACCOUNT_CANCELED",
@@ -110,11 +179,20 @@ export async function requireAppAccess(
   }
 
   const path = request.url.split("?")[0] ?? request.url;
-  if (isBillingRoute(request.method, path)) {
+  if (isBillingRoute(request.method, path) || path === "/me/client-errors") {
     return;
   }
 
   if (!hasAppAccess(sessionUser)) {
+    void recordClientErrorSafe({
+      userId: sessionUser.id,
+      errorCode: "SUBSCRIPTION_REQUIRED",
+      rawMessage: "Trial encerrado. Assine o Motocopiloto para continuar.",
+      httpStatus: 402,
+      route: path,
+      method: request.method,
+      source: "api",
+    });
     return reply.status(402).send({
       error: "Trial encerrado. Assine o Motocopiloto para continuar.",
       code: "SUBSCRIPTION_REQUIRED",

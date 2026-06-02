@@ -1,6 +1,13 @@
 import { resolveApiBase } from "./api-base";
+import { buildClientErrorReport, reportClientError } from "./report-client-error";
 
 const API_BASE = resolveApiBase();
+
+let lastReportToken: string | null = null;
+
+export function setApiErrorReportToken(token: string | null): void {
+  lastReportToken = token;
+}
 
 export async function apiFetch<T>(
   path: string,
@@ -58,6 +65,10 @@ export async function apiFetch<T>(
     if (res.status === 402 && typeof window !== "undefined") {
       window.location.href = "/assinar";
     }
+    reportClientError(
+      buildClientErrorReport(err, path, (options.method ?? "GET").toUpperCase()),
+      lastReportToken,
+    );
     throw err;
   }
   const text = await res.text();

@@ -14,6 +14,7 @@ import { adminRoutes } from "./routes/admin.js";
 import type { EvolutionService as EvoType } from "./services/evolution.js";
 import { collectCorsOrigins, isCorsOriginAllowed } from "./lib/cors-origins.js";
 import { mapPrismaHttpError } from "./lib/prisma-http.js";
+import { recordClientErrorSafe } from "./services/client-error-log.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -111,12 +112,24 @@ export async function createApp(
     }
     app.log.error(error);
     const path = request.url.split("?")[0] ?? "";
+    const message =
+      err instanceof Error ? err.message : "Erro interno do servidor";
+    const userId = request.user?.userId ?? request.sessionUser?.id;
+    if (path.startsWith("/me") && !path.startsWith("/admin")) {
+      void recordClientErrorSafe({
+        userId,
+        errorCode: "INTERNAL_ERROR",
+        rawMessage: message.slice(0, 2000),
+        httpStatus: 500,
+        route: path,
+        method: request.method,
+        source: "api",
+      });
+    }
     const isAdminMutation =
       (path === "/admin/users" && request.method === "POST") ||
       (path.includes("/admin/users/") &&
         (request.method === "DELETE" || request.method === "PUT"));
-    const message =
-      err instanceof Error ? err.message : "Erro interno do servidor";
     return reply.status(500).send({
       error: isAdminMutation
         ? message.slice(0, 240)

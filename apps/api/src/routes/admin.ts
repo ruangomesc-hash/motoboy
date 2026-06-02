@@ -31,6 +31,7 @@ import {
 } from "../services/affiliate.js";
 import { getIntegrationsHealth } from "../services/integration-health.js";
 import { getServerPlatformHealth } from "../services/platform-health.js";
+import { getAdminClientErrorLogs } from "../services/client-error-log.js";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -328,5 +329,20 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/platform/health", async () => {
     return getServerPlatformHealth(env);
+  });
+
+  app.get("/admin/client-errors", async (request) => {
+    const q = request.query as {
+      page?: string;
+      limit?: string;
+      code?: string;
+      userId?: string;
+    };
+    const page = Math.max(1, Number(q.page ?? 1));
+    const limit = Math.min(100, Math.max(10, Number(q.limit ?? 40)));
+    return getAdminClientErrorLogs(page, limit, {
+      errorCode: q.code,
+      userId: q.userId,
+    });
   });
 }

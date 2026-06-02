@@ -835,6 +835,41 @@ export const adminUsageLogsSchema = z.object({
   limit: z.number(),
 });
 
+export const clientErrorReportSchema = z.object({
+  code: z.string().max(80).optional(),
+  message: z.string().min(1).max(2000),
+  httpStatus: z.number().int().optional(),
+  route: z.string().min(1).max(500),
+  method: z.string().max(16).optional(),
+  context: z.record(z.unknown()).optional(),
+});
+
+export const adminClientErrorRowSchema = z.object({
+  id: z.string(),
+  userId: z.string().nullable(),
+  userName: z.string().nullable(),
+  userPhone: z.string().nullable(),
+  userCity: z.string().nullable(),
+  errorCode: z.string(),
+  rawMessage: z.string(),
+  httpStatus: z.number().nullable(),
+  route: z.string().nullable(),
+  method: z.string().nullable(),
+  source: z.string(),
+  createdAt: z.string(),
+  adminTitle: z.string(),
+  adminDetail: z.string(),
+  adminAction: z.string(),
+  adminSeverity: z.enum(["info", "warning", "critical"]),
+});
+
+export const adminClientErrorLogsSchema = z.object({
+  items: z.array(adminClientErrorRowSchema),
+  total: z.number(),
+  page: z.number(),
+  limit: z.number(),
+});
+
 export type AffiliateValidateResponse = z.infer<
   typeof affiliateValidateResponseSchema
 >;
@@ -850,3 +885,6 @@ export type AdminAffiliateReferrals = z.infer<
 export type AdminDelinquentList = z.infer<typeof adminDelinquentListSchema>;
 export type AdminUsageLogs = z.infer<typeof adminUsageLogsSchema>;
 export type AdminUsageLogRow = z.infer<typeof adminUsageLogRowSchema>;
+export type ClientErrorReport = z.infer<typeof clientErrorReportSchema>;
+export type AdminClientErrorRow = z.infer<typeof adminClientErrorRowSchema>;
+export type AdminClientErrorLogs = z.infer<typeof adminClientErrorLogsSchema>;

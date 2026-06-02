@@ -675,6 +675,56 @@ export function adminDemoFetch<T>(
     } as T);
   }
 
+  if (path.startsWith("/admin/client-errors")) {
+    return Promise.resolve({
+      items: [
+        {
+          id: "err-demo-1",
+          userId: "demo-user-1",
+          userName: "João Silva",
+          userPhone: "11987654321",
+          userCity: "São Paulo",
+          errorCode: "JWT_EXPIRED",
+          rawMessage: "jwt expired",
+          httpStatus: 401,
+          route: "/me/today",
+          method: "GET",
+          source: "api",
+          createdAt: new Date(Date.now() - 3600_000 * 48).toISOString(),
+          adminTitle: "Sessão expirada",
+          adminDetail:
+            "O token JWT do motoboy expirou (validade de 30 dias) ou a JWT_SECRET foi alterada no deploy, invalidando sessões antigas.",
+          adminAction:
+            "Peça para o motoboy sair e entrar de novo (WhatsApp ou senha). Se muitos usuários falharem ao mesmo tempo, confira JWT_SECRET na Railway/Vercel.",
+          adminSeverity: "warning",
+        },
+        {
+          id: "err-demo-2",
+          userId: "demo-user-2",
+          userName: "Maria Souza",
+          userPhone: "21999887766",
+          userCity: "Rio de Janeiro",
+          errorCode: "JWT_INVALID",
+          rawMessage: "Token inválido",
+          httpStatus: 401,
+          route: "/me/deliveries",
+          method: "GET",
+          source: "app",
+          createdAt: new Date(Date.now() - 3600_000 * 50).toISOString(),
+          adminTitle: "Token de sessão inválido",
+          adminDetail:
+            "O app enviou um token que a API não consegue validar — assinatura incorreta, token corrompido ou JWT_SECRET diferente entre web e API.",
+          adminAction:
+            "Motoboy deve fazer logout e login. Verifique se JWT_SECRET é idêntico na Vercel (web) e Railway (API).",
+          adminSeverity: "critical",
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 40,
+    } as T);
+  }
+
   if (path.startsWith("/admin/logs")) {
     return Promise.resolve(demoAdminLogs as T);
   }
