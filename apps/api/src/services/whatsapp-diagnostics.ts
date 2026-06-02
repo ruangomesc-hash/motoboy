@@ -51,6 +51,18 @@ export type WhatsAppPipelineDiagnostics = {
       messageType: string;
       userId: string | null;
       processedAs: string | null;
+      phoneLink: {
+        linkStatus: string;
+        lookupKeys: string[];
+        registeredAs: string | null;
+        userName: string | null;
+      } | null;
+    }>;
+    unmatchedPhones: Array<{
+      fromNumber: string;
+      linkStatus: string;
+      lookupKeys: string[];
+      registeredAs: string | null;
     }>;
     recentWhatsAppErrors: Array<{
       createdAt: string;
