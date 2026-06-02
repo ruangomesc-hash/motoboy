@@ -119,20 +119,51 @@ export async function migrateUserWhatsAppToCanonical(
 }
 
 export async function findUserByPhone(whatsappNumber: string) {
-  for (const whatsappNumberKey of resolvePhoneLookupKeys(whatsappNumber)) {
-    const user = await prisma.user.findUnique({
-      where: { whatsappNumber: whatsappNumberKey },
-      include: { costs: true },
-    });
-    if (!user) continue;
+  const keys = resolvePhoneLookupKeys(whatsappNumber);
+  if (keys.length === 0) return null;
 
-    await migrateUserWhatsAppToCanonical(user.id, whatsappNumber);
-    return prisma.user.findUnique({
-      where: { id: user.id },
-      include: { costs: true },
-    });
+  const user = await prisma.user.findFirst({
+    where: { whatsappNumber: { in: keys } },
+    include: { costs: true },
+  });
+  if (!user) return null;
+
+  await migrateUserWhatsAppToCanonical(user.id, whatsappNumber);
+  return prisma.user.findUnique({
+    where: { id: user.id },
+    include: { costs: true },
+  });
+}
+
+/** Admin / deploy: alinha 55+11 e o 9 do celular em todas as contas existentes. */
+export async function normalizeAllUsersWhatsAppNumbers(): Promise<{
+  scanned: number;
+  updated: number;
+  unchanged: number;
+  errors: { userId: string; message: string }[];
+}> {
+  const users = await prisma.user.findMany({
+    select: { id: true, whatsappNumber: true },
+  });
+  let updated = 0;
+  let unchanged = 0;
+  const errors: { userId: string; message: string }[] = [];
+
+  for (const u of users) {
+    try {
+      const before = u.whatsappNumber;
+      const after = await migrateUserWhatsAppToCanonical(u.id);
+      if (after !== before) updated++;
+      else unchanged++;
+    } catch (err) {
+      errors.push({
+        userId: u.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
-  return null;
+
+  return { scanned: users.length, updated, unchanged, errors };
 }
 
 export type PhoneUserLinkDiagnosis = {

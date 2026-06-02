@@ -28,41 +28,10 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
 import { recentDeliveryToPayload } from "@/lib/resolve-delivery-payload";
+import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
-
-const emptySummary: TodaySummary = {
-  grossTotal: 0,
-  fuelCost: 0,
-  maintenanceCost: 0,
-  otherCost: 0,
-  totalExpenses: 0,
-  netProfit: 0,
-  totalKm: 0,
-  profitPerKm: 0,
-  deliveryCount: 0,
-  goalTarget: null,
-  goalProgress: null,
-  goalRemaining: null,
-  goalsPlan: null,
-  weeklyGoal: null,
-  recentDeliveries: [],
-  costsConfigured: false,
-  fuel: {
-    cost: 0,
-    litersToday: 0,
-    isActual: false,
-    lastPricePerLiter: null,
-    avgPricePerLiter: null,
-    refuelCountToday: 0,
-  },
-  odometer: {
-    currentKm: null,
-    kmToday: 0,
-    kmSource: "estimate",
-  },
-};
 
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
@@ -91,8 +60,8 @@ export default function HomePage() {
   const whatsappUrl = `https://wa.me/${BOT_NUMBER}?text=${encodeURIComponent("entrega 25 reais")}`;
 
   const s = useMemo(() => {
-    if (!today) return emptySummary;
-    return recomputeTodayFromDeliveries(todayDeliveries, today);
+    const base = today ?? emptyTodaySummary();
+    return recomputeTodayFromDeliveries(todayDeliveries, base);
   }, [today, todayDeliveries]);
   const recentDeliveries = s.recentDeliveries;
   const manualExpensesTotal = s.manualExpensesTotal ?? 0;

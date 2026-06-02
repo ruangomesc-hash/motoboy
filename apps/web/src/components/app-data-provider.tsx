@@ -386,9 +386,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             };
           }
 
-          const recentFromList = mergeDeliveryLists(
-            [],
+          const recentFromList = selectDeliveriesForDate(
             stateRef.current.deliveries,
+            stateRef.current.periodDeliveries,
             todayKey,
             tombSet,
           )
@@ -535,12 +535,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const nextPeriodDeliveries = s.periodDeliveries.filter(
         (d) => d.id !== deliveryId,
       );
+      const tombSet = new Set(deletedDeliveries.current.toArray());
       const base = s.today ?? emptyTodaySummary();
-      const nextToday = recomputeTodayFromDeliveries(
+      const forToday = selectDeliveriesForDate(
         nextDeliveries,
+        nextPeriodDeliveries,
+        todayKey,
+        tombSet,
+      );
+      const nextToday = recomputeTodayFromDeliveries(
+        forToday,
         base,
         todayKey,
-        new Set(deletedDeliveries.current.toArray()),
+        tombSet,
       );
 
       flushSync(() => {
@@ -1148,6 +1155,27 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     const tick = setInterval(syncDeliveriesFilterDate, 60_000);
     return () => clearInterval(tick);
   }, [isBootstrapped, syncDeliveriesFilterDate]);
+
+  /** Home e lucro do dia seguem a mesma lista que Entregas/Estatísticas (poll Zap). */
+  useEffect(() => {
+    if (!isBootstrapped) return;
+    const todayKey = todayDateInputValue();
+    const tombSet = new Set(deletedDeliveries.current.toArray());
+    const forToday = selectDeliveriesForDate(
+      deliveries,
+      periodDeliveries,
+      todayKey,
+      tombSet,
+    );
+    setToday((prev) =>
+      recomputeTodayFromDeliveries(
+        forToday,
+        prev ?? emptyTodaySummary(),
+        todayKey,
+        tombSet,
+      ),
+    );
+  }, [deliveries, periodDeliveries, isBootstrapped]);
 
   const anchorDate = deliveriesDate || todayDateInputValue();
   const deviceToday = todayDateInputValue();
