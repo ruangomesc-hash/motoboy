@@ -63,7 +63,28 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { replyTo } = contact;
-    const fromNumber = contact.storedPhone ?? replyTo;
+
+    if (!contact.storedPhone) {
+      request.log.warn(
+        { key: data.key, replyTo },
+        "Webhook WhatsApp: remetente só @lid — cadastre o número no app",
+      );
+      try {
+        await app.evolution.sendText(
+          replyTo,
+          "❌ Não identifiquei seu número de WhatsApp. Em Configurações, confira o campo WhatsApp (mesmo celular que manda mensagem no Zap).",
+        );
+      } catch (sendErr) {
+        request.log.error({ sendErr }, "Falha ao avisar usuário no WhatsApp");
+      }
+      return reply.send({
+        ok: true,
+        skipped: true,
+        reason: "no_stored_phone",
+      });
+    }
+
+    const fromNumber = contact.storedPhone;
 
     const msg = data.message;
     const text = extractEvolutionMessageText(msg);

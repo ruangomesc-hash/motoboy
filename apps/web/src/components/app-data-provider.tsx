@@ -243,7 +243,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
     mutationSettleTimer.current = setTimeout(() => {
       mutationSettleTimer.current = null;
-      if (pendingDeliveries.current.hasLocal()) return;
       const gen = deliveryMutationGen.current;
       void (async () => {
         await Promise.all([
@@ -340,11 +339,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshToday = useCallback(
-    async (mutationGenAtStart?: number) => {
+    async (
+      mutationGenAtStart?: number,
+      options?: { background?: boolean },
+    ) => {
       const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
       try {
         const data = await api<TodaySummary>("/me/today");
-        if (genAtStart !== deliveryMutationGen.current) return;
+        if (
+          !options?.background &&
+          genAtStart !== deliveryMutationGen.current
+        ) {
+          return;
+        }
 
         const tomb = deletedDeliveries.current;
         const todayKey = todayDateInputValue();
@@ -549,7 +556,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshDeliveries = useCallback(
-    async (mutationGenAtStart?: number) => {
+    async (
+      mutationGenAtStart?: number,
+      options?: { background?: boolean },
+    ) => {
       const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
       const date = deliveriesDate || todayDateInputValue();
       const seq = ++deliveriesFetchSeq.current;
@@ -557,7 +567,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       try {
         const r = await api<{ items: DeliveryListItem[] }>(`/me/deliveries${q}`);
         if (seq !== deliveriesFetchSeq.current) return;
-        if (genAtStart !== deliveryMutationGen.current) return;
+        if (
+          !options?.background &&
+          genAtStart !== deliveryMutationGen.current
+        ) {
+          return;
+        }
 
         const tomb = deletedDeliveries.current;
         const tombSet = new Set(tomb.toArray());
@@ -577,7 +592,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   refreshDeliveriesRef.current = refreshDeliveries;
 
   const refreshPeriodDeliveries = useCallback(
-    async (mutationGenAtStart?: number) => {
+    async (
+      mutationGenAtStart?: number,
+      options?: { background?: boolean },
+    ) => {
       const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
       const anchorDate =
         stateRef.current.deliveriesDate || todayDateInputValue();
@@ -588,7 +606,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           `/me/deliveries?from=${range.periodStart}&to=${range.periodEnd}&limit=500`,
         );
         if (seq !== periodFetchSeq.current) return;
-        if (genAtStart !== deliveryMutationGen.current) return;
+        if (
+          !options?.background &&
+          genAtStart !== deliveryMutationGen.current
+        ) {
+          return;
+        }
 
         const tomb = deletedDeliveries.current;
         const tombSet = new Set(tomb.toArray());
@@ -733,11 +756,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [bumpDeliveryMutation]);
 
   const reconcileDeliveriesIfIdle = useCallback(() => {
-    if (pendingDeliveries.current.hasLocal()) return;
-    const gen = deliveryMutationGen.current;
-    void refreshToday(gen);
-    void refreshDeliveries(gen);
-    void refreshPeriodDeliveries(gen);
+    const background = { background: true as const };
+    void refreshToday(undefined, background);
+    void refreshDeliveries(undefined, background);
+    void refreshPeriodDeliveries(undefined, background);
   }, [refreshDeliveries, refreshPeriodDeliveries, refreshToday]);
 
   const publishAppSync = useCallback(

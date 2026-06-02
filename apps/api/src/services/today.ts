@@ -8,22 +8,29 @@ import {
   getUserGoalsContext,
 } from "./goals-plan.js";
 import { computeDayExpenses } from "./day-expenses.js";
+import { dayRangeFromDateInput } from "../lib/local-day-range.js";
 
 function toNumber(d: { toString(): string } | number | null | undefined): number {
   if (d == null) return 0;
   return typeof d === "number" ? d : Number(d);
 }
 
-function startOfDay(date = new Date()): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+/** Hoje no calendário BRT (YYYY-MM-DD). */
+function todayDateInputBrt(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`;
 }
 
 export async function getTodaySummary(userId: string): Promise<TodaySummary> {
-  const start = startOfDay();
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const { start, end } = dayRangeFromDateInput(todayDateInputBrt());
   const now = new Date();
 
   const [user, deliveries, legacyDailyGoal, goalsContext] = await Promise.all([

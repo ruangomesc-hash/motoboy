@@ -53,6 +53,10 @@ import {
 } from "../lib/delivery-public.js";
 import { z } from "zod";
 import { isProductionRuntime } from "../lib/runtime-env.js";
+import {
+  dayRangeFromDateInput,
+  dayRangeFromDateInputInclusiveEnd,
+} from "../lib/local-day-range.js";
 
 const routeOptimizeSchema = z.object({
   addresses: z
@@ -205,25 +209,32 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       if (!fromParsed.success || !toParsed.success) {
         return reply.status(400).send({ error: "Período inválido (from/to)" });
       }
-      const start = new Date(fromParsed.data);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(toParsed.data);
-      end.setHours(23, 59, 59, 999);
-      if (end < start) {
-        return reply.status(400).send({ error: "Data final anterior à inicial" });
+      try {
+        const { start, end } = dayRangeFromDateInputInclusiveEnd(
+          fromParsed.data,
+          toParsed.data,
+        );
+        if (end <= start) {
+          return reply
+            .status(400)
+            .send({ error: "Data final anterior à inicial" });
+        }
+        dateFilter = { occurredAt: { gte: start, lt: end } };
+      } catch {
+        return reply.status(400).send({ error: "Período inválido (from/to)" });
       }
-      dateFilter = { occurredAt: { gte: start, lte: end } };
       limit = Math.min(Math.max(1, Number(query.limit ?? 500) || 500), 500);
     } else if (query.date) {
       const parsedDate = z.string().date().safeParse(query.date);
       if (!parsedDate.success) {
         return reply.status(400).send({ error: "Data inválida" });
       }
-      const start = new Date(parsedDate.data);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      dateFilter = { occurredAt: { gte: start, lt: end } };
+      try {
+        const { start, end } = dayRangeFromDateInput(parsedDate.data);
+        dateFilter = { occurredAt: { gte: start, lt: end } };
+      } catch {
+        return reply.status(400).send({ error: "Data inválida" });
+      }
     }
 
     const [items, total] = await Promise.all([
