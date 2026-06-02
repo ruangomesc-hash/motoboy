@@ -102,7 +102,10 @@ function isEvolutionBotPhone(
   return false;
 }
 
-function firstReplyJidFromKey(key: EvolutionMessageKey): string | null {
+function firstReplyJidFromKey(
+  key: EvolutionMessageKey,
+  botPhoneKeys?: Set<string>,
+): string | null {
   for (const raw of [
     key.remoteJidAlt,
     key.senderPn,
@@ -110,6 +113,7 @@ function firstReplyJidFromKey(key: EvolutionMessageKey): string | null {
     key.remoteJid,
   ]) {
     if (!raw?.trim()) continue;
+    if (botPhoneKeys?.size && isEvolutionBotPhone(raw, botPhoneKeys)) continue;
     return ensureJid(raw);
   }
   return null;
@@ -121,6 +125,7 @@ function firstReplyJidFromKey(key: EvolutionMessageKey): string | null {
  */
 export function resolveEvolutionContact(
   key: EvolutionMessageKey,
+  botPhoneKeys?: Set<string>,
 ): EvolutionResolvedContact | null {
   const rawCandidates = [
     key.remoteJidAlt,
@@ -130,6 +135,7 @@ export function resolveEvolutionContact(
   ].filter((v): v is string => Boolean(v?.trim()));
 
   for (const raw of rawCandidates) {
+    if (botPhoneKeys?.size && isEvolutionBotPhone(raw, botPhoneKeys)) continue;
     const jid = ensureJid(raw);
     const stored = storedPhoneFromJid(jid);
     if (stored) {
@@ -138,13 +144,14 @@ export function resolveEvolutionContact(
   }
 
   const lidJid = rawCandidates
+    .filter((raw) => !botPhoneKeys?.size || !isEvolutionBotPhone(raw, botPhoneKeys))
     .map(ensureJid)
     .find((j) => j.endsWith("@lid"));
   if (lidJid) {
     return { storedPhone: null, replyTo: lidJid };
   }
 
-  const fallbackJid = firstReplyJidFromKey(key);
+  const fallbackJid = firstReplyJidFromKey(key, botPhoneKeys);
   if (fallbackJid && !fallbackJid.endsWith("@g.us")) {
     return { storedPhone: null, replyTo: fallbackJid };
   }
@@ -170,7 +177,7 @@ export function resolveEvolutionWebhookContact(
   const rootSender = extractEvolutionRootSender(body);
   const rootIsBot =
     rootSender != null && isEvolutionBotPhone(rootSender, botPhoneKeys);
-  const fromKey = resolveEvolutionContact(key);
+  const fromKey = resolveEvolutionContact(key, botPhoneKeys);
 
   if (fromKey) {
     if (

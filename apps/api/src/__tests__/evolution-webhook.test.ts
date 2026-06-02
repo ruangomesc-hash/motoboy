@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import {
-  resolveEvolutionBotPhoneKeys,
   resolveEvolutionContact,
   resolveEvolutionWebhookContact,
   resolveStoredPhoneFromReplyTo,
@@ -115,7 +115,10 @@ describe("resolveEvolutionContact", () => {
   });
 
   it("ignora sender do root quando é o número da instância (bot)", () => {
-    const botKeys = resolveEvolutionBotPhoneKeys("5531992907578");
+    const botKeys = getEvolutionBotPhoneKeys({
+      EVOLUTION_BOT_NUMBER: "5531992907578",
+      EVOLUTION_INSTANCE: "motoboy",
+    });
     const body = {
       event: "messages.upsert",
       sender: "5531992907578@s.whatsapp.net",
@@ -138,7 +141,10 @@ describe("resolveEvolutionContact", () => {
   });
 
   it("lead @lid: não usa bot no root; responde pelo JID @lid", () => {
-    const botKeys = resolveEvolutionBotPhoneKeys("5531992907578");
+    const botKeys = getEvolutionBotPhoneKeys({
+      EVOLUTION_BOT_NUMBER: "5531992907578",
+      EVOLUTION_INSTANCE: "motoboy",
+    });
     const body = {
       event: "messages.upsert",
       sender: "5531992907578@s.whatsapp.net",

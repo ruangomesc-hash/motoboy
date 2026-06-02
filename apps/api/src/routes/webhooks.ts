@@ -8,8 +8,8 @@ import {
 } from "../lib/webhook-auth.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
+import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import {
-  resolveEvolutionBotPhoneKeys,
   resolveEvolutionWebhookContact,
   resolveStoredPhoneFromReplyTo,
 } from "../lib/evolution-contact.js";
@@ -53,7 +53,7 @@ async function handleWhatsAppWebhook(
 ): Promise<void> {
   const env = app.config.env;
   const body = request.body;
-  const botPhoneKeys = resolveEvolutionBotPhoneKeys(env.EVOLUTION_BOT_NUMBER);
+  const botPhoneKeys = getEvolutionBotPhoneKeys(env);
   const contactOptions = { botPhoneKeys };
   let replyTo: string | null = extractReplyTargetFromWebhookBody(
     body,

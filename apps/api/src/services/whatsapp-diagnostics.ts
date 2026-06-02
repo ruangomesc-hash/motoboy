@@ -8,7 +8,7 @@ import {
 } from "../lib/app-url.js";
 import { evolutionWebhookSecrets } from "../lib/webhook-auth.js";
 import { isRedisEnabled } from "../lib/redis.js";
-import { resolveEvolutionBotPhoneKeys } from "../lib/evolution-contact.js";
+import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import { diagnosePhoneUserLink } from "./user.js";
 
 export type WhatsAppPipelineIssue = {
@@ -167,15 +167,15 @@ export async function getWhatsAppPipelineDiagnostics(
     events: [] as string[],
   };
 
-  const botPhoneKeys = resolveEvolutionBotPhoneKeys(env.EVOLUTION_BOT_NUMBER);
-  if (evolutionConfigured && botPhoneKeys.size === 0) {
+  const botPhoneKeys = getEvolutionBotPhoneKeys(env);
+  if (evolutionConfigured && !env.EVOLUTION_BOT_NUMBER?.trim()) {
     issues.push({
-      severity: "warning",
-      code: "EVOLUTION_BOT_NUMBER_MISSING",
+      severity: "info",
+      code: "EVOLUTION_BOT_NUMBER_FALLBACK",
       message:
-        "EVOLUTION_BOT_NUMBER não configurado — risco de confundir a linha que recebe (ex. 5531992907578) com o celular do motoboy.",
+        "EVOLUTION_BOT_NUMBER não está na Vercel — usando fallback 5531992907578 (instância motoboy).",
       action:
-        "Na Vercel, EVOLUTION_BOT_NUMBER=5531992907578 (linha Motocopiloto). Cadastro do motoboy usa o celular pessoal dele.",
+        "Recomendado: EVOLUTION_BOT_NUMBER=5531992907578 na Vercel (linha que recebe). Cadastro do motoboy = celular pessoal.",
     });
   }
 
@@ -398,8 +398,11 @@ export async function getWhatsAppPipelineDiagnostics(
     });
   }
 
+  const isBotFromNumber = (fromNumber: string) =>
+    botPhoneKeys.has(fromNumber.replace(/@s\.whatsapp\.net$/i, ""));
+
   const userNotFound24h = recentMessages.filter(
-    (m) => m.processedAs === "user_not_found",
+    (m) => m.processedAs === "user_not_found" && !isBotFromNumber(m.fromNumber),
   ).length;
   if (userNotFound24h > 0) {
     issues.push({
@@ -483,19 +486,41 @@ export async function getWhatsAppPipelineDiagnostics(
       registeredAs: d.matchedUser?.whatsappNumber ?? null,
     }));
 
-  const botAsCustomer = recentMessages.filter(
+  const inboundOnly = recentMessages.filter(
     (m) =>
-      m.processedAs === "user_not_found" &&
-      botPhoneKeys.size > 0 &&
-      botPhoneKeys.has(m.fromNumber.replace(/@s\.whatsapp\.net$/i, "")),
+      m.messageType !== "webhook" &&
+      m.fromNumber !== "unknown" &&
+      !m.fromNumber.includes("@lid"),
   );
-  if (botAsCustomer.length > 0) {
+  const latestInbound = inboundOnly[0];
+  const latestUsesBotAsCustomer =
+    latestInbound &&
+    botPhoneKeys.size > 0 &&
+    isBotFromNumber(latestInbound.fromNumber) &&
+    latestInbound.processedAs === "user_not_found";
+
+  if (latestUsesBotAsCustomer) {
     issues.push({
       severity: "critical",
       code: "BOT_NUMBER_USED_AS_CUSTOMER",
       message:
-        "Mensagens foram atribuídas ao número da linha Motocopiloto (bot), não ao celular de quem mandou. Corrija EVOLUTION_BOT_NUMBER e redeploy.",
-      action: `EVOLUTION_BOT_NUMBER=${env.EVOLUTION_BOT_NUMBER ?? "5531992907578"} na Vercel. Motoboy cadastra o próprio WhatsApp, não a linha do bot.`,
+        "A última mensagem ainda usa o número da linha (5531992907578) como cliente. Redeploy com fix ativo ou confira EVOLUTION_BOT_NUMBER.",
+      action: `EVOLUTION_BOT_NUMBER=5531992907578 na Vercel. Motoboy cadastra o celular pessoal (ex. 61993781810), não a linha do bot.`,
+    });
+  } else if (
+    inboundOnly.some(
+      (m) =>
+        isBotFromNumber(m.fromNumber) &&
+        m.processedAs === "user_not_found" &&
+        m !== latestInbound,
+    )
+  ) {
+    issues.push({
+      severity: "info",
+      code: "BOT_NUMBER_HISTORICAL_LOGS",
+      message:
+        "Há registros antigos com o número do bot (5531992907578) — bug já corrigido; novas mensagens devem usar o celular do motoboy.",
+      action: "Envie uma mensagem de teste agora; a linha mais recente deve mostrar o número do motoboy.",
     });
   }
 
