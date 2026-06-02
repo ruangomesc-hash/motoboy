@@ -24,11 +24,38 @@ function ensureJid(value: string): string {
 function storedPhoneFromJid(jid: string): string | null {
   if (jid.endsWith("@g.us") || jid.endsWith("@lid")) return null;
   const userPart = jid.split("@")[0] ?? "";
-  try {
-    return normalizePhone(userPart);
-  } catch {
-    return null;
+  return coerceBrazilStoredPhone(userPart);
+}
+
+/** Aceita JID ou só dígitos; tenta com/sem o 9 do celular (comum no WhatsApp). */
+export function coerceBrazilStoredPhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+
+  const tries: string[] = [digits];
+  if (digits.startsWith("55") && digits.length === 12) {
+    tries.push(`${digits.slice(0, 4)}9${digits.slice(4)}`);
   }
+  if (digits.startsWith("55") && digits.length === 13 && digits[4] === "9") {
+    tries.push(`${digits.slice(0, 4)}${digits.slice(5)}`);
+  }
+
+  for (const candidate of tries) {
+    try {
+      return normalizePhone(candidate);
+    } catch {
+      /* próxima variante */
+    }
+  }
+  return null;
+}
+
+/** Extrai telefone para busca no banco a partir do destino de resposta (JID ou dígitos). */
+export function resolveStoredPhoneFromReplyTo(replyTo: string): string | null {
+  const trimmed = replyTo.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes("@")) return storedPhoneFromJid(ensureJid(trimmed));
+  return coerceBrazilStoredPhone(trimmed);
 }
 
 /** Evolution envia o JID real no topo do payload (ex.: leads de anúncio com key só @lid). */

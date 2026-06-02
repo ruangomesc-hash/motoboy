@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveEvolutionContact,
   resolveEvolutionWebhookContact,
+  resolveStoredPhoneFromReplyTo,
 } from "../lib/evolution-contact.js";
 import { extractReplyTargetFromWebhookBody } from "../lib/whatsapp-reply.js";
 import {
@@ -104,6 +105,12 @@ describe("resolveEvolutionContact", () => {
     });
     expect(contact?.storedPhone).toBeNull();
     expect(contact?.replyTo).toBe("69385314111689@lid");
+  });
+
+  it("coerce telefone sem o 9 a partir do JID", () => {
+    expect(
+      resolveStoredPhoneFromReplyTo("551187654321@s.whatsapp.net"),
+    ).toBe("5511987654321");
   });
 
   it("usa sender do root quando key é só @lid (anúncio Meta)", () => {

@@ -8,7 +8,10 @@ import {
 } from "../lib/webhook-auth.js";
 import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
-import { resolveEvolutionWebhookContact } from "../lib/evolution-contact.js";
+import {
+  resolveEvolutionWebhookContact,
+  resolveStoredPhoneFromReplyTo,
+} from "../lib/evolution-contact.js";
 import {
   extractEvolutionMessageText,
   inferEvolutionMessageType,
@@ -98,7 +101,10 @@ async function handleWhatsAppWebhook(
 
     replyTo = contact.replyTo;
 
-    if (!contact.storedPhone) {
+    const fromNumber =
+      contact.storedPhone ?? resolveStoredPhoneFromReplyTo(replyTo);
+
+    if (!fromNumber) {
       request.log.warn({ key: data.key, replyTo }, "Webhook: no_stored_phone");
       await logWhatsAppWebhookHit(body, "no_stored_phone", replyTo);
       await safeWhatsAppReply(
@@ -109,8 +115,6 @@ async function handleWhatsAppWebhook(
       );
       return reply.send({ ok: true, skipped: true, reason: "no_stored_phone" });
     }
-
-    const fromNumber = contact.storedPhone;
     const msg = data.message;
     const text = extractEvolutionMessageText(msg);
     const messageType = inferEvolutionMessageType(msg, data.messageType);
