@@ -1,7 +1,7 @@
-import Redis from "ioredis";
+import { Redis as RedisClient } from "ioredis";
 
-function redisClient(url: string): Redis {
-  return new Redis(url, {
+function redisClient(url: string): RedisClient {
+  return new RedisClient(url, {
     maxRetriesPerRequest: 3,
     ...(url.startsWith("rediss://") ? { tls: {} } : {}),
   });
