@@ -674,6 +674,28 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       source: "google",
     } as T);
   }
+  if (path === "/me/profile" && method === "GET") {
+    return Promise.resolve(demoProfile as T);
+  }
+  if (path === "/me/subscribe" && method === "POST") {
+    return Promise.resolve({
+      amount: 15.9,
+      chargeId: "demo_charge_1",
+      paymentMethod: "PIX",
+      pixCopyPaste:
+        "00020126580014br.gov.bcb.pix0136123e456789-e.mock-MOTOCOPILOTO520400005303986540514.905802BR5925Motocopiloto6009SAO PAULO62070503***6304ABCD",
+      pixQrCodeImage: null,
+      invoiceUrl: null,
+      subscriptionId: "demo_sub_1",
+    } as T);
+  }
+  if (path === "/me/subscription/refresh" && method === "POST") {
+    return Promise.resolve({
+      status: demoSubscription.status,
+      activated: false,
+      subscribedAt: demoSubscription.subscribedAt,
+    } as T);
+  }
   if (method === "PUT" || method === "PATCH" || method === "DELETE" || method === "POST") {
     return Promise.resolve({ ok: true } as T);
   }

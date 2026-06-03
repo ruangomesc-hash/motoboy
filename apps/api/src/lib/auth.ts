@@ -149,13 +149,17 @@ export async function requireSessionUser(
     });
   }
 
-  if (sessionUser.status === "CANCELED") {
+  const path = request.url.split("?")[0] ?? request.url;
+  if (
+    sessionUser.status === "CANCELED" &&
+    !isBillingRoute(request.method, path)
+  ) {
     void recordClientErrorSafe({
       userId,
       errorCode: "ACCOUNT_CANCELED",
       rawMessage: "Conta cancelada. Entre em contato com o suporte.",
       httpStatus: 403,
-      route: request.url.split("?")[0],
+      route: path,
       method: request.method,
       source: "api",
     });

@@ -3,8 +3,10 @@ import {
   parseBrazilWhatsAppDigits,
   WHATSAPP_VALIDATION_MESSAGE,
 } from "./phone";
+import { isValidCpfDigits } from "./cpf";
 
 export * from "./phone";
+export * from "./cpf";
 export * from "./delivery-entry";
 export * from "./expense-tags";
 export * from "./period-range";
@@ -72,6 +74,9 @@ export const cpfCnpjFieldSchema = z
   .transform((s) => s.replace(/\D/g, ""))
   .refine((d) => d.length === 11 || d.length === 14, {
     message: "CPF/CNPJ inválido",
+  })
+  .refine((d) => d.length !== 11 || isValidCpfDigits(d), {
+    message: "CPF inválido",
   });
 
 export const profileUpdateSchema = z.object({
@@ -408,8 +413,11 @@ export const affiliateValidateResponseSchema = z.object({
   code: z.string().nullable(),
 });
 
+/** Métodos aceitos no checkout do motoboy (/me/subscribe). */
+export const subscribePaymentMethodSchema = z.enum(["PIX", "CREDIT_CARD"]);
+
 export const subscribeRequestSchema = z.object({
-  paymentMethod: subscriptionPaymentMethodSchema.optional(),
+  paymentMethod: subscribePaymentMethodSchema.optional(),
   cpfCnpj: cpfCnpjFieldSchema.optional(),
 });
 

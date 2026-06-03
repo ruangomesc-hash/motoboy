@@ -244,7 +244,23 @@ async function handleSubscriptionWebhook(
     event === "SUBSCRIPTION_DELETED" ||
     event === "SUBSCRIPTION_INACTIVATED"
   ) {
-    await deactivateSubscription(user.id, true);
+    const current = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { status: true, asaasSubscriptionId: true },
+    });
+    const matchesSub =
+      !subId || current?.asaasSubscriptionId === subId;
+
+    // Cancelamento explícito (conta ACTIVE): encerra assinatura no app.
+    // Troca Pix↔cartão ou limpeza técnica: só remove vínculo Asaas, mantém TRIAL/PAUSED.
+    if (current?.status === "ACTIVE" && matchesSub) {
+      await deactivateSubscription(user.id, true);
+    } else if (matchesSub && current?.asaasSubscriptionId) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { asaasSubscriptionId: null },
+      });
+    }
     return;
   }
 

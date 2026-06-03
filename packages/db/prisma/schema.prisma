@@ -225,15 +225,23 @@ model Route {
   @@index([userId, createdAt])
 }
 
+enum PaymentChargeKind {
+  SUBSCRIPTION
+  SUPPORT
+}
+
 model Payment {
-  id            String        @id @default(cuid())
+  id            String             @id @default(cuid())
   userId        String
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  asaasChargeId String?       @unique
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asaasChargeId String?            @unique
+  chargeKind    PaymentChargeKind  @default(SUBSCRIPTION)
   status        PaymentStatus
-  amount        Decimal       @db.Decimal(10, 2)
+  amount        Decimal            @db.Decimal(10, 2)
   paidAt        DateTime?
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime           @default(now())
+
+  @@index([userId, chargeKind, status])
 }
 
 /** Idempotência de webhooks Asaas (evita processar o mesmo eventId 2x). */

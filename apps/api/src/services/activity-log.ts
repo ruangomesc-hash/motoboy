@@ -112,7 +112,14 @@ export async function getActivityHistory(
 export const profileDiffFields = {
   name: { label: "Nome", format: formatPlain },
   email: { label: "E-mail", format: formatPlain },
-  cpfCnpj: { label: "CPF", format: formatPlain },
+  cpfCnpj: {
+    label: "CPF",
+    format: (v: unknown) => {
+      const d = String(v ?? "").replace(/\D/g, "");
+      if (d.length !== 11) return "—";
+      return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+    },
+  },
   city: { label: "Cidade", format: formatPlain },
   whatsappNumber: { label: "WhatsApp", format: formatPlain },
   workApps: { label: "Apps", format: formatWorkApps },

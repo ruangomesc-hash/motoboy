@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Check, Copy, CreditCard, ExternalLink, Loader2 } from "lucide-react";
+import { Check, Copy, CreditCard, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type {
   SubscribeResponse,
   SubscriptionPaymentMethod,
@@ -23,6 +23,7 @@ import { cpfDigits, maskCpfInput } from "@/lib/cpf-mask";
 import { isAsaasHostedInvoiceUrl, isValidCpfDigits } from "@/lib/asaas-checkout";
 
 const PAYMENT_POLL_MS = 5000;
+const PAYMENT_POLL_MAX_MS = 20 * 60 * 1000;
 
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
@@ -64,10 +65,14 @@ export function AsaasTransparentCheckout({
   const [cpf, setCpf] = useState("");
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [pollHint, setPollHint] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [polling, setPolling] = useState(false);
+  const pollStartedAt = useRef<number | null>(null);
+  const pollTick = useRef(0);
 
   useEffect(() => {
     setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
@@ -76,32 +81,80 @@ export function AsaasTransparentCheckout({
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     void api<UserProfile>("/me/profile")
-      .then((p) => {
-        setCpf(cpfFromProfile(p));
-      })
+      .then((p) => setCpf(cpfFromProfile(p)))
       .catch(() => {
-        /* mantém campo vazio */
+        void api<{ profile: UserProfile }>("/me").then((me) =>
+          setCpf(cpfFromProfile(me.profile)),
+        );
       })
       .finally(() => setProfileLoaded(true));
   }, [api, sessionStatus]);
 
-  const pollStatus = useCallback(async () => {
-    try {
-      const sub = await api<SubscriptionStatus>("/me/subscription");
-      if (sub.status === "ACTIVE") {
-        setPolling(false);
-        onActivated?.();
+  const checkActivation = useCallback(
+    async (forceSync = false) => {
+      try {
+        if (forceSync) {
+          await api<{ status: string; activated: boolean }>(
+            "/me/subscription/refresh",
+            { method: "POST" },
+            { skipSync: true },
+          );
+        }
+        const sub = await api<SubscriptionStatus>("/me/subscription", {}, {
+          skipSync: true,
+        });
+        if (sub.status === "ACTIVE") {
+          setPolling(false);
+          setPollHint("");
+          onActivated?.();
+          return true;
+        }
+      } catch {
+        /* ignora falha pontual */
       }
-    } catch {
-      /* ignora falha pontual */
-    }
-  }, [api, onActivated]);
+      return false;
+    },
+    [api, onActivated],
+  );
 
   useEffect(() => {
     if (!checkout || !polling) return;
-    const id = window.setInterval(() => void pollStatus(), PAYMENT_POLL_MS);
+
+    pollStartedAt.current ??= Date.now();
+    const id = window.setInterval(() => {
+      pollTick.current += 1;
+      const elapsed = Date.now() - (pollStartedAt.current ?? Date.now());
+      if (elapsed > PAYMENT_POLL_MAX_MS) {
+        setPolling(false);
+        setPollHint(
+          "Ainda não recebemos a confirmação. Se já pagou, toque em “Verificar pagamento”.",
+        );
+        return;
+      }
+      const forceSync = pollTick.current % 3 === 0;
+      void checkActivation(forceSync);
+    }, PAYMENT_POLL_MS);
+
     return () => window.clearInterval(id);
-  }, [checkout, polling, pollStatus]);
+  }, [checkout, polling, checkActivation]);
+
+  async function handleVerifyPayment() {
+    setRefreshing(true);
+    setError("");
+    try {
+      const activated = await checkActivation(true);
+      if (!activated) {
+        setPollHint(
+          "Pagamento ainda não confirmado. Aguarde alguns segundos e tente de novo.",
+        );
+        if (!polling) setPolling(true);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao verificar pagamento");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function persistPaymentPreference(method: SubscriptionPaymentMethod) {
     try {
@@ -150,8 +203,11 @@ export function AsaasTransparentCheckout({
 
     setLoading(true);
     setError("");
+    setPollHint("");
     setCheckout(null);
     setPolling(false);
+    pollStartedAt.current = null;
+    pollTick.current = 0;
 
     try {
       await api("/me/profile", {
@@ -178,9 +234,21 @@ export function AsaasTransparentCheckout({
         return;
       }
 
+      if (
+        !isCard &&
+        !data.pixCopyPaste &&
+        !data.pixQrCodeImage
+      ) {
+        setError(
+          "Não foi possível gerar o Pix. Confira o CPF e tente novamente.",
+        );
+        return;
+      }
+
       setCheckout(data);
       setPolling(true);
-      void pollStatus();
+      pollStartedAt.current = Date.now();
+      void checkActivation(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao gerar pagamento");
     } finally {
@@ -203,6 +271,28 @@ export function AsaasTransparentCheckout({
   const cardInvoiceReady =
     checkout && isAsaasHostedInvoiceUrl(checkout.invoiceUrl);
 
+  const verifyButton = (
+    <Button
+      type="button"
+      variant="outline"
+      className="w-full"
+      disabled={refreshing}
+      onClick={() => void handleVerifyPayment()}
+    >
+      {refreshing ? (
+        <>
+          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          Verificando…
+        </>
+      ) : (
+        <>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Verificar pagamento
+        </>
+      )}
+    </Button>
+  );
+
   if (checkout) {
     const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
 
@@ -216,8 +306,8 @@ export function AsaasTransparentCheckout({
                 Pagamento com cartão
               </p>
               <p className="text-xs text-muted-foreground">
-                Abra o checkout seguro do Asaas para informar o cartão e confirmar
-                a assinatura mensal.
+                Abra o checkout seguro do Asaas, informe o cartão e conclua. Depois
+                volte aqui — confirmamos automaticamente em alguns segundos.
               </p>
               <Button size="lg" className="w-full" asChild>
                 <a
@@ -230,10 +320,16 @@ export function AsaasTransparentCheckout({
                 </a>
               </Button>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Aguardando confirmação do pagamento…
-            </div>
+            {polling ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Aguardando confirmação do pagamento…
+              </div>
+            ) : null}
+            {pollHint && (
+              <p className="text-xs text-center text-amber-500/90">{pollHint}</p>
+            )}
+            {verifyButton}
             <Button
               type="button"
               variant="ghost"
@@ -241,6 +337,8 @@ export function AsaasTransparentCheckout({
               onClick={() => {
                 setCheckout(null);
                 setPolling(false);
+                setPollHint("");
+                pollStartedAt.current = null;
               }}
             >
               Voltar
@@ -263,6 +361,7 @@ export function AsaasTransparentCheckout({
               setCheckout(null);
               setPolling(false);
               setError("");
+              setPollHint("");
             }}
           >
             Voltar
@@ -316,12 +415,18 @@ export function AsaasTransparentCheckout({
           </p>
         )}
 
-        {(checkout.pixCopyPaste || qrSrc) && (
+        {(checkout.pixCopyPaste || qrSrc) && polling ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Aguardando confirmação do pagamento…
           </div>
+        ) : null}
+
+        {pollHint && (
+          <p className="text-xs text-center text-amber-500/90">{pollHint}</p>
         )}
+
+        {(checkout.pixCopyPaste || qrSrc) && verifyButton}
 
         <Button
           type="button"
@@ -330,6 +435,8 @@ export function AsaasTransparentCheckout({
           onClick={() => {
             setCheckout(null);
             setPolling(false);
+            setPollHint("");
+            pollStartedAt.current = null;
           }}
         >
           Voltar

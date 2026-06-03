@@ -54,8 +54,8 @@ import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
 import { AsaasService } from "../services/asaas.js";
 import {
+  subscribePaymentMethodSchema,
   subscribeRequestSchema,
-  subscriptionPaymentMethodSchema,
 } from "@motoboy/types";
 import {
   toPublicDeliveries,
@@ -188,6 +188,16 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return { plan };
+  });
+
+  app.get("/me/profile", async (request) => {
+    const user = await prisma.user.findUnique({
+      where: { id: request.sessionUser!.id },
+    });
+    if (!user) {
+      return { error: "Não encontrado" };
+    }
+    return toUserProfile(user);
   });
 
   app.put("/me/profile", async (request) => {
@@ -842,7 +852,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const methodRaw = parsedBody.data.paymentMethod;
-    const methodParsed = subscriptionPaymentMethodSchema.safeParse(
+    const methodParsed = subscribePaymentMethodSchema.safeParse(
       methodRaw ?? user.subscriptionPaymentMethod ?? "PIX",
     );
     const paymentMethod = methodParsed.success ? methodParsed.data : "PIX";
@@ -856,6 +866,11 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         error: "Pagamento indisponível no momento. Tente mais tarde.",
       });
     }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { subscriptionPaymentMethod: paymentMethod },
+    });
 
     try {
       const result = await asaas.createSubscription(
@@ -888,8 +903,36 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(503).send({ error: message });
       }
       return reply.status(502).send({
-        error: "Não foi possível abrir o pagamento. Tente novamente.",
+        error: message || "Não foi possível abrir o pagamento. Tente novamente.",
       });
+    }
+  });
+
+  app.post("/me/subscription/refresh", async (request, reply) => {
+    const userId = request.sessionUser!.id;
+    const asaas = new AsaasService(env, request.log);
+    try {
+      const result = await asaas.syncSubscriptionPaymentStatus(
+        userId,
+        request.log,
+      );
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { status: true, subscribedAt: true },
+      });
+      return {
+        status: result.status,
+        activated: result.activated,
+        subscribedAt: user?.subscribedAt?.toISOString() ?? null,
+      };
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      const message =
+        err instanceof Error ? err.message : "Erro ao verificar pagamento";
+      if (statusCode === 404) {
+        return reply.status(404).send({ error: message });
+      }
+      return reply.status(502).send({ error: message });
     }
   });
 
