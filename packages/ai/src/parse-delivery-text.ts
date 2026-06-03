@@ -4,6 +4,7 @@ import {
   detectAppPlatform,
   hasDeliveryIntent,
   hasNonDeliveryIntent,
+  parseDeliveryOriginName,
   resolveDeliverySource,
 } from "./delivery-lexicon.js";
 import { hasExpenseIntent } from "./expense-lexicon.js";
@@ -35,19 +36,21 @@ export function tryParseDeliveryFromText(
   if (grossValue == null) return null;
 
   const source = resolveDeliverySource(normalized);
+  const originName = parseDeliveryOriginName(normalized, source);
 
   let confidence = 0.92;
   if (intent.fuzzyIntent) confidence -= 0.08;
   if (!platform && source === "PARTICULAR") confidence -= 0.04;
   else if (platform && platform.strength < 1) confidence -= 0.1;
   if (intent.amountPattern === "loose") confidence -= 0.06;
+  if (originName) confidence += 0.02;
   confidence = Math.max(0.65, Math.min(0.95, confidence));
 
   return {
     type: "delivery",
     source,
     grossValue,
-    originName: null,
+    originName,
     destinationAddr: null,
     distanceKm: null,
     confidence: Number(confidence.toFixed(2)),

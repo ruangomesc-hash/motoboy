@@ -18,6 +18,23 @@ describe("tryParseDeliveryFromText", () => {
       type: "delivery",
       grossValue: 30,
       source: "PARTICULAR",
+      originName: "Teste",
+    });
+  });
+
+  it("particular: texto após entrega vai para local (originName)", () => {
+    expect(tryParseDeliveryFromText("R$ 100 entrega cachorro quente")).toMatchObject({
+      grossValue: 100,
+      source: "PARTICULAR",
+      originName: "Cachorro Quente",
+    });
+  });
+
+  it("app no fim da frase não vira nome do local", () => {
+    expect(tryParseDeliveryFromText("R$ 40 entrega ifood")).toMatchObject({
+      grossValue: 40,
+      source: "IFOOD",
+      originName: null,
     });
   });
 
@@ -79,6 +96,7 @@ describe("tryParseDeliveryFromText", () => {
     ).toMatchObject({
       grossValue: 25,
       source: "PARTICULAR",
+      originName: "Farmacia Santa Maria",
     });
     expect(tryParseDeliveryFromText("30 padaria central")).toMatchObject({
       grossValue: 30,

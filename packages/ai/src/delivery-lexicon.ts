@@ -230,6 +230,91 @@ export function hasNonDeliveryIntent(text: string): boolean {
   );
 }
 
+function stripAppPlatformTokens(text: string): string {
+  let s = ` ${text} `;
+  for (const { terms } of APP_PLATFORM_ALIASES) {
+    for (const term of terms) {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      s = s.replace(new RegExp(`\\s${escaped}\\s`, "g"), " ");
+    }
+  }
+  s = s
+    .replace(/\snoventa\s+e\s+nove\s/g, " ")
+    .replace(/\snoventa\s+nove\s/g, " ")
+    .replace(/\s99\s/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function isOnlyAppPlatformLabel(text: string): boolean {
+  const stripped = stripAppPlatformTokens(text);
+  const withoutNums = stripped.replace(/\d+(?:\.\d{1,2})?/g, "").trim();
+  return withoutNums.length < 2;
+}
+
+function formatOriginNameLabel(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter((w) => w.length > 0)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * Nome do local (campo originName / "Nome / local") após "entrega …".
+ * Origem (iFood/99/Particular) vem de resolveDeliverySource — não misturar.
+ */
+export function parseDeliveryOriginName(
+  text: string,
+  source: DeliverySource,
+): string | null {
+  let raw: string | null = null;
+
+  const withPrep = text.match(
+    /entreg[a-z]{0,4}\s+(?:da|de|do|no|na)\s+(.+)$/i,
+  );
+  if (withPrep?.[1]?.trim()) {
+    raw = withPrep[1].trim();
+  } else {
+    const afterEntrega = text.match(/entreg[a-z]{0,4}\s+(.+)$/i);
+    if (afterEntrega?.[1]?.trim()) {
+      raw = afterEntrega[1].trim();
+    }
+  }
+
+  if (!raw) {
+    const loose = text.match(
+      /\d{1,5}(?:\.\d{1,2})?\s+((?:farmacia|padaria|restaurante|loja|mercado|drogaria|pizzaria|lanchonete|acougue|petshop|hortifruti|mercearia|supermercado)(?:\s+[a-z0-9]+)*)/i,
+    );
+    if (loose?.[1]?.trim()) raw = loose[1].trim();
+  }
+
+  if (!raw) return null;
+
+  raw = raw
+    .replace(/^\d{1,5}(?:\.\d{1,2})?\s+/g, "")
+    .replace(/\s+r\$\s*\d[\d.]*\s*$/gi, "")
+    .replace(/\s+\d{1,5}(?:\.\d{1,2})?\s*$/g, "")
+    .trim();
+
+  if (raw.length < 2 || isOnlyAppPlatformLabel(raw)) return null;
+
+  const app = detectAppPlatform(raw);
+  if (
+    app &&
+    app.strength >= 0.88 &&
+    source !== "PARTICULAR" &&
+    isOnlyAppPlatformLabel(raw)
+  ) {
+    return null;
+  }
+
+  for (const term of PARTICULAR_TERMS) {
+    if (raw === term) return null;
+  }
+
+  return formatOriginNameLabel(raw);
+}
+
 /** Padrão para parear valor + app na regex de dinheiro. */
 export const APP_AMOUNT_PLATFORM_PATTERN =
   "ifood|ifud|ifod|i food|99food|99 food|99|noventa e nove|noventa nove|nove nove|rappi|rapi|repi|rappy|hapi|wrapi";
