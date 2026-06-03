@@ -16,6 +16,7 @@ model User {
   email           String?    @unique
   passwordHash    String?
   name            String?
+  cpfCnpj         String?
   vehiclePlate    String?
   city            String?
   workApps                  Json     @default("[]")

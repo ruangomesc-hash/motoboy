@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Check, Copy, CreditCard, ExternalLink, Loader2 } from "lucide-react";
 import type {
   SubscribeResponse,
   SubscriptionPaymentMethod,
   SubscriptionStatus,
+  UserProfile,
 } from "@motoboy/types";
 import {
   canChooseSubscriptionPaymentMethod,
@@ -17,6 +19,8 @@ import {
 } from "@/lib/profile-options";
 import { PaymentMethodCards } from "@/components/payment-method-cards";
 import { useSession } from "next-auth/react";
+import { cpfDigits, maskCpfInput } from "@/lib/cpf-mask";
+import { isAsaasHostedInvoiceUrl, isValidCpfDigits } from "@/lib/asaas-checkout";
 
 const PAYMENT_POLL_MS = 5000;
 
@@ -37,6 +41,11 @@ function pixQrSrc(encodedImage: string | null | undefined): string | null {
   return `data:image/png;base64,${raw}`;
 }
 
+function cpfFromProfile(profile: UserProfile | null): string {
+  if (!profile?.cpfCnpj) return "";
+  return maskCpfInput(profile.cpfCnpj);
+}
+
 export function AsaasTransparentCheckout({
   initialMethod,
   asaasConfigured,
@@ -52,6 +61,8 @@ export function AsaasTransparentCheckout({
   const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
     () => normalizeSubscriptionPaymentMethod(initialMethod),
   );
+  const [cpf, setCpf] = useState("");
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
@@ -61,6 +72,18 @@ export function AsaasTransparentCheckout({
   useEffect(() => {
     setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
   }, [initialMethod]);
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    void api<UserProfile>("/me/profile")
+      .then((p) => {
+        setCpf(cpfFromProfile(p));
+      })
+      .catch(() => {
+        /* mantém campo vazio */
+      })
+      .finally(() => setProfileLoaded(true));
+  }, [api, sessionStatus]);
 
   const pollStatus = useCallback(async () => {
     try {
@@ -93,7 +116,15 @@ export function AsaasTransparentCheckout({
 
   function handleSelectMethod(method: SubscriptionPaymentMethod) {
     setPaymentMethod(method);
+    setError("");
     void persistPaymentPreference(method);
+  }
+
+  function resolveCpfDigits(): string | null {
+    const digits = cpfDigits(cpf);
+    if (digits.length !== 11) return null;
+    if (!isValidCpfDigits(digits)) return null;
+    return digits;
   }
 
   async function startCheckout() {
@@ -105,14 +136,48 @@ export function AsaasTransparentCheckout({
       setError("Aguarde o login ou entre de novo.");
       return;
     }
+
+    const cpfValidated = resolveCpfDigits();
+    if (!cpfValidated) {
+      const digits = cpfDigits(cpf);
+      setError(
+        digits.length !== 11
+          ? "Informe seu CPF completo (11 dígitos)."
+          : "CPF inválido. Confira os números.",
+      );
+      return;
+    }
+
     setLoading(true);
     setError("");
     setCheckout(null);
+    setPolling(false);
+
+    try {
+      await api("/me/profile", {
+        method: "PUT",
+        body: JSON.stringify({ cpfCnpj: cpfValidated }),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao salvar CPF");
+      setLoading(false);
+      return;
+    }
+
     try {
       const data = await api<SubscribeResponse>("/me/subscribe", {
         method: "POST",
-        body: JSON.stringify({ paymentMethod }),
+        body: JSON.stringify({ paymentMethod, cpfCnpj: cpfValidated }),
       });
+
+      const isCard = paymentMethod === "CREDIT_CARD";
+      if (isCard && !isAsaasHostedInvoiceUrl(data.invoiceUrl)) {
+        setError(
+          "Não foi possível abrir o pagamento com cartão. Tente de novo em alguns segundos.",
+        );
+        return;
+      }
+
       setCheckout(data);
       setPolling(true);
       void pollStatus();
@@ -135,37 +200,61 @@ export function AsaasTransparentCheckout({
   }
 
   const isCardCheckout = paymentMethod === "CREDIT_CARD";
+  const cardInvoiceReady =
+    checkout && isAsaasHostedInvoiceUrl(checkout.invoiceUrl);
 
   if (checkout) {
     const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
 
-    if (isCardCheckout && checkout.invoiceUrl) {
-      return (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
-            <p className="text-sm font-medium flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-primary" />
-              Pagamento com cartão
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Abra o checkout seguro do Asaas para informar o cartão e confirmar a
-              assinatura mensal.
-            </p>
-            <Button size="lg" className="w-full" asChild>
-              <a
-                href={checkout.invoiceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Abrir pagamento com cartão
-              </a>
+    if (isCardCheckout) {
+      if (cardInvoiceReady) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-primary" />
+                Pagamento com cartão
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Abra o checkout seguro do Asaas para informar o cartão e confirmar
+                a assinatura mensal.
+              </p>
+              <Button size="lg" className="w-full" asChild>
+                <a
+                  href={checkout.invoiceUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Abrir pagamento com cartão
+                </a>
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Aguardando confirmação do pagamento…
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full text-sm"
+              onClick={() => {
+                setCheckout(null);
+                setPolling(false);
+              }}
+            >
+              Voltar
             </Button>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Aguardando confirmação do pagamento…
-          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-4">
+          <p className="text-sm text-destructive text-center">
+            {error ||
+              "Não foi possível abrir o checkout do cartão. Volte e tente novamente."}
+          </p>
           <Button
             type="button"
             variant="ghost"
@@ -173,6 +262,7 @@ export function AsaasTransparentCheckout({
             onClick={() => {
               setCheckout(null);
               setPolling(false);
+              setError("");
             }}
           >
             Voltar
@@ -220,10 +310,18 @@ export function AsaasTransparentCheckout({
           </div>
         )}
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Aguardando confirmação do pagamento…
-        </div>
+        {!checkout.pixCopyPaste && !qrSrc && (
+          <p className="text-sm text-destructive text-center">
+            Não foi possível gerar o Pix. Volte e confira o CPF.
+          </p>
+        )}
+
+        {(checkout.pixCopyPaste || qrSrc) && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Aguardando confirmação do pagamento…
+          </div>
+        )}
 
         <Button
           type="button"
@@ -239,6 +337,8 @@ export function AsaasTransparentCheckout({
       </div>
     );
   }
+
+  const cpfOk = cpfDigits(cpf).length === 11 && isValidCpfDigits(cpfDigits(cpf));
 
   return (
     <div className="space-y-4">
@@ -263,11 +363,33 @@ export function AsaasTransparentCheckout({
         />
       </div>
 
+      <div className="space-y-2">
+        <label className="text-sm font-medium" htmlFor="checkout-cpf">
+          CPF do titular
+        </label>
+        <Input
+          id="checkout-cpf"
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="000.000.000-00"
+          value={cpf}
+          onChange={(e) => {
+            setCpf(maskCpfInput(e.target.value));
+            setError("");
+          }}
+          disabled={!profileLoaded || loading}
+        />
+        <p className="text-xs text-muted-foreground">
+          Obrigatório para Pix e cartão (cobrança Asaas no seu nome).
+        </p>
+      </div>
+
       {!subscriptionActive && (
         <Button
           size="lg"
           className="w-full"
-          disabled={loading || !asaasConfigured}
+          disabled={loading || !asaasConfigured || !cpfOk}
           onClick={startCheckout}
         >
           {loading ? (

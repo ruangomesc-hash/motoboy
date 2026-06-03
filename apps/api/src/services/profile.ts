@@ -31,6 +31,7 @@ export function toUserProfile(user: {
   id: string;
   name: string | null;
   email: string | null;
+  cpfCnpj?: string | null;
   city: string | null;
   vehiclePlate: string | null;
   whatsappNumber: string;
@@ -42,6 +43,7 @@ export function toUserProfile(user: {
     id: user.id,
     name: user.name,
     email: user.email,
+    cpfCnpj: user.cpfCnpj ?? null,
     city: user.city,
     vehiclePlate: user.vehiclePlate,
     whatsappNumber: user.whatsappNumber,
@@ -63,6 +65,7 @@ export async function updateUserProfile(
   const data: {
     name?: string;
     email?: string;
+    cpfCnpj?: string;
     city?: string | null;
     vehiclePlate?: string | null;
     whatsappNumber?: string;
@@ -73,6 +76,7 @@ export async function updateUserProfile(
 
   if (input.name !== undefined) data.name = input.name;
   if (input.email !== undefined) data.email = input.email.trim().toLowerCase();
+  if (input.cpfCnpj !== undefined) data.cpfCnpj = input.cpfCnpj;
   if (input.city !== undefined) data.city = input.city;
   if (input.vehiclePlate !== undefined) data.vehiclePlate = input.vehiclePlate;
   if (input.whatsapp !== undefined) {

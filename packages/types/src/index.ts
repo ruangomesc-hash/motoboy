@@ -66,9 +66,18 @@ export type DeliverySource = z.infer<typeof deliverySourceSchema>;
 
 export const workDaySchema = z.number().int().min(0).max(6);
 
+export const cpfCnpjFieldSchema = z
+  .string()
+  .trim()
+  .transform((s) => s.replace(/\D/g, ""))
+  .refine((d) => d.length === 11 || d.length === 14, {
+    message: "CPF/CNPJ inválido",
+  });
+
 export const profileUpdateSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   email: z.string().trim().email().max(120).optional(),
+  cpfCnpj: cpfCnpjFieldSchema.optional(),
   city: z.string().trim().max(80).nullable().optional(),
   vehiclePlate: z.string().trim().max(10).nullable().optional(),
   workApps: z.array(deliverySourceSchema).optional(),
@@ -84,6 +93,7 @@ export const userProfileSchema = z.object({
   id: z.string(),
   name: z.string().nullable(),
   email: z.string().nullable(),
+  cpfCnpj: z.string().nullable().optional(),
   city: z.string().nullable(),
   vehiclePlate: z.string().nullable(),
   whatsappNumber: z.string(),
@@ -400,6 +410,7 @@ export const affiliateValidateResponseSchema = z.object({
 
 export const subscribeRequestSchema = z.object({
   paymentMethod: subscriptionPaymentMethodSchema.optional(),
+  cpfCnpj: cpfCnpjFieldSchema.optional(),
 });
 
 export type SubscribeRequest = z.infer<typeof subscribeRequestSchema>;

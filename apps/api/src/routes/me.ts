@@ -832,13 +832,21 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const parsedBody = subscribeRequestSchema.safeParse(request.body ?? {});
-    const methodRaw = parsedBody.success
-      ? parsedBody.data.paymentMethod
-      : undefined;
+    if (!parsedBody.success) {
+      const cpfIssue = parsedBody.error.issues.find((i) =>
+        i.path.includes("cpfCnpj"),
+      );
+      return reply.status(400).send({
+        error: cpfIssue?.message ?? "Dados de pagamento inválidos.",
+      });
+    }
+
+    const methodRaw = parsedBody.data.paymentMethod;
     const methodParsed = subscriptionPaymentMethodSchema.safeParse(
       methodRaw ?? user.subscriptionPaymentMethod ?? "PIX",
     );
     const paymentMethod = methodParsed.success ? methodParsed.data : "PIX";
+    const cpfFromBody = parsedBody.data.cpfCnpj;
 
     const userId = request.sessionUser!.id;
     const asaas = new AsaasService(env, request.log);
@@ -854,6 +862,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         userId,
         paymentMethod,
         request.log,
+        { cpfCnpj: cpfFromBody ?? user.cpfCnpj ?? undefined },
       );
       return {
         amount: result.amount,

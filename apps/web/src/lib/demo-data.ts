@@ -18,6 +18,7 @@ export const demoProfile: UserProfile = {
   id: DEMO_USER_ID,
   name: "Carlos",
   email: "carlos@email.com",
+  cpfCnpj: null,
   city: "São Paulo",
   vehiclePlate: null,
   whatsappNumber: "5511999999999",

@@ -13,8 +13,22 @@ import {
   type AsaasWebhookPayload,
 } from "./asaas-webhook.js";
 import { ensureRecurringSubscription } from "./asaas-recurring.js";
+import {
+  formatCpfCnpjError,
+  isValidCpfCnpj,
+  normalizeCpfCnpjDigits,
+} from "../lib/cpf-cnpj.js";
 
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
+
+export function isAsaasHostedInvoiceUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  const u = url.trim().toLowerCase();
+  return (
+    (u.includes("asaas.com") || u.includes("asaas.com.br")) &&
+    !u.includes("/assinar")
+  );
+}
 
 function dueDatePlusDays(days: number): string {
   const d = new Date();
@@ -37,9 +51,10 @@ type AsaasPayment = {
   bankSlipUrl?: string;
   status?: string;
   value?: number;
+  billingType?: string;
 };
 type AsaasPixQr = { payload?: string; encodedImage?: string };
-type AsaasSubscription = { id: string };
+type AsaasSubscription = { id: string; billingType?: string };
 
 export type SubscribeCheckoutResult = {
   checkoutUrl: string;
@@ -84,13 +99,56 @@ export class AsaasService {
     };
   }
 
-  async getOrCreateCustomer(user: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    whatsappNumber: string;
-    asaasCustomerId: string | null;
-  }): Promise<string> {
+  async syncCustomerCpf(
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      whatsappNumber: string;
+      asaasCustomerId: string | null;
+      cpfCnpj: string | null;
+    },
+    cpfCnpjRaw: string,
+  ): Promise<string> {
+    const cpfCnpj = normalizeCpfCnpjDigits(cpfCnpjRaw);
+    if (!isValidCpfCnpj(cpfCnpj)) {
+      throw Object.assign(new Error(formatCpfCnpjError()), { statusCode: 400 });
+    }
+
+    const customerId = await this.getOrCreateCustomer(user, cpfCnpj);
+
+    if (user.cpfCnpj !== cpfCnpj) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { cpfCnpj },
+      });
+    }
+
+    if (this.configured) {
+      await this.api(
+        `/customers/${customerId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ cpfCnpj }),
+        },
+        "updateCustomerCpf",
+      );
+    }
+
+    return customerId;
+  }
+
+  async getOrCreateCustomer(
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      whatsappNumber: string;
+      asaasCustomerId: string | null;
+      cpfCnpj?: string | null;
+    },
+    cpfCnpj?: string | null,
+  ): Promise<string> {
     if (!this.configured) {
       return `mock_cus_${user.id}`;
     }
@@ -126,6 +184,12 @@ export class AsaasService {
       return found.id;
     }
 
+    const cpfDigits = cpfCnpj
+      ? normalizeCpfCnpjDigits(cpfCnpj)
+      : user.cpfCnpj
+        ? normalizeCpfCnpjDigits(user.cpfCnpj)
+        : null;
+
     const created = await this.api<AsaasCustomer>(
       "/customers",
       {
@@ -136,6 +200,7 @@ export class AsaasService {
           mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
           externalReference: user.id,
           notificationDisabled: false,
+          ...(cpfDigits ? { cpfCnpj: cpfDigits } : {}),
         }),
       },
       "createCustomer",
@@ -247,6 +312,7 @@ export class AsaasService {
     userId: string,
     paymentMethod: string = "PIX",
     log?: FastifyBaseLogger,
+    options?: { cpfCnpj?: string },
   ): Promise<SubscribeCheckoutResult> {
     const routeLog = log ?? this.log;
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -254,6 +320,16 @@ export class AsaasService {
       throw Object.assign(new Error("Usuário não encontrado"), {
         statusCode: 404,
       });
+    }
+
+    const cpfRaw = options?.cpfCnpj ?? user.cpfCnpj ?? "";
+    const billingType = toAsaasBillingType(paymentMethod);
+
+    if (billingType === "PIX" && !cpfRaw.trim()) {
+      throw Object.assign(
+        new Error("Informe seu CPF para gerar a cobrança Pix."),
+        { statusCode: 400 },
+      );
     }
 
     if (!this.configured) {
@@ -269,18 +345,43 @@ export class AsaasService {
       };
     }
 
+    if (cpfRaw.trim()) {
+      await this.syncCustomerCpf(user, cpfRaw);
+    } else if (billingType === "CREDIT_CARD") {
+      throw Object.assign(
+        new Error("Informe seu CPF antes de pagar com cartão."),
+        { statusCode: 400 },
+      );
+    }
+
+    const userFresh = await prisma.user.findUnique({ where: { id: userId } });
+    if (!userFresh) {
+      throw Object.assign(new Error("Usuário não encontrado"), {
+        statusCode: 404,
+      });
+    }
+
     const resumed = await this.resumePendingCheckout(
-      user,
+      userFresh,
       paymentMethod,
       routeLog,
     );
     if (resumed) return resumed;
 
-    const customerId = await this.getOrCreateCustomer(user);
-    const billingType = toAsaasBillingType(paymentMethod);
+    const customerId = await this.getOrCreateCustomer(
+      userFresh,
+      userFresh.cpfCnpj,
+    );
     const nextDueDate = dueDatePlusDays(1);
 
-    let subId = user.asaasSubscriptionId;
+    let subId = userFresh.asaasSubscriptionId;
+    subId = await this.ensureSubscriptionBillingType(
+      userId,
+      subId,
+      billingType,
+      routeLog,
+    );
+
     if (!subId) {
       const sub = await this.api<AsaasSubscription>(
         "/subscriptions",
@@ -343,26 +444,97 @@ export class AsaasService {
     }
 
     const chargeId = first?.id ?? subId;
-    const pix = first?.id
-      ? await this.fetchPixQr(first.id, billingType)
+    const resolved = await this.buildCheckoutFromPayment(
+      first,
+      chargeId,
+      billingType,
+      userId,
+      subId,
+    );
+
+    if (
+      billingType === "CREDIT_CARD" &&
+      !isAsaasHostedInvoiceUrl(resolved.invoiceUrl)
+    ) {
+      throw Object.assign(
+        new Error(
+          "Não foi possível abrir o checkout do cartão. Tente novamente em instantes.",
+        ),
+        { statusCode: 502 },
+      );
+    }
+
+    if (
+      billingType === "PIX" &&
+      !resolved.pixCopyPaste &&
+      !resolved.pixQrCodeImage
+    ) {
+      throw Object.assign(
+        new Error(
+          "Não foi possível gerar o Pix. Confira o CPF e tente novamente.",
+        ),
+        { statusCode: 502 },
+      );
+    }
+
+    return resolved;
+  }
+
+  private async getPaymentById(paymentId: string): Promise<AsaasPayment> {
+    return this.api<AsaasPayment>(
+      `/payments/${paymentId}`,
+      {},
+      "getPayment",
+    );
+  }
+
+  private async resolvePaymentInvoiceUrl(
+    payment: AsaasPayment | undefined,
+    chargeId: string,
+  ): Promise<string> {
+    const fromList =
+      payment?.invoiceUrl ??
+      payment?.bankSlipUrl ??
+      null;
+    if (isAsaasHostedInvoiceUrl(fromList)) return fromList!;
+
+    if (payment?.id || chargeId) {
+      try {
+        const full = await this.getPaymentById(payment?.id ?? chargeId);
+        const url = full.invoiceUrl ?? full.bankSlipUrl ?? null;
+        if (isAsaasHostedInvoiceUrl(url)) return url!;
+      } catch {
+        /* tenta fallback abaixo */
+      }
+    }
+
+    return `${this.env.APP_URL}/assinar?charge=${payment?.id ?? chargeId}`;
+  }
+
+  private async buildCheckoutFromPayment(
+    payment: AsaasPayment | undefined,
+    chargeId: string,
+    billingType: string,
+    userId: string,
+    subscriptionId: string,
+  ): Promise<SubscribeCheckoutResult> {
+    const pix = payment?.id
+      ? await this.fetchPixQr(payment.id, billingType)
       : { payload: null, encodedImage: null };
 
-    const invoiceUrl =
-      first?.invoiceUrl ??
-      first?.bankSlipUrl ??
-      `${this.env.APP_URL}/assinar?subscription=${subId}`;
+    const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, chargeId);
 
-    const existingPayment = first?.id
+    const existingPayment = payment?.id
       ? await prisma.payment.findFirst({
-          where: { asaasChargeId: first.id },
+          where: { asaasChargeId: payment.id },
         })
       : null;
 
-    if (!existingPayment && first?.id) {
+    if (!existingPayment && payment?.id) {
       await prisma.payment.create({
         data: {
           userId,
-          asaasChargeId: first.id,
+          asaasChargeId: payment.id,
           status: "PENDING",
           amount: SUBSCRIPTION_PRICE,
         },
@@ -371,13 +543,64 @@ export class AsaasService {
 
     return {
       checkoutUrl: invoiceUrl,
-      chargeId,
+      chargeId: payment?.id ?? chargeId,
       invoiceUrl,
       pixCopyPaste: pix.payload,
       pixQrCodeImage: pix.encodedImage,
       amount: SUBSCRIPTION_PRICE,
-      subscriptionId: subId,
+      subscriptionId,
     };
+  }
+
+  /** Recria assinatura se o tipo de cobrança (Pix vs cartão) não bate com o pedido atual. */
+  private async ensureSubscriptionBillingType(
+    userId: string,
+    subId: string | null,
+    billingType: string,
+    log?: FastifyBaseLogger,
+  ): Promise<string | null> {
+    if (!subId) return null;
+
+    try {
+      const sub = await this.api<AsaasSubscription>(
+        `/subscriptions/${subId}`,
+        {},
+        "getSubscription",
+      );
+      if (sub.billingType === billingType) return subId;
+
+      log?.info(
+        { userId, subId, from: sub.billingType, to: billingType },
+        "Assinatura Asaas com billingType diferente — recriando",
+      );
+
+      try {
+        await this.api(
+          `/subscriptions/${subId}`,
+          { method: "DELETE" },
+          "deleteSubscriptionBillingMismatch",
+        );
+      } catch (err) {
+        if (!(err instanceof AsaasApiError) || err.statusCode !== 404) {
+          throw err;
+        }
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { asaasSubscriptionId: null },
+      });
+      return null;
+    } catch (err) {
+      if (err instanceof AsaasApiError && err.statusCode === 404) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { asaasSubscriptionId: null },
+        });
+        return null;
+      }
+      throw err;
+    }
   }
 
   /** Reaproveita cobrança pendente recente (evita dupla assinatura no double-click). */
@@ -401,26 +624,42 @@ export class AsaasService {
       orderBy: { createdAt: "desc" },
     });
 
+    const billingType = toAsaasBillingType(paymentMethod);
+
     if (pending?.asaasChargeId) {
-      const billingType = toAsaasBillingType(paymentMethod);
-      const pix = await this.fetchPixQr(pending.asaasChargeId, billingType);
-      log?.info(
-        { userId: user.id, chargeId: pending.asaasChargeId },
-        "Reaproveitando cobrança Pix pendente",
-      );
-      return {
-        checkoutUrl: `${this.env.APP_URL}/assinar?charge=${pending.asaasChargeId}`,
-        chargeId: pending.asaasChargeId,
-        invoiceUrl: `${this.env.APP_URL}/assinar?charge=${pending.asaasChargeId}`,
-        pixCopyPaste: pix.payload,
-        pixQrCodeImage: pix.encodedImage,
-        amount: Number(pending.amount),
-        subscriptionId: user.asaasSubscriptionId ?? pending.asaasChargeId,
-      };
+      try {
+        const remote = await this.getPaymentById(pending.asaasChargeId);
+        if (
+          remote.billingType &&
+          remote.billingType !== billingType &&
+          remote.billingType !== "UNDEFINED"
+        ) {
+          return null;
+        }
+        log?.info(
+          { userId: user.id, chargeId: pending.asaasChargeId },
+          "Reaproveitando cobrança pendente",
+        );
+        const checkout = await this.buildCheckoutFromPayment(
+          remote,
+          pending.asaasChargeId,
+          billingType,
+          user.id,
+          user.asaasSubscriptionId ?? pending.asaasChargeId,
+        );
+        if (
+          billingType === "CREDIT_CARD" &&
+          !isAsaasHostedInvoiceUrl(checkout.invoiceUrl)
+        ) {
+          return null;
+        }
+        return checkout;
+      } catch {
+        return null;
+      }
     }
 
     if (user.asaasSubscriptionId) {
-      const billingType = toAsaasBillingType(paymentMethod);
       const payments = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${user.asaasSubscriptionId}/payments?limit=5`,
         {},
@@ -433,33 +672,27 @@ export class AsaasService {
           p.status === "AWAITING_RISK_ANALYSIS",
       );
       if (open?.id) {
-        const pix = await this.fetchPixQr(open.id, billingType);
-        const existing = await prisma.payment.findFirst({
-          where: { asaasChargeId: open.id },
-        });
-        if (!existing) {
-          await prisma.payment.create({
-            data: {
-              userId: user.id,
-              asaasChargeId: open.id,
-              status: "PENDING",
-              amount: SUBSCRIPTION_PRICE,
-            },
-          });
+        if (
+          open.billingType &&
+          open.billingType !== billingType &&
+          open.billingType !== "UNDEFINED"
+        ) {
+          return null;
         }
-        return {
-          checkoutUrl:
-            open.invoiceUrl ??
-            `${this.env.APP_URL}/assinar?charge=${open.id}`,
-          chargeId: open.id,
-          invoiceUrl:
-            open.invoiceUrl ??
-            `${this.env.APP_URL}/assinar?charge=${open.id}`,
-          pixCopyPaste: pix.payload,
-          pixQrCodeImage: pix.encodedImage,
-          amount: SUBSCRIPTION_PRICE,
-          subscriptionId: user.asaasSubscriptionId,
-        };
+        const checkout = await this.buildCheckoutFromPayment(
+          open,
+          open.id,
+          billingType,
+          user.id,
+          user.asaasSubscriptionId,
+        );
+        if (
+          billingType === "CREDIT_CARD" &&
+          !isAsaasHostedInvoiceUrl(checkout.invoiceUrl)
+        ) {
+          return null;
+        }
+        return checkout;
       }
     }
 
