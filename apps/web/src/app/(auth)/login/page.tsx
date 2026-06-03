@@ -196,7 +196,13 @@ function LoginPageInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<AuthShell title="Entrar" subtitle="Carregando..." />}>
+    <Suspense
+      fallback={
+        <AuthShell title="Entrar" subtitle="Carregando...">
+          <p className="text-sm text-muted-foreground text-center">Aguarde</p>
+        </AuthShell>
+      }
+    >
       <LoginPageInner />
     </Suspense>
   );
