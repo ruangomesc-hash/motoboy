@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect } from "react";
 import { apiFetch, setApiErrorReportToken } from "@/lib/api";
+import { redirectIfSessionInvalid } from "@/lib/session-expired";
 import { extractDeliveryMutation } from "@/lib/app-data-cache";
 import { notifyAppSync, syncTopicsForPath } from "@/lib/app-sync";
 import { demoFetch } from "@/lib/demo-data";
@@ -25,6 +26,12 @@ export function useApi() {
       apiOptions?: UseApiOptions,
     ): Promise<T> => {
       const method = (options.method ?? "GET").toUpperCase();
+      if (!isDemo && !token?.trim()) {
+        void redirectIfSessionInvalid(401, "NOT_AUTHENTICATED");
+        throw new Error(
+          "Sessão incompleta. Saia e entre de novo com senha ou código no WhatsApp.",
+        );
+      }
       const result = isDemo
         ? await demoFetch<T>(path, options)
         : await apiFetch<T>(path, {

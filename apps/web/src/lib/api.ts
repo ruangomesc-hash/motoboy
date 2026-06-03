@@ -1,5 +1,6 @@
 import { resolveApiBase } from "./api-base";
 import { buildClientErrorReport, reportClientError } from "./report-client-error";
+import { friendlyAuthErrorMessage } from "./auth-errors";
 import { redirectIfSessionInvalid } from "./session-expired";
 
 const API_BASE = resolveApiBase();
@@ -53,19 +54,23 @@ export async function apiFetch<T>(
         message = `Erro ${res.status}`;
       }
     }
-    const err = new Error(message) as Error & {
-      status?: number;
-      code?: string;
-    };
-    err.status = res.status;
     let authCode: string | undefined;
     try {
       const parsed = JSON.parse(text) as { code?: string };
-      err.code = parsed.code;
       authCode = parsed.code;
     } catch {
       /* ignore */
     }
+    const friendlyMessage = friendlyAuthErrorMessage(
+      message ?? `Erro ${res.status}`,
+      authCode,
+    );
+    const err = new Error(friendlyMessage) as Error & {
+      status?: number;
+      code?: string;
+    };
+    err.status = res.status;
+    err.code = authCode;
     void redirectIfSessionInvalid(res.status, authCode);
     if (res.status === 402 && typeof window !== "undefined") {
       window.location.href = "/assinar";

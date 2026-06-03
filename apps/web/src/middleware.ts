@@ -39,7 +39,9 @@ export default async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (!token || token.isAdmin) {
+  const accessToken =
+    typeof token?.accessToken === "string" ? token.accessToken.trim() : "";
+  if (!token || token.isAdmin || !accessToken) {
     return redirectTo(request, "/login");
   }
   if (isProd && token.demo) {
