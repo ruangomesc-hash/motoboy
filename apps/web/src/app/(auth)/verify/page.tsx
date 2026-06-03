@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { parseBrazilWhatsAppDigits } from "@motoboy/types";
 import { clearPersistedAffiliateCode } from "@/lib/affiliate-ref";
 import { readPendingRegistration } from "@/lib/registration-pending";
 
@@ -27,27 +28,49 @@ function VerifyForm() {
       searchParams.get("register") === "1" ||
       sessionStorage.getItem("motoboy-auth-mode") === "register";
     setIsRegister(register);
-    const pending = readPendingRegistration();
+    const pending = readPendingRegistration({ requirePassword: false });
+    const phoneParam = searchParams.get("phone")?.trim();
     if (register && !pending) {
       router.replace("/cadastro");
+      return;
+    }
+    if (!register && !pending && !phoneParam) {
+      router.replace("/login");
     }
   }, [searchParams, router]);
 
+  function resolveLoginPhone(): string | null {
+    const pending = readPendingRegistration({ requirePassword: false });
+    if (pending?.phone) return pending.phone;
+    const raw = searchParams.get("phone")?.trim();
+    if (!raw) return null;
+    try {
+      return parseBrazilWhatsAppDigits(raw);
+    } catch {
+      return null;
+    }
+  }
+
   async function submitCode(submittedCode: string) {
-    const pending = readPendingRegistration();
-    if (!pending) {
-      router.push("/cadastro");
+    const pending = readPendingRegistration({ requirePassword: false });
+    const phone = resolveLoginPhone();
+    if (!phone) {
+      router.push(isRegister ? "/cadastro" : "/login");
       return;
     }
 
     setError("");
     const result = await signIn("whatsapp", {
-      phone: pending.phone,
+      phone,
       code: submittedCode,
-      name: pending.name,
-      email: pending.email,
-      password: pending.password,
-      affiliateCode: pending.affiliateCode ?? "",
+      ...(pending
+        ? {
+            name: pending.name,
+            email: pending.email,
+            password: pending.password,
+            affiliateCode: pending.affiliateCode ?? "",
+          }
+        : {}),
       redirect: false,
     });
 
@@ -113,9 +136,15 @@ function VerifyForm() {
           </Button>
         )}
         <p className="text-center text-sm text-muted-foreground pt-2">
-          <Link href="/cadastro" className="text-emerald-400 underline">
-            Voltar ao cadastro
-          </Link>
+          {isRegister ? (
+            <Link href="/cadastro" className="text-emerald-400 underline">
+              Voltar ao cadastro
+            </Link>
+          ) : (
+            <Link href="/login" className="text-emerald-400 underline">
+              Voltar ao login
+            </Link>
+          )}
         </p>
       </form>
     </AuthShell>

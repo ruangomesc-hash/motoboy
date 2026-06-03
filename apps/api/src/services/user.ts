@@ -166,6 +166,62 @@ export async function normalizeAllUsersWhatsAppNumbers(): Promise<{
   return { scanned: users.length, updated, unchanged, errors };
 }
 
+/** Admin: alinha contas antigas (WhatsApp, CostConfig, meta) sem mexer em senha. */
+export async function reconcileLegacyUsers(): Promise<{
+  phoneSync: Awaited<ReturnType<typeof normalizeAllUsersWhatsAppNumbers>>;
+  costsCreated: number;
+  goalsCreated: number;
+  usersWithoutPassword: number;
+  usersWithoutEmail: number;
+}> {
+  const phoneSync = await normalizeAllUsersWhatsAppNumbers();
+
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      passwordHash: true,
+      email: true,
+      costs: { select: { id: true } },
+      goals: { where: { active: true }, select: { id: true }, take: 1 },
+    },
+  });
+
+  let costsCreated = 0;
+  let goalsCreated = 0;
+  let usersWithoutPassword = 0;
+  let usersWithoutEmail = 0;
+
+  for (const u of users) {
+    if (!u.passwordHash) usersWithoutPassword++;
+    if (!u.email?.trim()) usersWithoutEmail++;
+
+    if (!u.costs) {
+      await prisma.costConfig.create({ data: { userId: u.id } });
+      costsCreated++;
+    }
+
+    if (u.goals.length === 0) {
+      await prisma.goal.create({
+        data: {
+          userId: u.id,
+          period: "DAILY",
+          targetValue: 250,
+          active: true,
+        },
+      });
+      goalsCreated++;
+    }
+  }
+
+  return {
+    phoneSync,
+    costsCreated,
+    goalsCreated,
+    usersWithoutPassword,
+    usersWithoutEmail,
+  };
+}
+
 export type PhoneUserLinkDiagnosis = {
   incoming: string;
   lookupKeys: string[];

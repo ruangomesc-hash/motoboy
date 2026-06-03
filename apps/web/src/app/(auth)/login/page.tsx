@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { resolveApiBase } from "@/lib/api-base";
 import {
   maskPhone,
   parseBrazilWhatsAppDigits,
@@ -16,13 +17,21 @@ import {
 const demoLoginAllowed =
   process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionExpired = searchParams.get("session") === "expired";
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [codeLoading, setCodeLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState(
+    sessionExpired
+      ? "Sua sessão expirou ou foi invalidada. Entre de novo com senha ou código no WhatsApp."
+      : "",
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,6 +64,44 @@ export default function LoginPage() {
       return;
     }
     router.push("/");
+  }
+
+  async function loginWithWhatsAppCode() {
+    let digits: string;
+    try {
+      digits = parseBrazilWhatsAppDigits(phone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : WHATSAPP_VALIDATION_MESSAGE);
+      return;
+    }
+    setCodeLoading(true);
+    setError("");
+    setInfo("");
+    try {
+      const res = await fetch(`${resolveApiBase()}/auth/whatsapp/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone: digits }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(
+          data.error ??
+            (res.status === 404
+              ? "Conta não encontrada. Crie seu cadastro primeiro."
+              : "Não foi possível enviar o código."),
+        );
+        return;
+      }
+      sessionStorage.setItem("motoboy-phone", digits);
+      sessionStorage.removeItem("motoboy-auth-mode");
+      router.push(`/verify?phone=${encodeURIComponent(digits)}`);
+    } catch {
+      setError("Não foi possível enviar o código. Tente de novo.");
+    } finally {
+      setCodeLoading(false);
+    }
   }
 
   async function enterDemo() {
@@ -102,15 +149,29 @@ export default function LoginPage() {
             minLength={8}
           />
         </div>
+        {info && <p className="text-sm text-amber-200/90">{info}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button
           type="submit"
           className="w-full"
           size="lg"
-          disabled={loading}
+          disabled={loading || codeLoading}
         >
           {loading ? "Entrando..." : "Entrar"}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full border-emerald-500/40"
+          disabled={loading || codeLoading}
+          onClick={() => void loginWithWhatsAppCode()}
+        >
+          {codeLoading ? "Enviando código..." : "Entrar com código no WhatsApp"}
+        </Button>
+        <p className="text-xs text-muted-foreground text-center leading-relaxed">
+          Conta antiga sem senha? Use o código no WhatsApp ou peça ao suporte para
+          definir uma senha no painel admin.
+        </p>
         {demoLoginAllowed && (
           <Button
             type="button"
@@ -130,5 +191,13 @@ export default function LoginPage() {
         </p>
       </form>
     </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<AuthShell title="Entrar" subtitle="Carregando..." />}>
+      <LoginPageInner />
+    </Suspense>
   );
 }

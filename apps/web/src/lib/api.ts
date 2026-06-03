@@ -1,5 +1,6 @@
 import { resolveApiBase } from "./api-base";
 import { buildClientErrorReport, reportClientError } from "./report-client-error";
+import { redirectIfSessionInvalid } from "./session-expired";
 
 const API_BASE = resolveApiBase();
 
@@ -57,12 +58,15 @@ export async function apiFetch<T>(
       code?: string;
     };
     err.status = res.status;
+    let authCode: string | undefined;
     try {
       const parsed = JSON.parse(text) as { code?: string };
       err.code = parsed.code;
+      authCode = parsed.code;
     } catch {
       /* ignore */
     }
+    void redirectIfSessionInvalid(res.status, authCode);
     if (res.status === 402 && typeof window !== "undefined") {
       window.location.href = "/assinar";
     }
