@@ -513,7 +513,7 @@ export default function AdminStatusPage() {
                     ignora. Bloqueie para nunca mais responder.
                   </p>
                   <ul className="space-y-2">
-                    {whatsappPipeline.database.unknownSenders.map((u) => (
+                    {(whatsappPipeline.database.unknownSenders ?? []).map((u) => (
                       <li
                         key={u.phone}
                         className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono rounded-md border border-white/10 bg-black/20 px-2 py-2"
@@ -530,8 +530,12 @@ export default function AdminStatusPage() {
                         </div>
                         <Button
                           size="sm"
-                          variant={u.blocked ? "outline" : "destructive"}
-                          className="h-7 text-xs shrink-0"
+                          variant="outline"
+                          className={cn(
+                            "h-7 text-xs shrink-0",
+                            !u.blocked &&
+                              "border-destructive/50 text-destructive hover:bg-destructive/10",
+                          )}
                           disabled={blockingPhone === u.phone}
                           onClick={() =>
                             void toggleUnknownBlock(

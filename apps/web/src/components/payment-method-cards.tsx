@@ -21,6 +21,9 @@ type Props = {
   readOnly?: boolean;
   /** Quando o selo já está num banner acima (aba Pagamento). */
   hideActiveBadge?: boolean;
+  /** TRIAL / PAUSED / CANCELED → Pix + cartão; ACTIVE → só exibição. */
+  subscriptionStatus?: SubscriptionBillingStatus | string | null;
+  options?: typeof SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT;
 };
 
 export function PaymentMethodCards({
