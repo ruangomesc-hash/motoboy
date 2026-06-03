@@ -35,6 +35,8 @@ const PAYMENT_POLL_MAX_MS = 20 * 60 * 1000;
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
   asaasConfigured: boolean;
+  /** Gateway não verificado (health/subscription inconclusivos) — não bloqueia campos */
+  asaasStatusUnknown?: boolean;
   onActivated?: () => void;
   subscriptionActive?: boolean;
   subscriptionStatus?: SubscriptionBillingStatus | string | null;
@@ -52,6 +54,7 @@ function pixQrSrc(encodedImage: string | null | undefined): string | null {
 export function AsaasTransparentCheckout({
   initialMethod,
   asaasConfigured,
+  asaasStatusUnknown = false,
   onActivated,
   subscriptionActive = false,
   subscriptionStatus = "TRIAL",
@@ -62,7 +65,6 @@ export function AsaasTransparentCheckout({
   const { status: sessionStatus } = useSession();
   const canChoose = canChooseSubscriptionPaymentMethod(subscriptionStatus);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
     () => normalizeSubscriptionPaymentMethod(initialMethod),
   );
@@ -99,8 +101,12 @@ export function AsaasTransparentCheckout({
           setCardForm(buildDefaultCardForm(me.profile));
         });
       })
-      .finally(() => setProfileLoaded(true));
+      .catch(() => {
+        /* formulário vazio até o perfil carregar */
+      });
   }, [api, sessionStatus]);
+
+  const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
 
   const checkActivation = useCallback(
     async (forceSync = false) => {
@@ -427,7 +433,7 @@ export function AsaasTransparentCheckout({
         activePaymentMethod={activePaymentMethod}
         subscribedAt={subscribedAt}
         readOnly={!canChoose}
-        disabled={!asaasConfigured || !profileLoaded || loading}
+        disabled={checkoutBlocked || loading}
         profile={profile}
         pixForm={pixForm}
         onPixFormChange={setPixForm}
@@ -440,7 +446,7 @@ export function AsaasTransparentCheckout({
           <Button
             size="lg"
             className="w-full"
-            disabled={loading || !asaasConfigured || !profileLoaded}
+            disabled={loading || checkoutBlocked}
             onClick={startCheckout}
           >
             {loading ? (
@@ -456,7 +462,7 @@ export function AsaasTransparentCheckout({
               "Gerar Pix"
             )}
           </Button>
-          {!formReady && !loading && profileLoaded && (
+          {!formReady && !loading && (
             <p className="text-xs text-center text-amber-500/90">
               {validationHint()}
             </p>

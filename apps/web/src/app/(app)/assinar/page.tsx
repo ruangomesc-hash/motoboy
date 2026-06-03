@@ -1,41 +1,23 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { useApi } from "@/hooks/use-api";
 import { Check } from "lucide-react";
-import type { SubscriptionStatus } from "@motoboy/types";
 import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { AppPage } from "@/components/app-page";
 import { AppLoadingSplash } from "@/components/app-loading-splash";
 import { AsaasTransparentCheckout } from "@/components/asaas-transparent-checkout";
 import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
+import { useBillingStatus } from "@/hooks/use-billing-status";
+import { billingAsaasNotice } from "@/lib/billing-messages";
 
 function AssinarPageContent() {
-  const api = useApi();
   const { status: sessionStatus } = useSession();
-  const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { subscription, loadState, asaasConfigured, refresh } = useBillingStatus(
+    sessionStatus === "authenticated",
+  );
 
-  const refresh = useCallback(() => {
-    if (sessionStatus !== "authenticated") return;
-    setLoading(true);
-    void api<SubscriptionStatus>("/me/subscription")
-      .then(setSubStatus)
-      .catch(() => setSubStatus(null))
-      .finally(() => setLoading(false));
-  }, [api, sessionStatus]);
-
-  useEffect(() => {
-    if (sessionStatus === "loading") return;
-    if (sessionStatus !== "authenticated") {
-      setLoading(false);
-      return;
-    }
-    refresh();
-  }, [sessionStatus, refresh]);
-
-  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading)) {
+  if (sessionStatus === "loading") {
     return (
       <AppPage className="p-6 flex flex-col flex-1 min-h-[50vh]">
         <AppLoadingSplash variant="account" className="flex-1" />
@@ -53,11 +35,12 @@ function AssinarPageContent() {
     );
   }
 
-  const status = subStatus?.status ?? "TRIAL";
+  const status = subscription?.status ?? "TRIAL";
   const isActive = status === "ACTIVE";
-  const asaasOk = subStatus?.asaas?.configured ?? false;
+  const asaasOk = asaasConfigured === true;
+  const asaasNotice = billingAsaasNotice(loadState, asaasConfigured, isActive);
   const preferredMethod = normalizeSubscriptionPaymentMethod(
-    subStatus?.subscriptionPaymentMethod,
+    subscription?.subscriptionPaymentMethod,
   );
 
   return (
@@ -100,17 +83,16 @@ function AssinarPageContent() {
       <AsaasTransparentCheckout
         initialMethod={preferredMethod}
         asaasConfigured={asaasOk}
+        asaasStatusUnknown={asaasConfigured === null && loadState === "ready"}
         onActivated={refresh}
         subscriptionActive={isActive}
         subscriptionStatus={status}
         activePaymentMethod={preferredMethod}
-        subscribedAt={subStatus?.subscribedAt ?? null}
+        subscribedAt={subscription?.subscribedAt ?? null}
       />
 
-      {!asaasOk && !isActive && (
-        <p className="text-xs text-center text-amber-500/90">
-          Pagamento ainda não configurado no servidor (ASAAS_API_KEY).
-        </p>
+      {asaasNotice && (
+        <p className="text-xs text-center text-amber-500/90">{asaasNotice}</p>
       )}
 
       <p className="text-xs text-center text-muted-foreground">

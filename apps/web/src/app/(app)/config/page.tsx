@@ -92,6 +92,7 @@ function ConfigPageInner() {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(
     null,
   );
+  const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   const formDirtyRef = useRef(false);
   const lastAppliedFingerprintRef = useRef<string | null>(null);
   const { profile, monthlyGoal } = form;
@@ -180,7 +181,8 @@ function ConfigPageInner() {
     if (sessionStatus !== "authenticated") return;
     void api<SubscriptionStatus>("/me/subscription")
       .then(setSubscription)
-      .catch(() => setSubscription(null));
+      .catch(() => setSubscription(null))
+      .finally(() => setSubscriptionLoaded(true));
   }, [api, sessionStatus]);
 
   const handlePaymentMethodChange = useCallback(
@@ -207,6 +209,20 @@ function ConfigPageInner() {
     );
     refreshSubscription();
   }, [api, sessionStatus, refreshSubscription]);
+
+  useEffect(() => {
+    if (activeTab !== "pagamento") return;
+    if (sessionStatus !== "authenticated") return;
+    if (!subscriptionLoaded) return;
+    if (subscription?.status === "ACTIVE") return;
+    router.replace("/assinar");
+  }, [
+    activeTab,
+    sessionStatus,
+    subscriptionLoaded,
+    subscription?.status,
+    router,
+  ]);
 
   function patchForm(patch: Partial<ConfigFormSnapshot>) {
     formDirtyRef.current = true;
