@@ -9,6 +9,7 @@ import { DEFAULT_WORK_DAYS } from "@/lib/work-days";
 import type { MeConfigSnapshot } from "@/lib/onboarding";
 import type { PendingRegistration } from "@/lib/registration-pending";
 import { readPendingRegistration } from "@/lib/registration-pending";
+import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 
 export type MeCostsSnapshot = {
   fuelPricePerLiter: number;
@@ -121,7 +122,9 @@ export function meToConfigForm(
       (sessionPhone ? maskBrazilWhatsAppInput(sessionPhone) : ""),
     city: me.profile.city ?? "",
     workApps: me.profile.workApps ?? [],
-    subscriptionPaymentMethod: me.profile.subscriptionPaymentMethod ?? "PIX",
+    subscriptionPaymentMethod: normalizeSubscriptionPaymentMethod(
+      me.profile.subscriptionPaymentMethod,
+    ),
     workDays:
       me.profile.workDays?.length > 0
         ? me.profile.workDays
@@ -182,7 +185,9 @@ export function toProfilePutBody(
     email: profile.email.trim(),
     city: profile.city.trim() || null,
     workApps: profile.workApps,
-    subscriptionPaymentMethod: profile.subscriptionPaymentMethod,
+    subscriptionPaymentMethod: normalizeSubscriptionPaymentMethod(
+      profile.subscriptionPaymentMethod,
+    ),
     workDays: profile.workDays,
   };
   let phoneInput = profile.whatsappPhone;

@@ -18,20 +18,32 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
 }[] = [
   {
     id: "PIX",
-    label: "Pix recorrente",
-    hint: "Cobrança mensal via Pix (Asaas)",
+    label: "Pix",
+    hint: "Pix automático · Asaas",
   },
   {
     id: "CREDIT_CARD",
-    label: "Cartão de crédito",
-    hint: "Débito no cartão (Asaas)",
+    label: "Cartão",
+    hint: "Cartão de crédito · em breve (Stripe)",
   },
   {
     id: "BOLETO",
     label: "Boleto",
-    hint: "Boleto mensal (Asaas)",
+    hint: "Legado — não disponível",
   },
 ];
+
+/** Opções exibidas no app (sem boleto). */
+export const SUBSCRIPTION_PAYMENT_OPTIONS_UI =
+  SUBSCRIPTION_PAYMENT_OPTIONS.filter((o) => o.id !== "BOLETO");
+
+export function normalizeSubscriptionPaymentMethod(
+  method: SubscriptionPaymentMethod | string | null | undefined,
+): SubscriptionPaymentMethod {
+  if (method === "CREDIT_CARD") return "CREDIT_CARD";
+  if (method === "BOLETO") return "PIX";
+  return "PIX";
+}
 
 export function subscriptionPaymentLabel(
   method: SubscriptionPaymentMethod,

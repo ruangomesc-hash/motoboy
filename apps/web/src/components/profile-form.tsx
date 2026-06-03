@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { maskPhone, formatPhoneDisplay } from "@/lib/phone-mask";
 import {
-  SUBSCRIPTION_PAYMENT_OPTIONS,
+  SUBSCRIPTION_PAYMENT_OPTIONS_UI,
   WORK_APP_OPTIONS,
 } from "@/lib/profile-options";
+import Link from "next/link";
 import { WorkDaysPicker } from "@/components/work-days-picker";
 
 export interface ProfileFormState {
@@ -132,17 +133,19 @@ export function ProfileForm({
       </div>
 
       <div>
-        <p className="text-sm text-muted-foreground mb-2">
-          Como pagar a assinatura Motocopiloto
-        </p>
+        <p className="text-sm text-muted-foreground mb-2">Forma de pagamento</p>
         <ChipGroup
-          options={SUBSCRIPTION_PAYMENT_OPTIONS}
+          options={SUBSCRIPTION_PAYMENT_OPTIONS_UI}
           selected={value.subscriptionPaymentMethod}
           onSelect={(id) => onChange({ ...value, subscriptionPaymentMethod: id })}
           single
         />
         <p className="text-xs text-muted-foreground mt-2">
-          R$ 15,90/mês após o trial. Usado no checkout transparente em Assinar.
+          R$ 15,90/mês · Acesso completo. Salve aqui e conclua o pagamento em{" "}
+          <Link href="/assinar" className="text-primary underline-offset-2 hover:underline">
+            Assinar
+          </Link>
+          .
         </p>
       </div>
     </section>

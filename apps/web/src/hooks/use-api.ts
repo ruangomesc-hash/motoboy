@@ -11,7 +11,7 @@ import { demoFetch } from "@/lib/demo-data";
 export type UseApiOptions = { skipSync?: boolean };
 
 export function useApi() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const token = session?.accessToken;
   const isDemo = session?.demo === true;
 
@@ -26,6 +26,12 @@ export function useApi() {
       apiOptions?: UseApiOptions,
     ): Promise<T> => {
       const method = (options.method ?? "GET").toUpperCase();
+      if (!isDemo && sessionStatus === "loading") {
+        throw new Error("Carregando sessão…");
+      }
+      if (!isDemo && sessionStatus !== "authenticated") {
+        throw new Error("Faça login para continuar.");
+      }
       if (!isDemo && !token?.trim()) {
         void redirectIfSessionInvalid(401, "NOT_AUTHENTICATED");
         throw new Error(
@@ -58,7 +64,7 @@ export function useApi() {
       }
       return result;
     },
-    [token, isDemo],
+    [token, isDemo, sessionStatus],
   );
 }
 

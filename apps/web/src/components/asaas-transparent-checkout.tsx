@@ -9,7 +9,11 @@ import type {
   SubscriptionPaymentMethod,
   SubscriptionStatus,
 } from "@motoboy/types";
-import { SUBSCRIPTION_PAYMENT_OPTIONS } from "@/lib/profile-options";
+import {
+  SUBSCRIPTION_PAYMENT_OPTIONS_UI,
+  normalizeSubscriptionPaymentMethod,
+} from "@/lib/profile-options";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -24,8 +28,10 @@ export function AsaasTransparentCheckout({
   onActivated,
 }: Props) {
   const api = useApi();
-  const [paymentMethod, setPaymentMethod] =
-    useState<SubscriptionPaymentMethod>(initialMethod);
+  const { status: sessionStatus } = useSession();
+  const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
+    () => normalizeSubscriptionPaymentMethod(initialMethod),
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
@@ -45,12 +51,20 @@ export function AsaasTransparentCheckout({
   }, [api, onActivated]);
 
   useEffect(() => {
+    setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
+  }, [initialMethod]);
+
+  useEffect(() => {
     if (!checkout || !polling) return;
     const id = window.setInterval(() => void pollStatus(), 4000);
     return () => window.clearInterval(id);
   }, [checkout, polling, pollStatus]);
 
   async function startCheckout() {
+    if (sessionStatus !== "authenticated") {
+      setError("Aguarde o login ou entre de novo.");
+      return;
+    }
     setLoading(true);
     setError("");
     setCheckout(null);
@@ -105,20 +119,6 @@ export function AsaasTransparentCheckout({
           </div>
         )}
 
-        {paymentMethod === "BOLETO" && checkout.invoiceUrl && (
-          <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-2">
-            <p className="text-sm font-medium">Boleto gerado</p>
-            <a
-              href={checkout.invoiceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-primary underline-offset-2 hover:underline"
-            >
-              Abrir boleto no Asaas
-            </a>
-          </div>
-        )}
-
         {paymentMethod === "CREDIT_CARD" && (
           <div className="rounded-xl border border-dashed border-border/60 bg-card/30 p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground mb-1">Cartão de crédito</p>
@@ -155,7 +155,7 @@ export function AsaasTransparentCheckout({
       <div className="space-y-2">
         <p className="text-sm font-medium">Forma de pagamento</p>
         <div className="grid gap-2">
-          {SUBSCRIPTION_PAYMENT_OPTIONS.map((opt) => {
+          {SUBSCRIPTION_PAYMENT_OPTIONS_UI.map((opt) => {
             const selected = paymentMethod === opt.id;
             return (
               <button

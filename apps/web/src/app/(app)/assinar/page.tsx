@@ -1,26 +1,57 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { Check } from "lucide-react";
 import type { SubscriptionStatus } from "@motoboy/types";
 import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { AppPage } from "@/components/app-page";
+import { AppLoadingSplash } from "@/components/app-loading-splash";
 import { AsaasTransparentCheckout } from "@/components/asaas-transparent-checkout";
+import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 
 export default function AssinarPage() {
   const api = useApi();
+  const { status: sessionStatus } = useSession();
   const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
+    if (sessionStatus !== "authenticated") return;
+    setLoading(true);
     void api<SubscriptionStatus>("/me/subscription")
       .then(setSubStatus)
-      .catch(() => setSubStatus(null));
-  };
+      .catch(() => setSubStatus(null))
+      .finally(() => setLoading(false));
+  }, [api, sessionStatus]);
 
   useEffect(() => {
+    if (sessionStatus === "loading") return;
+    if (sessionStatus !== "authenticated") {
+      setLoading(false);
+      return;
+    }
     refresh();
-  }, [api]);
+  }, [sessionStatus, refresh]);
+
+  if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading)) {
+    return (
+      <AppPage className="p-6 flex flex-col flex-1 min-h-[50vh]">
+        <AppLoadingSplash variant="account" className="flex-1" />
+      </AppPage>
+    );
+  }
+
+  if (sessionStatus !== "authenticated") {
+    return (
+      <AppPage className="p-6 flex flex-col flex-1 justify-center text-center gap-3">
+        <p className="text-sm text-muted-foreground">
+          Faça login para assinar o Motocopiloto Pro.
+        </p>
+      </AppPage>
+    );
+  }
 
   if (subStatus?.status === "ACTIVE") {
     return (
@@ -43,6 +74,9 @@ export default function AssinarPage() {
   }
 
   const asaasOk = subStatus?.asaas?.configured ?? false;
+  const preferredMethod = normalizeSubscriptionPaymentMethod(
+    subStatus?.subscriptionPaymentMethod,
+  );
 
   return (
     <AppPage className="p-6 flex flex-col flex-1 gap-6">
@@ -57,7 +91,7 @@ export default function AssinarPage() {
             currency: "BRL",
           })}
         </p>
-        <p className="text-sm text-muted-foreground">/mês · pagamento via Asaas</p>
+        <p className="text-sm text-muted-foreground">/mês · Acesso completo</p>
       </div>
 
       <ul className="text-left text-sm space-y-2 text-muted-foreground">
@@ -78,7 +112,7 @@ export default function AssinarPage() {
       </ul>
 
       <AsaasTransparentCheckout
-        initialMethod={subStatus?.subscriptionPaymentMethod ?? "PIX"}
+        initialMethod={preferredMethod}
         asaasConfigured={asaasOk}
         onActivated={refresh}
       />
@@ -90,8 +124,8 @@ export default function AssinarPage() {
       )}
 
       <p className="text-xs text-center text-muted-foreground">
-        Checkout transparente: o pagamento é feito aqui no app. A conta libera
-        automaticamente após confirmação no Asaas.
+        Pix via Asaas nesta tela. A preferência em Configurações é aplicada ao
+        gerar o pagamento.
       </p>
     </AppPage>
   );
