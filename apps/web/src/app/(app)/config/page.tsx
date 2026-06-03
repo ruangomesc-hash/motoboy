@@ -43,6 +43,28 @@ import {
 } from "@/lib/me-settings";
 import { AppPage } from "@/components/app-page";
 import { openPwaInstallPrompt } from "@/lib/pwa-install";
+import {
+  ConfigSettingsTabs,
+  type ConfigSettingsTab,
+} from "@/components/config-settings-tabs";
+import { ConfigPaymentSection } from "@/components/config-payment-section";
+
+function configTabFromSearchParams(
+  searchParams: URLSearchParams,
+): ConfigSettingsTab {
+  return searchParams.get("tab") === "pagamento" ? "pagamento" : "perfil";
+}
+
+function buildConfigHref(
+  tab: ConfigSettingsTab,
+  searchParams: URLSearchParams,
+): string {
+  const params = new URLSearchParams(searchParams.toString());
+  if (tab === "perfil") params.delete("tab");
+  else params.set("tab", "pagamento");
+  const q = params.toString();
+  return q ? `/config?${q}` : "/config";
+}
 
 function ConfigPageInner() {
   const api = useApi();
@@ -58,6 +80,7 @@ function ConfigPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isSetup = searchParams.get("setup") === "1";
+  const activeTab = configTabFromSearchParams(searchParams);
 
   const [form, setForm] = useState<ConfigFormSnapshot>(buildInitialConfigForm);
   const [saved, setSaved] = useState(false);
@@ -237,6 +260,32 @@ function ConfigPageInner() {
   const showLoading =
     meSettingsLoading && !meSettings && !hasPendingProfile;
 
+  function setActiveTab(tab: ConfigSettingsTab) {
+    router.replace(buildConfigHref(tab, searchParams));
+  }
+
+  const subscriptionActive = subscription?.status === "ACTIVE";
+  const activePaymentMethod = normalizeSubscriptionPaymentMethod(
+    subscription?.subscriptionPaymentMethod,
+  );
+
+  const saveButton = (
+    <div className="space-y-2 scroll-mt-4" id="onboarding-save">
+      <Button onClick={save} className="w-full" size="lg" disabled={saving}>
+        {saving ? (
+          "Salvando..."
+        ) : saved ? (
+          <span className="inline-flex items-center gap-2">
+            <Check className="h-4 w-4" strokeWidth={2} />
+            Salvo!
+          </span>
+        ) : (
+          "Salvar configurações"
+        )}
+      </Button>
+    </div>
+  );
+
   return (
     <AppPage className="p-4 space-y-6 pb-8">
       <div className="flex items-start justify-between gap-3">
@@ -288,116 +337,118 @@ function ConfigPageInner() {
         </div>
       )}
 
-      <div id="onboarding-profile" className="scroll-mt-4 rounded-xl transition-shadow">
-        <ProfileForm
-          value={profile}
-          onChange={setProfile}
-          storedWhatsApp={
-            meSettings?.profile.whatsappNumber ??
-            (session?.phone ? toStoredWhatsApp(session.phone) : null)
-          }
-          subscriptionActive={subscription?.status === "ACTIVE"}
-          subscriptionPaymentMethod={normalizeSubscriptionPaymentMethod(
-            subscription?.subscriptionPaymentMethod,
-          )}
-          subscribedAt={subscription?.subscribedAt ?? null}
-        />
-      </div>
+      <ConfigSettingsTabs active={activeTab} onChange={setActiveTab} />
 
-      <section
-        id="onboarding-goals"
-        className="scroll-mt-4 space-y-3 rounded-xl border border-border bg-card p-4 transition-shadow"
-      >
-        <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-          <Target className="h-4 w-4" strokeWidth={1.75} />
-          Metas (calendário real)
-        </h2>
-        <Field
-          label="Meta mensal (R$)"
-          value={monthlyGoal}
-          onChange={(v) => patchForm({ monthlyGoal: v })}
-        />
-        {previewPlan && (
-          <div className="text-xs text-muted-foreground space-y-1 rounded-lg bg-muted/30 p-3">
-            <p>
-              <span className="text-foreground font-medium">Semana:</span>{" "}
-              {formatBRL(previewPlan.weeklyTarget)} ({previewPlan.workDaysInWeek}{" "}
-              dias úteis nesta semana)
-            </p>
-            <p>
-              <span className="text-foreground font-medium">Dia:</span>{" "}
-              {formatBRL(previewPlan.dailyTarget)} ({previewPlan.workDaysInMonth}{" "}
-              dias úteis no mês)
-            </p>
+      {activeTab === "perfil" ? (
+        <>
+          <div
+            id="onboarding-profile"
+            className="scroll-mt-4 rounded-xl transition-shadow"
+          >
+            <ProfileForm
+              value={profile}
+              onChange={setProfile}
+              storedWhatsApp={
+                meSettings?.profile.whatsappNumber ??
+                (session?.phone ? toStoredWhatsApp(session.phone) : null)
+              }
+            />
           </div>
-        )}
-        <p className="text-xs text-muted-foreground">
-          A meta semanal e a do dia são calculadas automaticamente pelos dias
-          trabalhados no mês e na semana correntes.
-        </p>
-      </section>
 
-      <section
-        id="onboarding-fuel"
-        className="scroll-mt-4 p-4 rounded-xl border border-border bg-card space-y-2 transition-shadow"
-      >
-        <h2 className="text-sm font-medium text-emerald-400 flex items-center gap-2">
-          <Fuel className="h-4 w-4" strokeWidth={1.75} />
-          Gasolina do dia
-        </h2>
-        {fuelStats?.isActual ? (
-          <>
-            <p className="text-sm">
-              Gasto hoje: <strong>{formatBRL(fuelStats.cost)}</strong> (
-              {fuelStats.litersToday.toFixed(1)} L)
-            </p>
+          <section
+            id="onboarding-goals"
+            className="scroll-mt-4 space-y-3 rounded-xl border border-border bg-card p-4 transition-shadow"
+          >
+            <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Target className="h-4 w-4" strokeWidth={1.75} />
+              Metas (calendário real)
+            </h2>
+            <Field
+              label="Meta mensal (R$)"
+              value={monthlyGoal}
+              onChange={(v) => patchForm({ monthlyGoal: v })}
+            />
+            {previewPlan && (
+              <div className="text-xs text-muted-foreground space-y-1 rounded-lg bg-muted/30 p-3">
+                <p>
+                  <span className="text-foreground font-medium">Semana:</span>{" "}
+                  {formatBRL(previewPlan.weeklyTarget)} ({previewPlan.workDaysInWeek}{" "}
+                  dias úteis nesta semana)
+                </p>
+                <p>
+                  <span className="text-foreground font-medium">Dia:</span>{" "}
+                  {formatBRL(previewPlan.dailyTarget)} ({previewPlan.workDaysInMonth}{" "}
+                  dias úteis no mês)
+                </p>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
-              Último preço:{" "}
-              {fuelStats.lastPricePerLiter != null
-                ? `${formatBRL(fuelStats.lastPricePerLiter)}/L`
-                : "—"}
-              {" · "}
-              Média:{" "}
-              {fuelStats.avgPricePerLiter != null
-                ? `${formatBRL(fuelStats.avgPricePerLiter)}/L`
-                : "—"}
+              A meta semanal e a do dia são calculadas automaticamente pelos dias
+              trabalhados no mês e na semana correntes.
             </p>
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Manda no WhatsApp: foto do cupom ou &quot;abasteci 40 reais 6 litros&quot;
-            para usar valor real no lucro.
-          </p>
-        )}
-        {currentKm != null && (
-          <p className="text-sm pt-2 border-t border-border">
-            <span className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-              Hodômetro: <strong>{currentKm.toLocaleString("pt-BR")} km</strong>
-            </span>
-          </p>
-        )}
-      </section>
+          </section>
 
-      <div className="space-y-2 scroll-mt-4" id="onboarding-save">
-        <Button
-          onClick={save}
-          className="w-full"
-          size="lg"
-          disabled={saving}
-        >
-          {saving ? (
-            "Salvando..."
-          ) : saved ? (
-            <span className="inline-flex items-center gap-2">
-              <Check className="h-4 w-4" strokeWidth={2} />
-              Salvo!
-            </span>
-          ) : (
-            "Salvar configurações"
-          )}
-        </Button>
-      </div>
+          <section
+            id="onboarding-fuel"
+            className="scroll-mt-4 p-4 rounded-xl border border-border bg-card space-y-2 transition-shadow"
+          >
+            <h2 className="text-sm font-medium text-emerald-400 flex items-center gap-2">
+              <Fuel className="h-4 w-4" strokeWidth={1.75} />
+              Gasolina do dia
+            </h2>
+            {fuelStats?.isActual ? (
+              <>
+                <p className="text-sm">
+                  Gasto hoje: <strong>{formatBRL(fuelStats.cost)}</strong> (
+                  {fuelStats.litersToday.toFixed(1)} L)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Último preço:{" "}
+                  {fuelStats.lastPricePerLiter != null
+                    ? `${formatBRL(fuelStats.lastPricePerLiter)}/L`
+                    : "—"}
+                  {" · "}
+                  Média:{" "}
+                  {fuelStats.avgPricePerLiter != null
+                    ? `${formatBRL(fuelStats.avgPricePerLiter)}/L`
+                    : "—"}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Manda no WhatsApp: foto do cupom ou &quot;abasteci 40 reais 6 litros&quot;
+                para usar valor real no lucro.
+              </p>
+            )}
+            {currentKm != null && (
+              <p className="text-sm pt-2 border-t border-border">
+                <span className="flex items-center gap-2">
+                  <Gauge
+                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    strokeWidth={1.75}
+                  />
+                  Hodômetro: <strong>{currentKm.toLocaleString("pt-BR")} km</strong>
+                </span>
+              </p>
+            )}
+          </section>
+
+          {saveButton}
+        </>
+      ) : (
+        <>
+          <ConfigPaymentSection
+            paymentMethod={profile.subscriptionPaymentMethod}
+            onPaymentMethodChange={(id) =>
+              setProfile({ ...profile, subscriptionPaymentMethod: id })
+            }
+            subscriptionActive={subscriptionActive}
+            subscriptionPaymentMethod={activePaymentMethod}
+            subscribedAt={subscription?.subscribedAt ?? null}
+          />
+          {saveButton}
+        </>
+      )}
 
       <button
         type="button"
