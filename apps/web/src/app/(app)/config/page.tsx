@@ -22,7 +22,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
-import type { FuelDayStats } from "@motoboy/types";
+import type { FuelDayStats, SubscriptionStatus } from "@motoboy/types";
+import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 import { toStoredWhatsApp } from "@motoboy/types";
 import { Check, Fuel, Gauge, History, Target } from "lucide-react";
 import Link from "next/link";
@@ -66,6 +67,9 @@ function ConfigPageInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(
+    null,
+  );
   const formDirtyRef = useRef(false);
   const lastAppliedFingerprintRef = useRef<string | null>(null);
   const { profile, monthlyGoal } = form;
@@ -156,6 +160,9 @@ function ConfigPageInner() {
     api<{ currentKm: number | null }>("/me/odometer").then((r) =>
       setCurrentKm(r.currentKm),
     );
+    void api<SubscriptionStatus>("/me/subscription")
+      .then(setSubscription)
+      .catch(() => setSubscription(null));
   }, [api, sessionStatus]);
 
   function patchForm(patch: Partial<ConfigFormSnapshot>) {
@@ -289,6 +296,11 @@ function ConfigPageInner() {
             meSettings?.profile.whatsappNumber ??
             (session?.phone ? toStoredWhatsApp(session.phone) : null)
           }
+          subscriptionActive={subscription?.status === "ACTIVE"}
+          subscriptionPaymentMethod={normalizeSubscriptionPaymentMethod(
+            subscription?.subscriptionPaymentMethod,
+          )}
+          subscribedAt={subscription?.subscribedAt ?? null}
         />
       </div>
 

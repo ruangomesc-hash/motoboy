@@ -24,7 +24,7 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
   {
     id: "CREDIT_CARD",
     label: "Cartão",
-    hint: "Cartão de crédito · em breve (Stripe)",
+    hint: "Cartão de crédito (em breve)",
   },
   {
     id: "BOLETO",
@@ -33,15 +33,14 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
   },
 ];
 
-/** Opções exibidas no app (sem boleto). */
-export const SUBSCRIPTION_PAYMENT_OPTIONS_UI =
-  SUBSCRIPTION_PAYMENT_OPTIONS.filter((o) => o.id !== "BOLETO");
+/** Opções exibidas no app — só Asaas (Pix) por enquanto. */
+export const SUBSCRIPTION_PAYMENT_OPTIONS_UI = SUBSCRIPTION_PAYMENT_OPTIONS.filter(
+  (o) => o.id === "PIX",
+);
 
 export function normalizeSubscriptionPaymentMethod(
   method: SubscriptionPaymentMethod | string | null | undefined,
 ): SubscriptionPaymentMethod {
-  if (method === "CREDIT_CARD") return "CREDIT_CARD";
-  if (method === "BOLETO") return "PIX";
   return "PIX";
 }
 

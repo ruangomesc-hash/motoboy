@@ -5,10 +5,8 @@ import type { DeliverySource, SubscriptionPaymentMethod } from "@motoboy/types";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { maskPhone, formatPhoneDisplay } from "@/lib/phone-mask";
-import {
-  SUBSCRIPTION_PAYMENT_OPTIONS_UI,
-  WORK_APP_OPTIONS,
-} from "@/lib/profile-options";
+import { WORK_APP_OPTIONS } from "@/lib/profile-options";
+import { PaymentMethodCards } from "@/components/payment-method-cards";
 import Link from "next/link";
 import { WorkDaysPicker } from "@/components/work-days-picker";
 
@@ -27,11 +25,17 @@ export function ProfileForm({
   value,
   onChange,
   storedWhatsApp,
+  subscriptionActive,
+  subscriptionPaymentMethod,
+  subscribedAt,
 }: {
   value: ProfileFormState;
   onChange: (next: ProfileFormState) => void;
   /** Número salvo no servidor (55 + 11 dígitos) — exibido mesmo antes do input sincronizar. */
   storedWhatsApp?: string | null;
+  subscriptionActive?: boolean;
+  subscriptionPaymentMethod?: SubscriptionPaymentMethod | null;
+  subscribedAt?: string | null;
 }) {
   const registeredLabel =
     storedWhatsApp?.trim() && formatPhoneDisplay(storedWhatsApp);
@@ -134,18 +138,28 @@ export function ProfileForm({
 
       <div>
         <p className="text-sm text-muted-foreground mb-2">Forma de pagamento</p>
-        <ChipGroup
-          options={SUBSCRIPTION_PAYMENT_OPTIONS_UI}
+        <PaymentMethodCards
           selected={value.subscriptionPaymentMethod}
           onSelect={(id) => onChange({ ...value, subscriptionPaymentMethod: id })}
-          single
+          activeMethod={subscriptionPaymentMethod}
+          subscriptionActive={subscriptionActive}
+          subscribedAt={subscribedAt}
+          readOnly={subscriptionActive}
         />
         <p className="text-xs text-muted-foreground mt-2">
-          R$ 15,90/mês · Acesso completo. Salve aqui e conclua o pagamento em{" "}
-          <Link href="/assinar" className="text-primary underline-offset-2 hover:underline">
-            Assinar
-          </Link>
-          .
+          R$ 15,90/mês · Pix via Asaas.{" "}
+          {!subscriptionActive && (
+            <>
+              Conclua em{" "}
+              <Link
+                href="/assinar"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                Assinar
+              </Link>
+              .
+            </>
+          )}
         </p>
       </div>
     </section>

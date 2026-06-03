@@ -9,32 +9,30 @@ import type {
   SubscriptionPaymentMethod,
   SubscriptionStatus,
 } from "@motoboy/types";
-import {
-  SUBSCRIPTION_PAYMENT_OPTIONS_UI,
-  normalizeSubscriptionPaymentMethod,
-} from "@/lib/profile-options";
+import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
+import { PaymentMethodCards } from "@/components/payment-method-cards";
 import { useSession } from "next-auth/react";
-import { cn } from "@/lib/utils";
 
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
   asaasConfigured: boolean;
   onActivated?: () => void;
-  /** Só layout — não chama API (conta já ACTIVE + ?preview=checkout). */
-  previewOnly?: boolean;
+  subscriptionActive?: boolean;
+  activePaymentMethod?: SubscriptionPaymentMethod | null;
+  subscribedAt?: string | null;
 };
 
 export function AsaasTransparentCheckout({
   initialMethod,
   asaasConfigured,
   onActivated,
-  previewOnly = false,
+  subscriptionActive = false,
+  activePaymentMethod,
+  subscribedAt,
 }: Props) {
   const api = useApi();
   const { status: sessionStatus } = useSession();
-  const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
-    () => normalizeSubscriptionPaymentMethod(initialMethod),
-  );
+  const paymentMethod = "PIX" as const;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
@@ -54,18 +52,14 @@ export function AsaasTransparentCheckout({
   }, [api, onActivated]);
 
   useEffect(() => {
-    setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
-  }, [initialMethod]);
-
-  useEffect(() => {
     if (!checkout || !polling) return;
     const id = window.setInterval(() => void pollStatus(), 4000);
     return () => window.clearInterval(id);
   }, [checkout, polling, pollStatus]);
 
   async function startCheckout() {
-    if (previewOnly) {
-      setError("Modo visualização — não é possível gerar cobrança com assinatura ativa.");
+    if (subscriptionActive) {
+      setError("Você já tem assinatura ativa.");
       return;
     }
     if (sessionStatus !== "authenticated") {
@@ -78,7 +72,7 @@ export function AsaasTransparentCheckout({
     try {
       const data = await api<SubscribeResponse>("/me/subscribe", {
         method: "POST",
-        body: JSON.stringify({ paymentMethod }),
+        body: JSON.stringify({ paymentMethod: "PIX" }),
       });
       setCheckout(data);
       setPolling(true);
@@ -104,7 +98,7 @@ export function AsaasTransparentCheckout({
   if (checkout) {
     return (
       <div className="space-y-4">
-        {paymentMethod === "PIX" && checkout.pixCopyPaste && (
+        {checkout.pixCopyPaste && (
           <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
             <p className="text-sm font-medium">Pix copia e cola</p>
             <p className="text-xs text-muted-foreground break-all font-mono leading-relaxed max-h-28 overflow-y-auto">
@@ -126,17 +120,6 @@ export function AsaasTransparentCheckout({
           </div>
         )}
 
-        {paymentMethod === "CREDIT_CARD" && (
-          <div className="rounded-xl border border-dashed border-border/60 bg-card/30 p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Cartão de crédito</p>
-            <p>
-              Formulário de cartão (checkout transparente Asaas) será integrado aqui.
-              Cobrança já criada no Asaas — ID:{" "}
-              <span className="font-mono text-xs">{checkout.chargeId}</span>
-            </p>
-          </div>
-        )}
-
         <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Aguardando confirmação do pagamento…
@@ -151,7 +134,7 @@ export function AsaasTransparentCheckout({
             setPolling(false);
           }}
         >
-          Escolher outra forma de pagamento
+          Voltar
         </Button>
       </div>
     );
@@ -161,48 +144,33 @@ export function AsaasTransparentCheckout({
     <div className="space-y-4">
       <div className="space-y-2">
         <p className="text-sm font-medium">Forma de pagamento</p>
-        <div className="grid gap-2">
-          {SUBSCRIPTION_PAYMENT_OPTIONS_UI.map((opt) => {
-            const selected = paymentMethod === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={!asaasConfigured && !previewOnly}
-                onClick={() => setPaymentMethod(opt.id)}
-                className={cn(
-                  "rounded-xl border p-3 text-left transition-colors",
-                  selected
-                    ? "border-primary bg-primary/10"
-                    : "border-border/60 bg-card/50",
-                  !asaasConfigured && "opacity-50 cursor-not-allowed",
-                )}
-              >
-                <span className="font-medium text-foreground block">{opt.label}</span>
-                <span className="text-xs text-muted-foreground">{opt.hint}</span>
-              </button>
-            );
-          })}
-        </div>
+        <PaymentMethodCards
+          selected={normalizeSubscriptionPaymentMethod(initialMethod)}
+          activeMethod={activePaymentMethod}
+          subscriptionActive={subscriptionActive}
+          subscribedAt={subscribedAt}
+          readOnly={subscriptionActive}
+          disabled={!asaasConfigured}
+        />
       </div>
 
-      <Button
-        size="lg"
-        className="w-full"
-        disabled={loading || (!asaasConfigured && !previewOnly)}
-        onClick={startCheckout}
-      >
-        {loading ? (
-          <>
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Gerando cobrança…
-          </>
-        ) : previewOnly ? (
-          "Gerar pagamento (visualização)"
-        ) : (
-          "Gerar pagamento"
-        )}
-      </Button>
+      {!subscriptionActive && (
+        <Button
+          size="lg"
+          className="w-full"
+          disabled={loading || !asaasConfigured}
+          onClick={startCheckout}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Gerando cobrança…
+            </>
+          ) : (
+            "Assinar por R$ 15,90/mês"
+          )}
+        </Button>
+      )}
 
       {error && <p className="text-sm text-destructive text-center">{error}</p>}
     </div>
