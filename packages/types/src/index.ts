@@ -416,12 +416,51 @@ export const affiliateValidateResponseSchema = z.object({
 /** Métodos aceitos no checkout do motoboy (/me/subscribe). */
 export const subscribePaymentMethodSchema = z.enum(["PIX", "CREDIT_CARD"]);
 
+export const subscribeCreditCardSchema = z.object({
+  holderName: z.string().trim().min(3).max(80),
+  number: z
+    .string()
+    .transform((s) => s.replace(/\D/g, ""))
+    .refine((d) => d.length >= 13 && d.length <= 19, "Número do cartão inválido"),
+  expiryMonth: z.string().regex(/^\d{2}$/, "Mês inválido"),
+  expiryYear: z
+    .string()
+    .regex(/^\d{4}$/, "Ano inválido")
+    .refine((y) => Number(y) >= new Date().getFullYear(), "Cartão vencido"),
+  ccv: z
+    .string()
+    .transform((s) => s.replace(/\D/g, ""))
+    .refine((d) => d.length >= 3 && d.length <= 4, "CVV inválido"),
+});
+
+export const subscribeCreditCardHolderSchema = z.object({
+  name: z.string().trim().min(3).max(80),
+  email: z.string().trim().email().max(120),
+  cpfCnpj: cpfCnpjFieldSchema,
+  postalCode: z
+    .string()
+    .transform((s) => s.replace(/\D/g, ""))
+    .refine((d) => d.length === 8, "CEP inválido"),
+  addressNumber: z.string().trim().min(1).max(10),
+  phone: z
+    .string()
+    .transform((s) => s.replace(/\D/g, ""))
+    .refine((d) => d.length >= 10 && d.length <= 13, "Telefone inválido"),
+  addressComplement: z.string().trim().max(40).optional(),
+});
+
 export const subscribeRequestSchema = z.object({
   paymentMethod: subscribePaymentMethodSchema.optional(),
   cpfCnpj: cpfCnpjFieldSchema.optional(),
+  creditCard: subscribeCreditCardSchema.optional(),
+  creditCardHolderInfo: subscribeCreditCardHolderSchema.optional(),
 });
 
 export type SubscribeRequest = z.infer<typeof subscribeRequestSchema>;
+export type SubscribeCreditCardInput = z.infer<typeof subscribeCreditCardSchema>;
+export type SubscribeCreditCardHolderInput = z.infer<
+  typeof subscribeCreditCardHolderSchema
+>;
 
 export const subscribeResponseSchema = z.object({
   amount: z.number(),
@@ -432,6 +471,9 @@ export const subscribeResponseSchema = z.object({
   pixQrCodeImage: z.string().nullable().optional(),
   invoiceUrl: z.string().nullable().optional(),
   subscriptionId: z.string().optional(),
+  /** Cartão validado na API (sem redirecionar para fatura Asaas). */
+  cardAuthorized: z.boolean().optional(),
+  activated: z.boolean().optional(),
 });
 
 export type SubscribeResponse = z.infer<typeof subscribeResponseSchema>;

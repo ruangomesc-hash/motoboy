@@ -67,7 +67,11 @@ type AsaasPayment = {
   subscription?: string;
 };
 type AsaasPixQr = { payload?: string; encodedImage?: string };
-type AsaasSubscription = { id: string; billingType?: string };
+type AsaasSubscription = {
+  id: string;
+  billingType?: string;
+  status?: string;
+};
 
 export type SubscribeCheckoutResult = {
   checkoutUrl: string;
@@ -77,6 +81,29 @@ export type SubscribeCheckoutResult = {
   pixQrCodeImage: string | null;
   amount: number;
   subscriptionId: string;
+  cardAuthorized?: boolean;
+  activated?: boolean;
+};
+
+export type SubscribeCheckoutOptions = {
+  cpfCnpj?: string;
+  creditCard?: {
+    holderName: string;
+    number: string;
+    expiryMonth: string;
+    expiryYear: string;
+    ccv: string;
+  };
+  creditCardHolderInfo?: {
+    name: string;
+    email: string;
+    cpfCnpj: string;
+    postalCode: string;
+    addressNumber: string;
+    phone: string;
+    addressComplement?: string;
+  };
+  remoteIp?: string;
 };
 
 export class AsaasService {
@@ -326,7 +353,7 @@ export class AsaasService {
     userId: string,
     paymentMethod: string = "PIX",
     log?: FastifyBaseLogger,
-    options?: { cpfCnpj?: string },
+    options?: SubscribeCheckoutOptions,
   ): Promise<SubscribeCheckoutResult> {
     const routeLog = log ?? this.log;
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -336,12 +363,27 @@ export class AsaasService {
       });
     }
 
-    const cpfRaw = options?.cpfCnpj ?? user.cpfCnpj ?? "";
+    const cpfRaw =
+      options?.cpfCnpj ??
+      options?.creditCardHolderInfo?.cpfCnpj ??
+      user.cpfCnpj ??
+      "";
     const billingType = toAsaasBillingType(paymentMethod);
+    const inlineCard =
+      billingType === "CREDIT_CARD" &&
+      options?.creditCard &&
+      options?.creditCardHolderInfo;
 
     if (!cpfRaw.trim()) {
       throw Object.assign(
         new Error("Informe seu CPF para gerar a cobrança."),
+        { statusCode: 400 },
+      );
+    }
+
+    if (billingType === "CREDIT_CARD" && !inlineCard) {
+      throw Object.assign(
+        new Error("Preencha os dados do cartão para continuar."),
         { statusCode: 400 },
       );
     }
@@ -379,7 +421,7 @@ export class AsaasService {
       userFresh,
       userFresh.cpfCnpj,
     );
-    const nextDueDate = dueDatePlusDays(1);
+    const nextDueDate = dueDatePlusDays(0);
 
     let subId = userFresh.asaasSubscriptionId;
     subId = await this.ensureSubscriptionBillingType(
@@ -390,6 +432,17 @@ export class AsaasService {
     );
 
     if (!subId) {
+      if (inlineCard) {
+        const cardResult = await this.createSubscriptionWithCreditCard(
+          customerId,
+          userId,
+          nextDueDate,
+          options!,
+          routeLog,
+        );
+        return cardResult;
+      }
+
       const sub = await this.api<AsaasSubscription>(
         "/subscriptions",
         {
@@ -432,6 +485,13 @@ export class AsaasService {
         }
         throw err;
       }
+    } else if (inlineCard) {
+      throw Object.assign(
+        new Error(
+          "Já existe uma assinatura em andamento. Aguarde um minuto ou troque para Pix.",
+        ),
+        { statusCode: 409 },
+      );
     }
 
     const first = await this.waitForFirstSubscriptionPayment(
@@ -449,8 +509,92 @@ export class AsaasService {
       subId,
     );
 
-    this.assertCheckoutReady(resolved, billingType);
+    this.assertCheckoutReady(resolved, billingType, false);
     return resolved;
+  }
+
+  private async createSubscriptionWithCreditCard(
+    customerId: string,
+    userId: string,
+    nextDueDate: string,
+    options: SubscribeCheckoutOptions,
+    log?: FastifyBaseLogger,
+  ): Promise<SubscribeCheckoutResult> {
+    const remoteIp = options.remoteIp?.trim() || "127.0.0.1";
+    const holder = options.creditCardHolderInfo!;
+    const card = options.creditCard!;
+
+    const sub = await this.api<AsaasSubscription>(
+      "/subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          customer: customerId,
+          billingType: "CREDIT_CARD",
+          value: SUBSCRIPTION_PRICE,
+          cycle: "MONTHLY",
+          nextDueDate,
+          description: "Motocopiloto — assinatura mensal",
+          externalReference: userId,
+          creditCard: {
+            holderName: card.holderName,
+            number: card.number,
+            expiryMonth: card.expiryMonth,
+            expiryYear: card.expiryYear,
+            ccv: card.ccv,
+          },
+          creditCardHolderInfo: {
+            name: holder.name,
+            email: holder.email,
+            cpfCnpj: holder.cpfCnpj,
+            postalCode: holder.postalCode,
+            addressNumber: holder.addressNumber,
+            phone: holder.phone,
+            mobilePhone: holder.phone,
+            ...(holder.addressComplement
+              ? { addressComplement: holder.addressComplement }
+              : {}),
+          },
+          remoteIp,
+        }),
+      },
+      "createSubscriptionWithCreditCard",
+    );
+
+    if (!sub.id) {
+      throw new Error("Falha ao validar cartão no Asaas");
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { asaasSubscriptionId: sub.id },
+    });
+
+    log?.info({ userId, subId: sub.id }, "Assinatura criada com cartão (inline)");
+
+    const sync = await this.syncSubscriptionPaymentStatus(userId, log);
+
+    const first = await this.waitForFirstSubscriptionPayment(
+      sub.id,
+      "CREDIT_CARD",
+      log,
+      4,
+    );
+    if (first?.id) {
+      await this.ensurePendingPaymentRecord(userId, first.id);
+    }
+
+    return {
+      checkoutUrl: "",
+      chargeId: first?.id ?? sub.id,
+      invoiceUrl: "",
+      pixCopyPaste: null,
+      pixQrCodeImage: null,
+      amount: SUBSCRIPTION_PRICE,
+      subscriptionId: sub.id,
+      cardAuthorized: true,
+      activated: sync.activated,
+    };
   }
 
   /**
@@ -525,9 +669,12 @@ export class AsaasService {
   private assertCheckoutReady(
     resolved: SubscribeCheckoutResult,
     billingType: string,
+    allowCardWithoutInvoice: boolean,
   ): void {
     if (
       billingType === "CREDIT_CARD" &&
+      !allowCardWithoutInvoice &&
+      !resolved.cardAuthorized &&
       !isAsaasHostedInvoiceUrl(resolved.invoiceUrl)
     ) {
       throw Object.assign(
@@ -556,8 +703,9 @@ export class AsaasService {
     subId: string,
     billingType: string,
     log?: FastifyBaseLogger,
+    maxAttempts = FIRST_PAYMENT_POLL_ATTEMPTS,
   ): Promise<AsaasPayment | undefined> {
-    for (let attempt = 0; attempt < FIRST_PAYMENT_POLL_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const payments = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${subId}/payments?limit=5`,
         {},
@@ -591,7 +739,7 @@ export class AsaasService {
         }
       }
 
-      if (attempt < FIRST_PAYMENT_POLL_ATTEMPTS - 1) {
+      if (attempt < maxAttempts - 1) {
         await sleep(FIRST_PAYMENT_POLL_MS);
       }
     }
@@ -759,7 +907,7 @@ export class AsaasService {
           user.asaasSubscriptionId ?? remote.subscription ?? pending.asaasChargeId,
         );
         try {
-          this.assertCheckoutReady(checkout, billingType);
+          this.assertCheckoutReady(checkout, billingType, false);
           return checkout;
         } catch {
           return null;
@@ -797,7 +945,7 @@ export class AsaasService {
           user.asaasSubscriptionId,
         );
         try {
-          this.assertCheckoutReady(checkout, billingType);
+          this.assertCheckoutReady(checkout, billingType, false);
           return checkout;
         } catch {
           return null;

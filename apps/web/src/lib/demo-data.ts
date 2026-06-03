@@ -678,15 +678,25 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
     return Promise.resolve(demoProfile as T);
   }
   if (path === "/me/subscribe" && method === "POST") {
+    let body: { paymentMethod?: string } = {};
+    try {
+      body = options.body ? JSON.parse(options.body as string) : {};
+    } catch {
+      body = {};
+    }
+    const isCard = body.paymentMethod === "CREDIT_CARD";
     return Promise.resolve({
       amount: 15.9,
       chargeId: "demo_charge_1",
-      paymentMethod: "PIX",
-      pixCopyPaste:
-        "00020126580014br.gov.bcb.pix0136123e456789-e.mock-MOTOCOPILOTO520400005303986540514.905802BR5925Motocopiloto6009SAO PAULO62070503***6304ABCD",
+      paymentMethod: isCard ? "CREDIT_CARD" : "PIX",
+      pixCopyPaste: isCard
+        ? null
+        : "00020126580014br.gov.bcb.pix0136123e456789-e.mock-MOTOCOPILOTO520400005303986540514.905802BR5925Motocopiloto6009SAO PAULO62070503***6304ABCD",
       pixQrCodeImage: null,
       invoiceUrl: null,
       subscriptionId: "demo_sub_1",
+      cardAuthorized: isCard,
+      activated: false,
     } as T);
   }
   if (path === "/me/subscription/refresh" && method === "POST") {

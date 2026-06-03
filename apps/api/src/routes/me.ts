@@ -54,9 +54,12 @@ import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
 import { AsaasService } from "../services/asaas.js";
 import {
+  subscribeCreditCardHolderSchema,
+  subscribeCreditCardSchema,
   subscribePaymentMethodSchema,
   subscribeRequestSchema,
 } from "@motoboy/types";
+import type { SubscribeCheckoutOptions } from "../services/asaas.js";
 import {
   toPublicDeliveries,
   toPublicDelivery,
@@ -67,6 +70,20 @@ import {
   dayRangeFromDateInput,
   dayRangeFromDateInputInclusiveEnd,
 } from "../lib/local-day-range.js";
+
+function clientIpFromRequest(request: {
+  ip?: string;
+  headers: Record<string, string | string[] | undefined>;
+}): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]!.trim();
+  }
+  if (Array.isArray(forwarded) && forwarded[0]) {
+    return String(forwarded[0]).split(",")[0]!.trim();
+  }
+  return request.ip?.trim() || "127.0.0.1";
+}
 
 const routeOptimizeSchema = z.object({
   addresses: z
@@ -867,6 +884,32 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    const checkoutOptions: SubscribeCheckoutOptions = {
+      cpfCnpj: cpfFromBody ?? user.cpfCnpj ?? undefined,
+      remoteIp: clientIpFromRequest(request),
+    };
+
+    if (paymentMethod === "CREDIT_CARD") {
+      const cardParsed = subscribeCreditCardSchema.safeParse(
+        parsedBody.data.creditCard,
+      );
+      const holderParsed = subscribeCreditCardHolderSchema.safeParse(
+        parsedBody.data.creditCardHolderInfo,
+      );
+      if (!cardParsed.success || !holderParsed.success) {
+        return reply.status(400).send({
+          error: "Preencha todos os dados do cartão e do titular.",
+        });
+      }
+      checkoutOptions.creditCard = cardParsed.data;
+      checkoutOptions.creditCardHolderInfo = holderParsed.data;
+      checkoutOptions.cpfCnpj = holderParsed.data.cpfCnpj;
+    } else if (!checkoutOptions.cpfCnpj) {
+      return reply.status(400).send({
+        error: "Informe seu CPF para gerar a cobrança Pix.",
+      });
+    }
+
     await prisma.user.update({
       where: { id: userId },
       data: { subscriptionPaymentMethod: paymentMethod },
@@ -877,7 +920,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         userId,
         paymentMethod,
         request.log,
-        { cpfCnpj: cpfFromBody ?? user.cpfCnpj ?? undefined },
+        checkoutOptions,
       );
       return {
         amount: result.amount,
@@ -887,6 +930,8 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         pixQrCodeImage: result.pixQrCodeImage ?? null,
         invoiceUrl: result.invoiceUrl ?? null,
         subscriptionId: result.subscriptionId,
+        cardAuthorized: result.cardAuthorized ?? false,
+        activated: result.activated ?? false,
       };
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode;
@@ -898,6 +943,9 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       }
       if (statusCode === 404) {
         return reply.status(404).send({ error: message });
+      }
+      if (statusCode === 409) {
+        return reply.status(409).send({ error: message });
       }
       if (statusCode === 503) {
         return reply.status(503).send({ error: message });
