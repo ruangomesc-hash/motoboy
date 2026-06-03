@@ -24,7 +24,7 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
   {
     id: "CREDIT_CARD",
     label: "Cartão",
-    hint: "Cartão de crédito (em breve)",
+    hint: "Cartão de crédito · Asaas",
   },
   {
     id: "BOLETO",
@@ -33,14 +33,43 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
   },
 ];
 
-/** Opções exibidas no app — só Asaas (Pix) por enquanto. */
-export const SUBSCRIPTION_PAYMENT_OPTIONS_UI = SUBSCRIPTION_PAYMENT_OPTIONS.filter(
-  (o) => o.id === "PIX",
-);
+/** Pix + cartão — trial, 1ª assinatura ou inadimplente (PAUSED). */
+export const SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT =
+  SUBSCRIPTION_PAYMENT_OPTIONS.filter(
+    (o) => o.id === "PIX" || o.id === "CREDIT_CARD",
+  );
+
+/** Legado: manter export para não quebrar imports antigos. */
+export const SUBSCRIPTION_PAYMENT_OPTIONS_UI =
+  SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT;
+
+export type SubscriptionBillingStatus =
+  | "TRIAL"
+  | "ACTIVE"
+  | "PAUSED"
+  | "CANCELED";
+
+/** Quem pode escolher forma de pagamento antes de assinar / regularizar. */
+export function canChooseSubscriptionPaymentMethod(
+  status: SubscriptionBillingStatus | string | null | undefined,
+): boolean {
+  return status !== "ACTIVE";
+}
+
+export function subscriptionPaymentOptionsForStatus(
+  status: SubscriptionBillingStatus | string | null | undefined,
+) {
+  if (canChooseSubscriptionPaymentMethod(status)) {
+    return SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT;
+  }
+  return SUBSCRIPTION_PAYMENT_OPTIONS.filter((o) => o.id === "PIX" || o.id === "CREDIT_CARD");
+}
 
 export function normalizeSubscriptionPaymentMethod(
   method: SubscriptionPaymentMethod | string | null | undefined,
 ): SubscriptionPaymentMethod {
+  if (method === "CREDIT_CARD") return "CREDIT_CARD";
+  if (method === "PIX") return "PIX";
   return "PIX";
 }
 

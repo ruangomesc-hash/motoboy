@@ -183,6 +183,22 @@ function ConfigPageInner() {
       .catch(() => setSubscription(null));
   }, [api, sessionStatus]);
 
+  const handlePaymentMethodChange = useCallback(
+    (id: ProfileFormState["subscriptionPaymentMethod"]) => {
+      formDirtyRef.current = true;
+      setProfile({ ...profile, subscriptionPaymentMethod: id });
+      void api("/me/profile", {
+        method: "PUT",
+        body: JSON.stringify({ subscriptionPaymentMethod: id }),
+      })
+        .then(() => refreshSubscription())
+        .catch(() => {
+          /* estado local mantido; assinar também envia o método */
+        });
+    },
+    [api, profile, refreshSubscription, setProfile],
+  );
+
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     api<{ stats: FuelDayStats }>("/me/fuel").then((r) => setFuelStats(r.stats));
@@ -439,9 +455,7 @@ function ConfigPageInner() {
           <ConfigPaymentSection
             subscription={subscription}
             paymentMethod={profile.subscriptionPaymentMethod}
-            onPaymentMethodChange={(id) =>
-              setProfile({ ...profile, subscriptionPaymentMethod: id })
-            }
+            onPaymentMethodChange={handlePaymentMethodChange}
             onSubscriptionChange={refreshSubscription}
           />
         </>

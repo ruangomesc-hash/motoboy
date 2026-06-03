@@ -53,7 +53,8 @@ function AssinarPageContent() {
     );
   }
 
-  const isActive = subStatus?.status === "ACTIVE";
+  const status = subStatus?.status ?? "TRIAL";
+  const isActive = status === "ACTIVE";
   const asaasOk = subStatus?.asaas?.configured ?? false;
   const preferredMethod = normalizeSubscriptionPaymentMethod(
     subStatus?.subscriptionPaymentMethod,
@@ -66,7 +67,9 @@ function AssinarPageContent() {
         <p className="text-muted-foreground mt-2 text-sm">
           {isActive
             ? "Seu acesso completo está liberado"
-            : "Trial de 4 dias grátis. Depois, continue por:"}
+            : status === "PAUSED"
+              ? "Regularize o pagamento para liberar o acesso:"
+              : "Trial de 4 dias grátis. Depois, continue por:"}
         </p>
         <p className="text-4xl font-bold text-primary mt-3">
           {SUBSCRIPTION_PRICE_BRL.toLocaleString("pt-BR", {
@@ -99,6 +102,7 @@ function AssinarPageContent() {
         asaasConfigured={asaasOk}
         onActivated={refresh}
         subscriptionActive={isActive}
+        subscriptionStatus={status}
         activePaymentMethod={preferredMethod}
         subscribedAt={subStatus?.subscribedAt ?? null}
       />
@@ -110,7 +114,7 @@ function AssinarPageContent() {
       )}
 
       <p className="text-xs text-center text-muted-foreground">
-        Pagamento mensal via Pix automático (Asaas).
+        Pagamento mensal via Pix ou cartão (Asaas).
       </p>
     </AppPage>
   );

@@ -3,8 +3,10 @@
 import { Check } from "lucide-react";
 import type { SubscriptionPaymentMethod } from "@motoboy/types";
 import {
-  SUBSCRIPTION_PAYMENT_OPTIONS_UI,
+  SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT,
   normalizeSubscriptionPaymentMethod,
+  type SubscriptionBillingStatus,
+  subscriptionPaymentOptionsForStatus,
 } from "@/lib/profile-options";
 import { cn } from "@/lib/utils";
 
@@ -30,14 +32,24 @@ export function PaymentMethodCards({
   disabled = false,
   readOnly = false,
   hideActiveBadge = false,
+  subscriptionStatus,
+  options,
 }: Props) {
   const activeId = subscriptionActive
     ? normalizeSubscriptionPaymentMethod(activeMethod ?? selected)
     : null;
 
+  const paymentOptions =
+    options ??
+    (subscriptionStatus != null
+      ? subscriptionPaymentOptionsForStatus(subscriptionStatus)
+      : subscriptionActive
+        ? subscriptionPaymentOptionsForStatus("ACTIVE")
+        : SUBSCRIPTION_PAYMENT_OPTIONS_CHECKOUT);
+
   return (
-    <div className="grid gap-3">
-      {SUBSCRIPTION_PAYMENT_OPTIONS_UI.map((opt) => {
+    <div className="grid gap-3 sm:grid-cols-2">
+      {paymentOptions.map((opt) => {
         const isSelected = selected === opt.id;
         const isActivePlan = activeId === opt.id;
         const Tag = readOnly ? "div" : "button";

@@ -6,7 +6,10 @@ import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { PaymentMethodCards } from "@/components/payment-method-cards";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
-import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
+import {
+  canChooseSubscriptionPaymentMethod,
+  normalizeSubscriptionPaymentMethod,
+} from "@/lib/profile-options";
 import { Check, CreditCard, Sparkles } from "lucide-react";
 import { CancelSubscriptionButton } from "@/components/cancel-subscription-button";
 
@@ -38,6 +41,7 @@ export function ConfigPaymentSection({
 }: Props) {
   const status = subscription?.status ?? "TRIAL";
   const subscriptionActive = status === "ACTIVE";
+  const canChoosePayment = canChooseSubscriptionPaymentMethod(status);
   const activePaymentMethod = normalizeSubscriptionPaymentMethod(
     subscription?.subscriptionPaymentMethod ?? paymentMethod,
   );
@@ -94,6 +98,13 @@ export function ConfigPaymentSection({
             </p>
           )}
         </div>
+      ) : status === "PAUSED" ? (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-2">
+          <p className="text-sm font-medium text-amber-100">Pagamento em atraso</p>
+          <p className="text-xs text-muted-foreground">
+            Escolha Pix ou cartão e conclua em Assinar para liberar o acesso.
+          </p>
+        </div>
       ) : status === "TRIAL" ? (
         <div className="rounded-xl border border-primary/30 bg-primary/10 p-4 space-y-2">
           <p className="text-sm font-medium flex items-center gap-2">
@@ -136,17 +147,18 @@ export function ConfigPaymentSection({
         </h2>
         <PaymentMethodCards
           selected={paymentMethod}
-          onSelect={subscriptionActive ? undefined : onPaymentMethodChange}
+          onSelect={canChoosePayment ? onPaymentMethodChange : undefined}
           activeMethod={activePaymentMethod}
-          subscriptionActive={false}
-          subscribedAt={null}
-          readOnly
+          subscriptionActive={subscriptionActive}
+          subscriptionStatus={status}
+          subscribedAt={subscribedAt}
+          readOnly={!canChoosePayment}
           hideActiveBadge
         />
-        {!subscriptionActive && (
+        {canChoosePayment && (
           <p className="text-xs text-muted-foreground">
-            Pix automático via Asaas. Salve em Perfil se alterar outros dados; o
-            pagamento é feito em Assinar.
+            Pix ou cartão de crédito via Asaas. A escolha vale para novos cadastros,
+            trial e quem está em atraso. Conclua o pagamento em Assinar.
           </p>
         )}
       </div>

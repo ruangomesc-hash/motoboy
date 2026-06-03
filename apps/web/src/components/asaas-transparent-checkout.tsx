@@ -1,15 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, Loader2 } from "lucide-react";
+import { Check, Copy, CreditCard, ExternalLink, Loader2 } from "lucide-react";
 import type {
   SubscribeResponse,
   SubscriptionPaymentMethod,
   SubscriptionStatus,
 } from "@motoboy/types";
-import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
+import {
+  canChooseSubscriptionPaymentMethod,
+  normalizeSubscriptionPaymentMethod,
+  type SubscriptionBillingStatus,
+} from "@/lib/profile-options";
 import { PaymentMethodCards } from "@/components/payment-method-cards";
 import { useSession } from "next-auth/react";
 
@@ -20,6 +25,7 @@ type Props = {
   asaasConfigured: boolean;
   onActivated?: () => void;
   subscriptionActive?: boolean;
+  subscriptionStatus?: SubscriptionBillingStatus | string | null;
   activePaymentMethod?: SubscriptionPaymentMethod | null;
   subscribedAt?: string | null;
 };
@@ -36,17 +42,25 @@ export function AsaasTransparentCheckout({
   asaasConfigured,
   onActivated,
   subscriptionActive = false,
+  subscriptionStatus = "TRIAL",
   activePaymentMethod,
   subscribedAt,
 }: Props) {
   const api = useApi();
   const { status: sessionStatus } = useSession();
-  const paymentMethod = "PIX" as const;
+  const canChoose = canChooseSubscriptionPaymentMethod(subscriptionStatus);
+  const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
+    () => normalizeSubscriptionPaymentMethod(initialMethod),
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [polling, setPolling] = useState(false);
+
+  useEffect(() => {
+    setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
+  }, [initialMethod]);
 
   const pollStatus = useCallback(async () => {
     try {
@@ -66,6 +80,22 @@ export function AsaasTransparentCheckout({
     return () => window.clearInterval(id);
   }, [checkout, polling, pollStatus]);
 
+  async function persistPaymentPreference(method: SubscriptionPaymentMethod) {
+    try {
+      await api("/me/profile", {
+        method: "PUT",
+        body: JSON.stringify({ subscriptionPaymentMethod: method }),
+      });
+    } catch {
+      /* preferência local ainda vale no checkout */
+    }
+  }
+
+  function handleSelectMethod(method: SubscriptionPaymentMethod) {
+    setPaymentMethod(method);
+    void persistPaymentPreference(method);
+  }
+
   async function startCheckout() {
     if (subscriptionActive) {
       setError("Você já tem assinatura ativa.");
@@ -81,7 +111,7 @@ export function AsaasTransparentCheckout({
     try {
       const data = await api<SubscribeResponse>("/me/subscribe", {
         method: "POST",
-        body: JSON.stringify({ paymentMethod: "PIX" }),
+        body: JSON.stringify({ paymentMethod }),
       });
       setCheckout(data);
       setPolling(true);
@@ -104,8 +134,53 @@ export function AsaasTransparentCheckout({
     }
   }
 
+  const isCardCheckout = paymentMethod === "CREDIT_CARD";
+
   if (checkout) {
     const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
+
+    if (isCardCheckout && checkout.invoiceUrl) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
+            <p className="text-sm font-medium flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-primary" />
+              Pagamento com cartão
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Abra o checkout seguro do Asaas para informar o cartão e confirmar a
+              assinatura mensal.
+            </p>
+            <Button size="lg" className="w-full" asChild>
+              <a
+                href={checkout.invoiceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Abrir pagamento com cartão
+              </a>
+            </Button>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Aguardando confirmação do pagamento…
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-sm"
+            onClick={() => {
+              setCheckout(null);
+              setPolling(false);
+            }}
+          >
+            Voltar
+          </Button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         {qrSrc && (
@@ -167,14 +242,23 @@ export function AsaasTransparentCheckout({
 
   return (
     <div className="space-y-4">
+      {subscriptionStatus === "PAUSED" && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          Pagamento em atraso. Escolha Pix ou cartão para regularizar e liberar o
+          acesso.
+        </div>
+      )}
+
       <div className="space-y-2">
         <p className="text-sm font-medium">Forma de pagamento</p>
         <PaymentMethodCards
-          selected={normalizeSubscriptionPaymentMethod(initialMethod)}
+          selected={paymentMethod}
+          onSelect={canChoose ? handleSelectMethod : undefined}
           activeMethod={activePaymentMethod}
           subscriptionActive={subscriptionActive}
+          subscriptionStatus={subscriptionStatus}
           subscribedAt={subscribedAt}
-          readOnly={subscriptionActive}
+          readOnly={!canChoose}
           disabled={!asaasConfigured}
         />
       </div>
@@ -191,13 +275,24 @@ export function AsaasTransparentCheckout({
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Gerando cobrança…
             </>
+          ) : isCardCheckout ? (
+            "Continuar com cartão"
           ) : (
-            "Assinar por R$ 15,90/mês"
+            "Continuar com Pix"
           )}
         </Button>
       )}
 
       {error && <p className="text-sm text-destructive text-center">{error}</p>}
+
+      {canChoose && (
+        <p className="text-xs text-center text-muted-foreground">
+          Prefere alterar depois?{" "}
+          <Link href="/config?tab=pagamento" className="text-primary underline">
+            Configurações → Pagamento
+          </Link>
+        </p>
+      )}
     </div>
   );
 }
