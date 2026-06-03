@@ -7,15 +7,10 @@ export type SystemHealthResponse = {
   userPasswordColumn?: boolean;
   migrationsHint?: string | null;
   redis?: boolean;
-  cartpanda?: {
-    configured: boolean;
-    checkoutUrl: string;
-    webhookPath: string;
-  };
   asaas?: {
     configured: boolean;
     sandbox: boolean;
-    webhook: string;
+    webhookPath: string;
   };
 };
 

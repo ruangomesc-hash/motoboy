@@ -42,11 +42,20 @@ Quando o pagamento é confirmado:
 
 | Fluxo | Endpoint | Asaas |
 |-------|----------|-------|
-| Motoboy assina | `POST /me/subscribe` | Cria cliente + assinatura mensal + 1ª cobrança |
+| Motoboy assina (checkout transparente) | `POST /me/subscribe` | Cria cliente + assinatura mensal + 1ª cobrança; retorna Pix/boleto no JSON |
 | Admin link Pix | `POST /admin/users/:id/payment-link` | Cria cliente + cobrança avulsa |
 | Admin baixa manual | `POST /admin/users/:id/activate` | Só banco (sem Asaas) |
 
 Clientes Asaas são vinculados em `User.asaasCustomerId` (evita duplicar cadastro).
+
+### Checkout transparente (`/assinar`)
+
+1. Motoboy escolhe Pix, cartão ou boleto e clica **Gerar pagamento**.
+2. A API cria a assinatura no Asaas e devolve `pixCopyPaste`, `invoiceUrl` (boleto), `chargeId`.
+3. O app exibe o Pix (copia e cola) ou link do boleto **sem redirecionar** para site externo.
+4. O webhook Asaas ativa a conta; a tela faz polling em `GET /me/subscription` até `ACTIVE`.
+
+O formulário de **cartão** na mesma tela será integrado com a API de checkout transparente do Asaas (tokenização no front).
 
 ## Testar em sandbox
 
@@ -64,7 +73,7 @@ Clientes Asaas são vinculados em `User.asaasCustomerId` (evita duplicar cadastr
   "asaas": {
     "configured": true,
     "sandbox": true,
-    "webhook": "/api/backend/webhooks/asaas"
+    "webhookPath": "/api/backend/webhooks/asaas"
   }
 }
 ```

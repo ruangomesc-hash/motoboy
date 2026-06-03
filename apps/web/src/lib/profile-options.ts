@@ -19,17 +19,17 @@ export const SUBSCRIPTION_PAYMENT_OPTIONS: {
   {
     id: "PIX",
     label: "Pix recorrente",
-    hint: "Cobrança automática via Pix",
+    hint: "Cobrança mensal via Pix (Asaas)",
   },
   {
     id: "CREDIT_CARD",
     label: "Cartão de crédito",
-    hint: "Débito automático no cartão",
+    hint: "Débito no cartão (Asaas)",
   },
   {
     id: "BOLETO",
     label: "Boleto",
-    hint: "Boleto mensal",
+    hint: "Boleto mensal (Asaas)",
   },
 ];
 

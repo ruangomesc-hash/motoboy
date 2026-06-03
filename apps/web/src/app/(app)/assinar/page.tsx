@@ -2,37 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/use-api";
-import { Button } from "@/components/ui/button";
-import { Check, ExternalLink } from "lucide-react";
-import type { SubscribeResponse, SubscriptionStatus } from "@motoboy/types";
+import { Check } from "lucide-react";
+import type { SubscriptionStatus } from "@motoboy/types";
 import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { AppPage } from "@/components/app-page";
+import { AsaasTransparentCheckout } from "@/components/asaas-transparent-checkout";
 
 export default function AssinarPage() {
   const api = useApi();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
 
-  useEffect(() => {
-    api<SubscriptionStatus>("/me/subscription")
+  const refresh = () => {
+    void api<SubscriptionStatus>("/me/subscription")
       .then(setSubStatus)
       .catch(() => setSubStatus(null));
-  }, [api]);
+  };
 
-  async function goToCheckout() {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api<SubscribeResponse>("/me/subscribe", {
-        method: "POST",
-      });
-      window.location.href = data.checkoutUrl;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao abrir pagamento");
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    refresh();
+  }, [api]);
 
   if (subStatus?.status === "ACTIVE") {
     return (
@@ -54,8 +42,7 @@ export default function AssinarPage() {
     );
   }
 
-  const checkoutBase =
-    subStatus?.cartpanda?.checkoutUrl ?? "https://assinatura.motocopiloto.com.br";
+  const asaasOk = subStatus?.asaas?.configured ?? false;
 
   return (
     <AppPage className="p-6 flex flex-col flex-1 gap-6">
@@ -70,7 +57,7 @@ export default function AssinarPage() {
             currency: "BRL",
           })}
         </p>
-        <p className="text-sm text-muted-foreground">/mês · Pix ou cartão</p>
+        <p className="text-sm text-muted-foreground">/mês · pagamento via Asaas</p>
       </div>
 
       <ul className="text-left text-sm space-y-2 text-muted-foreground">
@@ -90,42 +77,21 @@ export default function AssinarPage() {
         ))}
       </ul>
 
-      <div className="rounded-xl border border-border/60 bg-card/50 p-4 text-sm text-muted-foreground space-y-2">
-        <p className="font-medium text-foreground">No checkout, use:</p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>O mesmo WhatsApp do seu cadastro</li>
-          <li>O mesmo e-mail do seu cadastro</li>
-        </ul>
-        <p className="text-xs">
-          Assim sua conta ativa automaticamente após o pagamento.
+      <AsaasTransparentCheckout
+        initialMethod={subStatus?.subscriptionPaymentMethod ?? "PIX"}
+        asaasConfigured={asaasOk}
+        onActivated={refresh}
+      />
+
+      {!asaasOk && (
+        <p className="text-xs text-center text-amber-500/90">
+          Pagamento ainda não configurado no servidor (ASAAS_API_KEY).
         </p>
-      </div>
-
-      <Button
-        size="lg"
-        onClick={goToCheckout}
-        disabled={loading}
-        className="w-full"
-      >
-        {loading ? "Abrindo pagamento..." : "Ir para pagamento"}
-        {!loading && <ExternalLink className="h-4 w-4 ml-2" />}
-      </Button>
-
-      {error && (
-        <p className="text-sm text-destructive text-center">{error}</p>
       )}
 
       <p className="text-xs text-center text-muted-foreground">
-        Pagamento em{" "}
-        <a
-          href={checkoutBase}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline-offset-2 hover:underline"
-        >
-          assinatura.motocopiloto.com.br
-        </a>
-        . Após pagar, o app libera em instantes.
+        Checkout transparente: o pagamento é feito aqui no app. A conta libera
+        automaticamente após confirmação no Asaas.
       </p>
     </AppPage>
   );

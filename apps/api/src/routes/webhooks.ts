@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { WhatsAppJobData } from "../workers/whatsapp-processor.js";
 import { AsaasService } from "../services/asaas.js";
-import { handleCartpandaWebhook } from "../services/cartpanda.js";
-import { verifyCartpandaWebhook } from "../lib/cartpanda-webhook-auth.js";
 import {
   verifyAsaasWebhook,
   verifyEvolutionWebhook,
@@ -314,31 +312,4 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     },
   });
 
-  app.post("/webhooks/cartpanda", {
-    preHandler: authRateLimit,
-    handler: async (request, reply) => {
-      const query = request.query as Record<string, string | undefined>;
-      if (!verifyCartpandaWebhook(env, request.headers, query)) {
-        return reply.status(401).send({ error: "Unauthorized" });
-      }
-
-      try {
-        const result = await handleCartpandaWebhook(env, request.body);
-        if (!result.handled) {
-          request.log.info(
-            { reason: result.reason },
-            "CartPanda webhook ignorado",
-          );
-        }
-        return reply.send({ ok: true });
-      } catch (err) {
-        request.log.error({ err }, "CartPanda webhook handler");
-        return reply.status(500).send({
-          error: isProductionRuntime()
-            ? "Falha ao processar webhook"
-            : (err as Error).message,
-        });
-      }
-    },
-  });
 }

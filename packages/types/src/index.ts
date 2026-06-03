@@ -52,7 +52,7 @@ export const deliverySourceSchema = z.enum([
   "OTHER",
 ]);
 
-/** Como o motoboy prefere pagar a assinatura Motocopiloto (Asaas). */
+/** Preferência de pagamento no checkout transparente Asaas. */
 export const subscriptionPaymentMethodSchema = z.enum([
   "PIX",
   "CREDIT_CARD",
@@ -333,14 +333,6 @@ export const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true"),
-  CARTPANDA_CHECKOUT_URL: z.preprocess(
-    emptyToUndefined,
-    z.string().url().optional(),
-  ),
-  CARTPANDA_WEBHOOK_SECRET: z.preprocess(
-    emptyToUndefined,
-    z.string().optional(),
-  ),
   JWT_SECRET: z.string().min(16),
   API_URL: z.string().default("http://localhost:3001"),
   APP_URL: z.string().default("http://localhost:3002"),
@@ -406,16 +398,31 @@ export const affiliateValidateResponseSchema = z.object({
   code: z.string().nullable(),
 });
 
+export const subscribeRequestSchema = z.object({
+  paymentMethod: subscriptionPaymentMethodSchema.optional(),
+});
+
+export type SubscribeRequest = z.infer<typeof subscribeRequestSchema>;
+
 export const subscribeResponseSchema = z.object({
-  checkoutUrl: z.string(),
   amount: z.number(),
-  chargeId: z.string().optional(),
-  invoiceUrl: z.string().optional(),
+  chargeId: z.string(),
+  paymentMethod: subscriptionPaymentMethodSchema,
   pixCopyPaste: z.string().nullable().optional(),
+  invoiceUrl: z.string().nullable().optional(),
   subscriptionId: z.string().optional(),
 });
 
 export type SubscribeResponse = z.infer<typeof subscribeResponseSchema>;
+
+export const billingProviderStatusSchema = z.object({
+  configured: z.boolean(),
+  webhookPath: z.string(),
+});
+
+export const billingAsaasStatusSchema = billingProviderStatusSchema.extend({
+  sandbox: z.boolean(),
+});
 
 export const subscriptionStatusSchema = z.object({
   status: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELED"]),
@@ -433,11 +440,7 @@ export const subscriptionStatusSchema = z.object({
       paidAt: z.string().nullable(),
     })
     .nullable(),
-  cartpanda: z.object({
-    configured: z.boolean(),
-    checkoutUrl: z.string(),
-    webhookPath: z.string(),
-  }),
+  asaas: billingAsaasStatusSchema,
 });
 
 export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;

@@ -142,8 +142,7 @@ export function ProfileForm({
           single
         />
         <p className="text-xs text-muted-foreground mt-2">
-          R$ 15,90/mês após o trial. Usado na hora de assinar em Config ou na tela
-          Assinar.
+          R$ 15,90/mês após o trial. Usado no checkout transparente em Assinar.
         </p>
       </div>
     </section>

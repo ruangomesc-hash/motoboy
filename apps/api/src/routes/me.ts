@@ -52,11 +52,11 @@ import {
 import { getFuelDayStats } from "../services/fuel.js";
 import { getOdometerDayStats } from "../services/odometer.js";
 import { optimizeRoute, RouteMapsError } from "../services/maps.js";
+import { AsaasService } from "../services/asaas.js";
 import {
-  cartpandaConnectionStatus,
-  createCheckoutForUser,
-  isCartpandaConfigured,
-} from "../services/cartpanda.js";
+  subscribeRequestSchema,
+  subscriptionPaymentMethodSchema,
+} from "@motoboy/types";
 import {
   toPublicDeliveries,
   toPublicDelivery,
@@ -810,7 +810,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
             paidAt: lastPayment.paidAt?.toISOString() ?? null,
           }
         : null,
-      cartpanda: cartpandaConnectionStatus(env),
+      asaas: new AsaasService(env).connectionStatus(),
     };
   });
 
@@ -831,25 +831,50 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    if (!isCartpandaConfigured(env)) {
+    const parsedBody = subscribeRequestSchema.safeParse(request.body ?? {});
+    const methodRaw = parsedBody.success
+      ? parsedBody.data.paymentMethod
+      : undefined;
+    const methodParsed = subscriptionPaymentMethodSchema.safeParse(
+      methodRaw ?? user.subscriptionPaymentMethod ?? "PIX",
+    );
+    const paymentMethod = methodParsed.success ? methodParsed.data : "PIX";
+
+    const userId = request.sessionUser!.id;
+    const asaas = new AsaasService(env);
+
+    if (!asaas.configured && isProductionRuntime()) {
       return reply.status(503).send({
-        error: "Pagamento temporariamente indisponível. Tente mais tarde.",
+        error: "Pagamento indisponível no momento. Tente mais tarde.",
       });
     }
 
     try {
-      const result = await createCheckoutForUser(env, request.sessionUser!.id);
+      const result = await asaas.createSubscription(userId, paymentMethod);
       return {
-        checkoutUrl: result.checkoutUrl,
-        invoiceUrl: result.checkoutUrl,
         amount: result.amount,
         chargeId: result.chargeId,
-        pixCopyPaste: null,
+        paymentMethod,
+        pixCopyPaste: result.pixCopyPaste ?? null,
+        invoiceUrl: result.invoiceUrl ?? null,
+        subscriptionId: result.subscriptionId,
       };
     } catch (err) {
-      request.log.error({ err }, "CartPanda checkout");
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      const message =
+        err instanceof Error ? err.message : "Erro ao abrir pagamento";
+      request.log.error({ err, paymentMethod }, "Subscribe checkout");
+      if (statusCode === 400) {
+        return reply.status(400).send({ error: message });
+      }
+      if (statusCode === 404) {
+        return reply.status(404).send({ error: message });
+      }
+      if (statusCode === 503) {
+        return reply.status(503).send({ error: message });
+      }
       return reply.status(502).send({
-        error: "Não foi possível abrir o checkout. Tente novamente.",
+        error: "Não foi possível abrir o pagamento. Tente novamente.",
       });
     }
   });
