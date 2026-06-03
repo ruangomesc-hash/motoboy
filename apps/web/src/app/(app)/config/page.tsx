@@ -176,16 +176,21 @@ function ConfigPageInner() {
     applyMeToForm(meSettings);
   }, [meSettings, saving, applyMeToForm]);
 
+  const refreshSubscription = useCallback(() => {
+    if (sessionStatus !== "authenticated") return;
+    void api<SubscriptionStatus>("/me/subscription")
+      .then(setSubscription)
+      .catch(() => setSubscription(null));
+  }, [api, sessionStatus]);
+
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     api<{ stats: FuelDayStats }>("/me/fuel").then((r) => setFuelStats(r.stats));
     api<{ currentKm: number | null }>("/me/odometer").then((r) =>
       setCurrentKm(r.currentKm),
     );
-    void api<SubscriptionStatus>("/me/subscription")
-      .then(setSubscription)
-      .catch(() => setSubscription(null));
-  }, [api, sessionStatus]);
+    refreshSubscription();
+  }, [api, sessionStatus, refreshSubscription]);
 
   function patchForm(patch: Partial<ConfigFormSnapshot>) {
     formDirtyRef.current = true;
@@ -437,6 +442,7 @@ function ConfigPageInner() {
             onPaymentMethodChange={(id) =>
               setProfile({ ...profile, subscriptionPaymentMethod: id })
             }
+            onSubscriptionChange={refreshSubscription}
           />
         </>
       )}

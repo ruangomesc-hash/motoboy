@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { WhatsAppJobData } from "../workers/whatsapp-processor.js";
 import { AsaasService } from "../services/asaas.js";
+import type { AsaasWebhookPayload } from "../services/asaas-webhook.js";
 import {
   verifyAsaasWebhook,
   verifyEvolutionWebhook,
@@ -288,18 +289,10 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(401).send({ error: "Unauthorized" });
       }
 
-      const body = request.body as {
-        event?: string;
-        payment?: {
-          id?: string;
-          status?: string;
-          subscription?: string;
-          externalReference?: string;
-        };
-      };
+      const body = request.body as AsaasWebhookPayload;
 
       try {
-        await asaas.handleWebhook(body);
+        await asaas.handleWebhook(body, request.log);
         return reply.send({ ok: true });
       } catch (err) {
         request.log.error({ err, event: body.event }, "Asaas webhook handler");

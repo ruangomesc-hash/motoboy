@@ -13,6 +13,8 @@ import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 import { PaymentMethodCards } from "@/components/payment-method-cards";
 import { useSession } from "next-auth/react";
 
+const PAYMENT_POLL_MS = 5000;
+
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
   asaasConfigured: boolean;
@@ -21,6 +23,13 @@ type Props = {
   activePaymentMethod?: SubscriptionPaymentMethod | null;
   subscribedAt?: string | null;
 };
+
+function pixQrSrc(encodedImage: string | null | undefined): string | null {
+  if (!encodedImage?.trim()) return null;
+  const raw = encodedImage.trim();
+  if (raw.startsWith("data:")) return raw;
+  return `data:image/png;base64,${raw}`;
+}
 
 export function AsaasTransparentCheckout({
   initialMethod,
@@ -53,7 +62,7 @@ export function AsaasTransparentCheckout({
 
   useEffect(() => {
     if (!checkout || !polling) return;
-    const id = window.setInterval(() => void pollStatus(), 4000);
+    const id = window.setInterval(() => void pollStatus(), PAYMENT_POLL_MS);
     return () => window.clearInterval(id);
   }, [checkout, polling, pollStatus]);
 
@@ -96,8 +105,24 @@ export function AsaasTransparentCheckout({
   }
 
   if (checkout) {
+    const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
     return (
       <div className="space-y-4">
+        {qrSrc && (
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-border/60 bg-card/50 p-4">
+            <p className="text-sm font-medium w-full text-left">QR Code Pix</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={qrSrc}
+              alt="QR Code Pix para pagamento"
+              className="w-56 h-56 max-w-full object-contain rounded-lg bg-white p-2"
+            />
+            <p className="text-xs text-muted-foreground text-center">
+              Escaneie no app do seu banco
+            </p>
+          </div>
+        )}
+
         {checkout.pixCopyPaste && (
           <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
             <p className="text-sm font-medium">Pix copia e cola</p>

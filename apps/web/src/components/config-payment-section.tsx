@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
 import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 import { Check, CreditCard, Sparkles } from "lucide-react";
+import { CancelSubscriptionButton } from "@/components/cancel-subscription-button";
 
 type Props = {
   subscription: SubscriptionStatus | null;
   paymentMethod: SubscriptionPaymentMethod;
   onPaymentMethodChange?: (method: SubscriptionPaymentMethod) => void;
+  onSubscriptionChange?: () => void;
 };
 
 function nextRenewalLabel(subscribedAt: string | null): string | null {
@@ -32,6 +34,7 @@ export function ConfigPaymentSection({
   subscription,
   paymentMethod,
   onPaymentMethodChange,
+  onSubscriptionChange,
 }: Props) {
   const status = subscription?.status ?? "TRIAL";
   const subscriptionActive = status === "ACTIVE";
@@ -157,6 +160,7 @@ export function ConfigPaymentSection({
             <p className="text-xs text-center text-muted-foreground">
               Veja Pix, histórico da cobrança e detalhes da renovação mensal.
             </p>
+            <CancelSubscriptionButton onCanceled={onSubscriptionChange} />
           </>
         ) : (
           <>

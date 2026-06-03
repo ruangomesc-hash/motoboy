@@ -409,6 +409,8 @@ export const subscribeResponseSchema = z.object({
   chargeId: z.string(),
   paymentMethod: subscriptionPaymentMethodSchema,
   pixCopyPaste: z.string().nullable().optional(),
+  /** PNG base64 retornado pelo Asaas (`encodedImage`). */
+  pixQrCodeImage: z.string().nullable().optional(),
   invoiceUrl: z.string().nullable().optional(),
   subscriptionId: z.string().optional(),
 });

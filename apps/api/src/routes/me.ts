@@ -850,12 +850,17 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const result = await asaas.createSubscription(userId, paymentMethod);
+      const result = await asaas.createSubscription(
+        userId,
+        paymentMethod,
+        request.log,
+      );
       return {
         amount: result.amount,
         chargeId: result.chargeId,
         paymentMethod,
         pixCopyPaste: result.pixCopyPaste ?? null,
+        pixQrCodeImage: result.pixQrCodeImage ?? null,
         invoiceUrl: result.invoiceUrl ?? null,
         subscriptionId: result.subscriptionId,
       };
@@ -875,6 +880,33 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       }
       return reply.status(502).send({
         error: "Não foi possível abrir o pagamento. Tente novamente.",
+      });
+    }
+  });
+
+  app.post("/me/subscription/cancel", async (request, reply) => {
+    const userId = request.sessionUser!.id;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return reply.status(404).send({ error: "Usuário não encontrado" });
+    }
+    if (user.status === "CANCELED") {
+      return reply.status(400).send({ error: "Assinatura já está cancelada." });
+    }
+    if (user.status !== "ACTIVE" && user.status !== "PAUSED") {
+      return reply.status(400).send({
+        error: "Não há assinatura ativa para cancelar.",
+      });
+    }
+
+    const asaas = new AsaasService(env);
+    try {
+      await asaas.cancelSubscription(userId, request.log);
+      return { ok: true, status: "CANCELED" as const };
+    } catch (err) {
+      request.log.error({ err, userId }, "Cancel subscription");
+      return reply.status(502).send({
+        error: "Não foi possível cancelar a assinatura. Tente novamente.",
       });
     }
   });

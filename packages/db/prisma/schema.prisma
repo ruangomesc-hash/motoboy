@@ -45,6 +45,7 @@ model User {
   affiliateCouponCode   String?
   referredAt            DateTime?
   asaasCustomerId       String?    @unique
+  asaasSubscriptionId   String?    @unique
 
   @@index([whatsappNumber])
   @@index([referredByAffiliateId])
@@ -232,6 +233,15 @@ model Payment {
   amount        Decimal       @db.Decimal(10, 2)
   paidAt        DateTime?
   createdAt     DateTime      @default(now())
+}
+
+/** Idempotência de webhooks Asaas (evita processar o mesmo eventId 2x). */
+model AsaasWebhookEvent {
+  id          String   @id
+  event       String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
 }
 
 enum PaymentStatus {

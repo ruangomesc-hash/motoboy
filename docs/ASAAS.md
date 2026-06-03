@@ -29,7 +29,7 @@ No painel Asaas → **Integrações → Webhooks → Adicionar**:
 |-------|--------|
 | **URL** | `https://SEU-DOMINIO.vercel.app/api/backend/webhooks/asaas` |
 | **Token de autenticação** | mesmo valor de `ASAAS_WEBHOOK_TOKEN` na Vercel |
-| **Eventos** | `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED` |
+| **Eventos** | `PAYMENT_CREATED`, `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`, `SUBSCRIPTION_DELETED`, `SUBSCRIPTION_INACTIVATED`, `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED`, `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_CANCELLED` |
 
 O Asaas envia o header `asaas-access-token` — validado no servidor.
 
@@ -46,7 +46,9 @@ Quando o pagamento é confirmado:
 | Admin link Pix | `POST /admin/users/:id/payment-link` | Cria cliente + cobrança avulsa |
 | Admin baixa manual | `POST /admin/users/:id/activate` | Só banco (sem Asaas) |
 
-Clientes Asaas são vinculados em `User.asaasCustomerId` (evita duplicar cadastro).
+Clientes e assinaturas Asaas ficam em `User.asaasCustomerId` e `User.asaasSubscriptionId`. Idempotência de webhooks em `AsaasWebhookEvent`.
+
+Cancelamento pelo app: `POST /me/subscription/cancel` → `DELETE /v3/subscriptions/{id}` no Asaas.
 
 ### Checkout transparente (`/assinar`)
 
