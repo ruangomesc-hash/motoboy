@@ -180,8 +180,18 @@ export function AsaasTransparentCheckout({
     }
   }
 
-  const formReady =
-    paymentMethod === "PIX" ? isPixFormValid(pixForm) : isCardFormValid(cardForm);
+  const isPix = paymentMethod === "PIX";
+  const formReady = isPix ? isPixFormValid(pixForm) : isCardFormValid(cardForm);
+
+  function validationHint(): string | null {
+    if (formReady) return null;
+    if (isPix) {
+      const d = pixForm.cpfCnpj.replace(/\D/g, "");
+      if (d.length < 11) return "Informe o CPF completo (11 dígitos) para gerar o Pix.";
+      return "CPF inválido. Confira os números.";
+    }
+    return "Preencha todos os dados do titular e do cartão.";
+  }
 
   async function startCheckout() {
     if (subscriptionActive) {
@@ -193,7 +203,7 @@ export function AsaasTransparentCheckout({
       return;
     }
     if (!formReady) {
-      setError("Preencha os campos destacados antes de continuar.");
+      setError(validationHint() ?? "Preencha os campos antes de continuar.");
       return;
     }
 
@@ -260,7 +270,13 @@ export function AsaasTransparentCheckout({
       pollStartedAt.current = Date.now();
       void checkActivation(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao gerar pagamento");
+      const err = e as Error & { status?: number };
+      let msg = err.message || "Erro ao gerar pagamento";
+      if (err.status === 409) {
+        msg =
+          "Há uma assinatura antiga em processamento. Aguarde 1 minuto e tente de novo.";
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -420,25 +436,38 @@ export function AsaasTransparentCheckout({
       />
 
       {!subscriptionActive && (
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={loading || !asaasConfigured || !profileLoaded || !formReady}
-          onClick={startCheckout}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {paymentMethod === "CREDIT_CARD"
-                ? "Processando cartão…"
-                : "Gerando Pix…"}
-            </>
-          ) : paymentMethod === "CREDIT_CARD" ? (
-            "Assinar com cartão"
-          ) : (
-            "Gerar Pix"
+        <>
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={loading || !asaasConfigured || !profileLoaded}
+            onClick={startCheckout}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {paymentMethod === "CREDIT_CARD"
+                  ? "Processando cartão…"
+                  : "Gerando Pix…"}
+              </>
+            ) : paymentMethod === "CREDIT_CARD" ? (
+              "Assinar com cartão"
+            ) : (
+              "Gerar Pix"
+            )}
+          </Button>
+          {!formReady && !loading && profileLoaded && (
+            <p className="text-xs text-center text-amber-500/90">
+              {validationHint()}
+            </p>
           )}
-        </Button>
+        </>
+      )}
+
+      {subscriptionStatus === "CANCELED" && !subscriptionActive && (
+        <p className="text-xs text-center text-muted-foreground">
+          Conta cancelada anteriormente — você pode assinar de novo com Pix ou cartão.
+        </p>
       )}
 
       {error && <p className="text-sm text-destructive text-center">{error}</p>}

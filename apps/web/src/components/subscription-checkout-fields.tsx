@@ -115,7 +115,7 @@ export function isCardFormValid(form: CardCheckoutForm): boolean {
     form.holderInfo.email.includes("@") &&
     cepDigits(form.holderInfo.postalCode).length === 8 &&
     form.holderInfo.addressNumber.trim().length >= 1 &&
-    phoneBillingDigits(form.holderInfo.phone).length >= 12 &&
+    phoneBillingDigits(form.holderInfo.phone).replace(/\D/g, "").length >= 10 &&
     cardNumberDigits(form.card.number).length >= 13 &&
     form.card.holderName.trim().length >= 3 &&
     form.card.ccv.replace(/\D/g, "").length >= 3 &&

@@ -71,7 +71,10 @@ type AsaasSubscription = {
   id: string;
   billingType?: string;
   status?: string;
+  deleted?: boolean;
 };
+
+const DEAD_ASAAS_SUBSCRIPTION_STATUSES = new Set(["INACTIVE", "EXPIRED"]);
 
 export type SubscribeCheckoutResult = {
   checkoutUrl: string;
@@ -410,20 +413,36 @@ export class AsaasService {
       });
     }
 
-    const resumed = await this.resumePendingCheckout(
-      userFresh,
-      paymentMethod,
-      routeLog,
-    );
+    const forceFreshCheckout = userFresh.status === "CANCELED";
+    if (forceFreshCheckout) {
+      await this.prepareCanceledUserForResubscribe(userFresh.id, routeLog);
+    }
+
+    const userForCheckout = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!userForCheckout) {
+      throw Object.assign(new Error("Usuário não encontrado"), {
+        statusCode: 404,
+      });
+    }
+
+    const resumed = forceFreshCheckout
+      ? null
+      : await this.resumePendingCheckout(
+          userForCheckout,
+          paymentMethod,
+          routeLog,
+        );
     if (resumed) return resumed;
 
     const customerId = await this.getOrCreateCustomer(
-      userFresh,
-      userFresh.cpfCnpj,
+      userForCheckout,
+      userForCheckout.cpfCnpj,
     );
     const nextDueDate = dueDatePlusDays(0);
 
-    let subId = userFresh.asaasSubscriptionId;
+    let subId = userForCheckout.asaasSubscriptionId;
     subId = await this.ensureSubscriptionBillingType(
       userId,
       subId,
@@ -431,18 +450,21 @@ export class AsaasService {
       routeLog,
     );
 
-    if (!subId) {
-      if (inlineCard) {
-        const cardResult = await this.createSubscriptionWithCreditCard(
-          customerId,
-          userId,
-          nextDueDate,
-          options!,
-          routeLog,
-        );
-        return cardResult;
+    if (inlineCard) {
+      if (subId) {
+        await this.clearAsaasSubscription(userId, subId, routeLog);
+        subId = null;
       }
+      return this.createSubscriptionWithCreditCard(
+        customerId,
+        userId,
+        nextDueDate,
+        options!,
+        routeLog,
+      );
+    }
 
+    if (!subId) {
       const sub = await this.api<AsaasSubscription>(
         "/subscriptions",
         {
@@ -485,20 +507,50 @@ export class AsaasService {
         }
         throw err;
       }
-    } else if (inlineCard) {
-      throw Object.assign(
-        new Error(
-          "Já existe uma assinatura em andamento. Aguarde um minuto ou troque para Pix.",
-        ),
-        { statusCode: 409 },
-      );
     }
 
-    const first = await this.waitForFirstSubscriptionPayment(
+    let first = await this.waitForFirstSubscriptionPayment(
       subId,
       billingType,
       routeLog,
     );
+
+    if (!first?.id && subId) {
+      routeLog?.info(
+        { userId, subId },
+        "Sem cobrança na assinatura — recriando assinatura Pix",
+      );
+      await this.clearAsaasSubscription(userId, subId, routeLog);
+      const sub = await this.api<AsaasSubscription>(
+        "/subscriptions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            customer: customerId,
+            billingType,
+            value: SUBSCRIPTION_PRICE,
+            cycle: "MONTHLY",
+            nextDueDate,
+            description: "Motocopiloto — assinatura mensal",
+            externalReference: userId,
+          }),
+        },
+        "recreateSubscriptionPix",
+      );
+      if (!sub.id) {
+        throw new Error("Falha ao recriar assinatura no Asaas");
+      }
+      subId = sub.id;
+      await prisma.user.update({
+        where: { id: userId },
+        data: { asaasSubscriptionId: subId },
+      });
+      first = await this.waitForFirstSubscriptionPayment(
+        subId,
+        billingType,
+        routeLog,
+      );
+    }
 
     const chargeId = first?.id ?? subId;
     const resolved = await this.buildCheckoutFromPayment(
@@ -511,6 +563,57 @@ export class AsaasService {
 
     this.assertCheckoutReady(resolved, billingType, false);
     return resolved;
+  }
+
+  /** Após cancelamento: descarta cobranças pendentes e vínculo Asaas antigo. */
+  private async prepareCanceledUserForResubscribe(
+    userId: string,
+    log?: FastifyBaseLogger,
+  ): Promise<void> {
+    await prisma.payment.updateMany({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: "PENDING",
+      },
+      data: { status: "FAILED" },
+    });
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.asaasSubscriptionId) {
+      await this.clearAsaasSubscription(
+        userId,
+        user.asaasSubscriptionId,
+        log,
+      );
+    }
+
+    log?.info({ userId }, "Checkout preparado para reassinatura (conta cancelada)");
+  }
+
+  private async clearAsaasSubscription(
+    userId: string,
+    subId: string | null | undefined,
+    log?: FastifyBaseLogger,
+  ): Promise<void> {
+    if (subId && this.configured) {
+      try {
+        await this.api(
+          `/subscriptions/${subId}`,
+          { method: "DELETE" },
+          "clearAsaasSubscription",
+        );
+      } catch (err) {
+        if (!(err instanceof AsaasApiError) || err.statusCode !== 404) {
+          log?.warn({ err, subId, userId }, "Falha ao remover assinatura Asaas");
+        }
+      }
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { asaasSubscriptionId: null },
+    });
   }
 
   private async createSubscriptionWithCreditCard(
@@ -822,6 +925,22 @@ export class AsaasService {
         {},
         "getSubscription",
       );
+      const isDead =
+        sub.deleted === true ||
+        DEAD_ASAAS_SUBSCRIPTION_STATUSES.has(sub.status ?? "");
+
+      if (isDead) {
+        log?.info(
+          { userId, subId, status: sub.status },
+          "Assinatura Asaas inativa — limpando para novo checkout",
+        );
+        await prisma.user.update({
+          where: { id: userId },
+          data: { asaasSubscriptionId: null },
+        });
+        return null;
+      }
+
       if (sub.billingType === billingType) return subId;
 
       log?.info(
@@ -992,6 +1111,15 @@ export class AsaasService {
         }
       }
     }
+
+    await prisma.payment.updateMany({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: "PENDING",
+      },
+      data: { status: "FAILED" },
+    });
 
     await prisma.user.update({
       where: { id: userId },
