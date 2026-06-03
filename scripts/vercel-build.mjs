@@ -130,6 +130,7 @@ if (hasRealDatabase()) {
 }
 
 run("pnpm --filter @motoboy/types build");
+run("node scripts/sync-pwa-icons.mjs", { cwd: webDir });
 run("pnpm exec next build", { cwd: webDir });
 
 const engineHints = [

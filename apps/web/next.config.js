@@ -4,8 +4,8 @@ const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
   skipWaiting: true,
-  disable:
-    process.env.NODE_ENV === "development" || process.env.VERCEL === "1",
+  /** Produção (Vercel): PWA ativo para “Instalar app” / atalho na tela inicial. */
+  disable: process.env.NODE_ENV === "development",
 });
 
 let PrismaPlugin;
