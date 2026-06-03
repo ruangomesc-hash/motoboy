@@ -720,7 +720,6 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       request.sessionUser!.id,
       start,
       end,
-      0,
     );
     return {
       stats,

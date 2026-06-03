@@ -442,7 +442,7 @@ async function processImageMessage(
       rawInput: rawContent,
     });
     const { start, end } = dayBounds();
-    const stats = await getFuelDayStats(user.id, start, end, 0);
+    const stats = await getFuelDayStats(user.id, start, end);
     io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
     await evolution.sendText(
       replyTo,
@@ -576,7 +576,7 @@ async function processTextMessage(
           rawInput: { messageType, text, rawContent },
         });
         const { start, end } = dayBounds();
-        const stats = await getFuelDayStats(user.id, start, end, 0);
+        const stats = await getFuelDayStats(user.id, start, end);
         io?.to(`user:${user.id}`).emit("fuel:refuel", { id: refuel.id });
         await evolution.sendText(
           replyTo,

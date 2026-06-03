@@ -34,11 +34,7 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
   const { start, end } = dayRangeFromDateInput(todayDateInputBrt());
   const now = new Date();
 
-  const [user, deliveries, legacyDailyGoal, goalsContext] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      include: { costs: true },
-    }),
+  const [deliveries, legacyDailyGoal, goalsContext] = await Promise.all([
     prisma.delivery.findMany({
       where: { userId, occurredAt: { gte: start, lt: end } },
       orderBy: { occurredAt: "desc" },
@@ -48,14 +44,6 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     }),
     getUserGoalsContext(userId),
   ]);
-
-  const costs = user?.costs;
-  const fuelPrice = toNumber(costs?.fuelPricePerLiter ?? 6);
-  const kmPerLiter = toNumber(costs?.kmPerLiter ?? 35);
-  const maintenancePerKm = toNumber(costs?.maintenancePerKm ?? 0.15);
-  const dailyOther =
-    toNumber(costs?.otherDailyCost ?? 0) +
-    toNumber(costs?.dailyFoodCost ?? 0);
 
   const split = splitDeliveryEntries(
     deliveries.map((d) => ({
@@ -76,28 +64,12 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
   );
   const totalKm = odometer.kmToday ?? deliveryKmSum;
 
-  const estimatedFuelCost =
-    totalKm > 0 ? (totalKm / kmPerLiter) * fuelPrice : 0;
-  const fuel = await getFuelDayStats(
-    userId,
-    start,
-    end,
-    estimatedFuelCost,
-  );
+  const fuel = await getFuelDayStats(userId, start, end);
 
   const dateKey = todayDateInputBrt(now);
   const excludedKeys = await getExcludedKeysForDate(userId, dateKey);
 
-  const hasActivity = deliveries.length > 0;
-  const expenses = computeDayExpenses({
-    costsConfigured: Boolean(costs?.costsConfiguredAt),
-    fuel,
-    totalKm,
-    hasActivity,
-    dailyOther,
-    maintenancePerKm,
-    excludedKeys,
-  });
+  const expenses = computeDayExpenses({ fuel, excludedKeys });
   const { fuelCost, maintenanceCost, otherCost, totalExpenses: configExpenses } =
     expenses;
   const totalExpenses = configExpenses + split.manualExpenses;

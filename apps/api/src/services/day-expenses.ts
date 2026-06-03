@@ -8,45 +8,20 @@ export type DayExpenseBreakdown = {
   costsConfigured: boolean;
 };
 
-/** Só aplica custos estimados/diários após o motoboy salvar em Configurações. */
+/** Custos do dia: só abastecimento real (Zap/cupom). Sem estimativa por km ou fallback de Config. */
 export function computeDayExpenses(input: {
-  costsConfigured: boolean;
   fuel: FuelDayStats;
-  totalKm: number;
-  hasActivity: boolean;
-  dailyOther: number;
-  maintenancePerKm: number;
   excludedKeys?: ReadonlySet<DailyCostKey>;
 }): DayExpenseBreakdown {
-  if (!input.costsConfigured) {
-    const fuelCost = input.fuel.isActual ? input.fuel.cost : 0;
-    return {
-      fuelCost,
-      maintenanceCost: 0,
-      otherCost: 0,
-      totalExpenses: fuelCost,
-      costsConfigured: false,
-    };
-  }
-
   const excluded = input.excludedKeys ?? new Set<DailyCostKey>();
-  const fuelCost = excluded.has("fuel") ? 0 : input.fuel.cost;
-  const maintenanceCost = excluded.has("maintenance")
-    ? 0
-    : input.hasActivity && input.totalKm > 0
-      ? input.totalKm * input.maintenancePerKm
-      : 0;
-  const otherCost = excluded.has("other")
-    ? 0
-    : input.hasActivity
-      ? input.dailyOther
-      : 0;
+  const fuelCost =
+    excluded.has("fuel") || !input.fuel.isActual ? 0 : input.fuel.cost;
 
   return {
     fuelCost,
-    maintenanceCost,
-    otherCost,
-    totalExpenses: fuelCost + maintenanceCost + otherCost,
-    costsConfigured: true,
+    maintenanceCost: 0,
+    otherCost: 0,
+    totalExpenses: fuelCost,
+    costsConfigured: false,
   };
 }

@@ -51,7 +51,6 @@ export async function getFuelDayStats(
   userId: string,
   dayStart: Date,
   dayEnd: Date,
-  estimatedFuelCost: number,
 ): Promise<FuelDayStats> {
   const [todayRefuels, lastRefuel, avgWindow] = await Promise.all([
     prisma.fuelRefuel.findMany({
@@ -94,7 +93,7 @@ export async function getFuelDayStats(
       : null;
 
   return {
-    cost: todayRefuels.length > 0 ? actualCost : estimatedFuelCost,
+    cost: actualCost,
     litersToday,
     isActual: todayRefuels.length > 0,
     lastPricePerLiter,

@@ -40,7 +40,6 @@ export function clearConfigSavedOnce(): void {
 export type MeConfigSnapshot = {
   profile: UserProfile;
   goalsPlan: GoalsPlan | null;
-  costs: { otherDailyCost: number } | null;
 };
 
 /** Config completa = dados salvos no servidor (sem flag local). */
@@ -75,26 +74,24 @@ export function getConfigSaveBlockers(input: {
 }
 
 export function describeIncompleteConfig(me: MeConfigSnapshot): string | null {
-  const { profile, goalsPlan, costs } = me;
+  const { profile, goalsPlan } = me;
   if (!profile.name?.trim()) return "nome";
   if (!profile.email?.trim()) return "e-mail";
   if (profile.workApps.length === 0) return "apps de trabalho";
   if (profile.workDays.length === 0) return "dias trabalhados";
   if (!goalsPlan || goalsPlan.monthlyTarget <= 0) return "meta mensal";
-  if (!costs) return "custos";
   return null;
 }
 
 export function isServerConfigComplete(me: MeConfigSnapshot): boolean {
-  const { profile, goalsPlan, costs } = me;
+  const { profile, goalsPlan } = me;
   return Boolean(
     profile.name?.trim() &&
       profile.email?.trim() &&
       profile.workApps.length > 0 &&
       profile.workDays.length > 0 &&
       goalsPlan &&
-      goalsPlan.monthlyTarget > 0 &&
-      costs,
+      goalsPlan.monthlyTarget > 0,
   );
 }
 

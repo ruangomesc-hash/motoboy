@@ -48,7 +48,6 @@ import {
   buildOptimisticMeFromPending,
   parseMeSettings,
   readPendingRegistrationProfile,
-  toCostsPutBody,
   toGoalsPutBody,
   toProfilePutBody,
 } from "@/lib/me-settings";
@@ -1108,7 +1107,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         if (userId) persistNow(userId);
       }
 
-      const requests = [
+      const results = await Promise.all([
         api(
           "/me/profile",
           {
@@ -1125,48 +1124,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           },
           { skipSync: true },
         ),
-      ];
+      ]);
 
-      const saveCosts = payload.saveCosts !== false;
-      if (saveCosts) {
-        requests.push(
-          api(
-            "/me/costs",
-            {
-              method: "PUT",
-              body: JSON.stringify(toCostsPutBody(payload)),
-            },
-            { skipSync: true },
-          ),
-        );
-      }
-
-      const results = await Promise.all(requests);
       const profileRes = results[0] as UserProfile;
       const planRes = results[1] as { plan: GoalsPlan };
-      let costsFromServer: MeSettingsSnapshot["costs"] | undefined;
-      if (saveCosts && results[2]) {
-        const row = results[2] as {
-          fuelPricePerLiter: { toString(): string } | number;
-          kmPerLiter: { toString(): string } | number;
-          maintenancePerKm: { toString(): string } | number;
-          dailyFoodCost: { toString(): string } | number;
-          otherDailyCost: { toString(): string } | number;
-        };
-        costsFromServer = {
-          fuelPricePerLiter: Number(row.fuelPricePerLiter),
-          kmPerLiter: Number(row.kmPerLiter),
-          maintenancePerKm: Number(row.maintenancePerKm),
-          dailyFoodCost: Number(row.dailyFoodCost),
-          otherDailyCost: Number(row.otherDailyCost),
-        };
-      }
 
       const snap = buildMeSnapshotAfterSave(
         payload,
         profileRes,
         planRes.plan,
-        saveCosts ? costsFromServer : (current?.costs ?? null),
+        current?.costs ?? null,
       );
       meSettingsGuardUntil.current = Date.now() + 8_000;
       applyMeSnapshot(snap);

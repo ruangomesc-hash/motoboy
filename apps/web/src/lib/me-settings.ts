@@ -31,18 +31,9 @@ export type MeApiResponse = {
 export type ConfigFormSnapshot = {
   profile: ProfileFormState;
   monthlyGoal: string;
-  costs: {
-    fuelPricePerLiter: string;
-    kmPerLiter: string;
-    maintenancePerKm: string;
-    otherDailyCost: string;
-  };
 };
 
-export type ConfigSavePayload = {
-  profile: ProfileFormState;
-  monthlyGoal: string;
-  costs: ConfigFormSnapshot["costs"];
+export type ConfigSavePayload = ConfigFormSnapshot & {
   saveCosts?: boolean;
 };
 
@@ -69,14 +60,6 @@ export function parseMeSettings(data: MeApiResponse): MeSettingsSnapshot {
   };
 }
 
-const DEFAULT_COSTS_SNAPSHOT: MeCostsSnapshot = {
-  fuelPricePerLiter: 6,
-  kmPerLiter: 35,
-  maintenancePerKm: 0.15,
-  dailyFoodCost: 25,
-  otherDailyCost: 0,
-};
-
 /** Perfil imediato após cadastro (antes do /me responder). */
 export function buildOptimisticMeFromPending(
   pending: PendingRegistration,
@@ -94,7 +77,7 @@ export function buildOptimisticMeFromPending(
       workDays: [...DEFAULT_WORK_DAYS],
     },
     goalsPlan: null,
-    costs: { ...DEFAULT_COSTS_SNAPSHOT },
+    costs: null,
   };
 }
 
@@ -119,12 +102,6 @@ export function buildInitialConfigForm(): ConfigFormSnapshot {
       workDays: [...DEFAULT_WORK_DAYS],
     },
     monthlyGoal: "5000",
-    costs: {
-      fuelPricePerLiter: "6",
-      kmPerLiter: "35",
-      maintenancePerKm: "0.15",
-      otherDailyCost: "0",
-    },
   };
 }
 
@@ -155,23 +132,7 @@ export function meToConfigForm(
     ? String(Math.round(me.goalsPlan.monthlyTarget))
     : "5000";
 
-  const costs = me.costs
-    ? {
-        fuelPricePerLiter: String(me.costs.fuelPricePerLiter),
-        kmPerLiter: String(me.costs.kmPerLiter),
-        maintenancePerKm: String(me.costs.maintenancePerKm),
-        otherDailyCost: String(
-          Number(me.costs.dailyFoodCost ?? 0) + Number(me.costs.otherDailyCost ?? 0),
-        ),
-      }
-    : {
-        fuelPricePerLiter: "6",
-        kmPerLiter: "35",
-        maintenancePerKm: "0.15",
-        otherDailyCost: "0",
-      };
-
-  return { profile, monthlyGoal, costs };
+  return { profile, monthlyGoal };
 }
 
 export function buildConfigSavePayload(
@@ -192,7 +153,6 @@ export function configFormFingerprint(form: ConfigFormSnapshot): string {
     workDays: [...p.workDays].sort((a, b) => a - b),
     subscriptionPaymentMethod: p.subscriptionPaymentMethod,
     monthlyGoal: form.monthlyGoal.trim(),
-    costs: form.costs,
   });
 }
 
@@ -244,26 +204,6 @@ export function toGoalsPutBody(form: ConfigFormSnapshot) {
   };
 }
 
-export function toCostsPutBody(form: ConfigFormSnapshot) {
-  return {
-    fuelPricePerLiter: Number(form.costs.fuelPricePerLiter),
-    kmPerLiter: Number(form.costs.kmPerLiter),
-    maintenancePerKm: Number(form.costs.maintenancePerKm),
-    dailyFoodCost: 0,
-    otherDailyCost: Number(form.costs.otherDailyCost),
-  };
-}
-
-function costsFromForm(form: ConfigFormSnapshot): MeCostsSnapshot {
-  return {
-    fuelPricePerLiter: Number(form.costs.fuelPricePerLiter),
-    kmPerLiter: Number(form.costs.kmPerLiter),
-    maintenancePerKm: Number(form.costs.maintenancePerKm),
-    dailyFoodCost: 0,
-    otherDailyCost: Number(form.costs.otherDailyCost),
-  };
-}
-
 /** Monta snapshot local após PUTs (evita GET /me extra no salvar). */
 export function buildMeSnapshotAfterSave(
   payload: ConfigSavePayload,
@@ -279,6 +219,6 @@ export function buildMeSnapshotAfterSave(
       subscriptionPaymentMethod: payload.profile.subscriptionPaymentMethod,
     },
     goalsPlan: plan,
-    costs: costsOverride ?? costsFromForm(payload),
+    costs: costsOverride ?? null,
   };
 }

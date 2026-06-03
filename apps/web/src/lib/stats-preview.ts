@@ -128,7 +128,15 @@ export function buildPreviewPeriodStats(
     }
   }
 
-  const costsConfigured = today?.costsConfigured ?? false;
+  const todayInPeriod = Boolean(
+    today &&
+      isIsoInPeriodRange(new Date().toISOString(), range) &&
+      isIsoInPeriodRange(`${todayKey}T12:00:00.000Z`, range),
+  );
+  const todayAutoExpenses = today
+    ? today.fuelCost + today.maintenanceCost + today.otherCost
+    : 0;
+
   let totalNet = totalGross;
   let totalExpenses = 0;
   const expenses: PeriodStats["expenses"] = [];
@@ -142,31 +150,12 @@ export function buildPreviewPeriodStats(
     if (previous.expenses?.length) {
       expenses.push(...previous.expenses);
     }
-  } else if (costsConfigured && today) {
-    totalNet = today.netProfit;
-    totalExpenses = Math.max(0, totalGross - totalNet);
+  } else if (todayInPeriod && today && todayAutoExpenses > 0) {
+    totalExpenses = todayAutoExpenses;
+    totalNet = totalGross - todayAutoExpenses;
     if (today.fuelCost > 0) {
       expenses.push({ key: "fuel", label: "Combustível", amount: today.fuelCost });
     }
-    if (today.maintenanceCost > 0) {
-      expenses.push({
-        key: "maintenance",
-        label: "Manutenção (km)",
-        amount: today.maintenanceCost,
-      });
-    }
-    if (today.otherCost > 0) {
-      expenses.push({
-        key: "other",
-        label: "Alimentação e outros",
-        amount: today.otherCost,
-      });
-    }
-  } else if (costsConfigured && previous?.period === period) {
-    const ratio =
-      previous.totalGross > 0 ? totalGross / previous.totalGross : 1;
-    totalNet = previous.totalNet * ratio;
-    totalExpenses = Math.max(0, totalGross - totalNet);
   }
 
   for (const [label, amount] of manualExpenseMap.entries()) {
@@ -210,13 +199,12 @@ export function buildPreviewPeriodStats(
 export function patchPeriodStatsDelivery(
   stats: PeriodStats,
   delta: { gross: number; km: number; count: number },
-  costsConfigured: boolean,
 ): PeriodStats {
-  const netDelta = costsConfigured
-    ? stats.totalGross > 0
+  const hasExpenses = stats.totalGross > stats.totalNet;
+  const netDelta =
+    hasExpenses && stats.totalGross > 0
       ? (delta.gross / stats.totalGross) * stats.totalNet
-      : delta.gross
-    : delta.gross;
+      : delta.gross;
 
   const nextGross = Math.max(0, stats.totalGross + delta.gross);
   const nextNet = Math.max(0, stats.totalNet + netDelta);

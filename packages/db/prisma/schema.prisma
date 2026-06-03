@@ -127,11 +127,11 @@ model CostConfig {
   id                String   @id @default(cuid())
   userId            String   @unique
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fuelPricePerLiter Decimal  @default(6.00) @db.Decimal(10, 2)
-  kmPerLiter        Decimal  @default(35.00) @db.Decimal(10, 2)
-  maintenancePerKm  Decimal  @default(0.15) @db.Decimal(10, 4)
-  dailyFoodCost     Decimal  @default(25.00) @db.Decimal(10, 2)
-  otherDailyCost    Decimal  @default(0.00) @db.Decimal(10, 2)
+  fuelPricePerLiter Decimal  @default(0) @db.Decimal(10, 2)
+  kmPerLiter        Decimal  @default(0) @db.Decimal(10, 2)
+  maintenancePerKm  Decimal  @default(0) @db.Decimal(10, 4)
+  dailyFoodCost     Decimal  @default(0) @db.Decimal(10, 2)
+  otherDailyCost    Decimal  @default(0) @db.Decimal(10, 2)
   costsConfiguredAt DateTime?
   updatedAt         DateTime @updatedAt
 }

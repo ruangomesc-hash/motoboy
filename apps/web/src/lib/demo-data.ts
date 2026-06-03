@@ -27,8 +27,8 @@ export const demoProfile: UserProfile = {
 };
 
 export const demoCosts = {
-  fuelPricePerLiter: 6.2,
-  kmPerLiter: 35,
+  fuelPricePerLiter: 0,
+  kmPerLiter: 0,
   maintenancePerKm: 0.15,
   dailyFoodCost: 25,
   otherDailyCost: 33,
@@ -152,10 +152,10 @@ export const demoSubscription: SubscriptionStatus = {
 export const demoToday: TodaySummary = {
   grossTotal: 247.8,
   fuelCost: 39,
-  maintenanceCost: 14.4,
-  otherCost: 33,
-  totalExpenses: 86.4,
-  netProfit: 161.4,
+  maintenanceCost: 0,
+  otherCost: 0,
+  totalExpenses: 39,
+  netProfit: 208.8,
   totalKm: 96,
   profitPerKm: 2.17,
   deliveryCount: 8,

@@ -96,11 +96,8 @@ export function applyDeliveryToToday(
 
   const grossTotal = today.grossTotal + gross;
   const totalKm = today.totalKm + (Number.isFinite(km) ? km : 0);
-  const totalExpenses = today.costsConfigured
-    ? today.totalExpenses
-    : today.fuel.isActual
-      ? today.fuelCost
-      : 0;
+  const totalExpenses =
+    today.fuelCost + today.maintenanceCost + today.otherCost;
 
   return {
     ...today,
@@ -127,11 +124,8 @@ export function removeDeliveryFromToday(
   const grossTotal = Math.max(0, today.grossTotal - gross);
   const totalKm = Math.max(0, today.totalKm - (Number.isFinite(km) ? km : 0));
   const deliveryCount = Math.max(0, today.deliveryCount - 1);
-  const totalExpenses = today.costsConfigured
-    ? today.totalExpenses
-    : today.fuel.isActual
-      ? today.fuelCost
-      : 0;
+  const totalExpenses =
+    today.fuelCost + today.maintenanceCost + today.otherCost;
 
   return {
     ...today,

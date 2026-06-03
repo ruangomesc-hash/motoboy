@@ -26,11 +26,8 @@ export function recomputeTodayFromDeliveries(
   const grossTotal = split.grossTotal;
   const totalKm = split.totalKm;
   const deliveryCount = split.deliveryCount;
-  const configExpenses = today.costsConfigured
-    ? today.totalExpenses
-    : today.fuel.isActual
-      ? today.fuelCost
-      : 0;
+  const configExpenses =
+    today.fuelCost + today.maintenanceCost + today.otherCost;
   const totalExpenses = configExpenses + split.manualExpenses;
   const netProfit = grossTotal - totalExpenses;
 

@@ -113,16 +113,6 @@ export default function HomePage() {
 
       <LucroCard value={s.netProfit} />
 
-      {s.costsConfigured === false && s.deliveryCount > 0 && (
-        <p className="text-[11px] text-muted-foreground text-center px-2 leading-snug">
-          Custos diários ainda não salvos em Config — o lucro usa só o bruto das
-          entregas (e gasolina real, se tiver cupom).{" "}
-          <Link href="/config" className="text-primary underline-offset-2 hover:underline">
-            Configurar custos
-          </Link>
-        </p>
-      )}
-
       {(s.weeklyGoal || s.goalTarget != null) && (
         <WeeklyGoalThermometer
           weekly={s.weeklyGoal}
@@ -191,18 +181,13 @@ export default function HomePage() {
                     Valor real (cupom ou Zap)
                   </p>
                 </>
-              ) : s.costsConfigured === false ? (
+              ) : (
                 <>
                   <p>Sem abastecimento registrado hoje</p>
                   <p>
-                    Configure custos em Config para estimar por km, ou mande cupom
-                    no Zap
+                    Manda foto do cupom ou &quot;abasteci X reais Y litros&quot; no
+                    WhatsApp
                   </p>
-                </>
-              ) : (
-                <>
-                  <p>Estimado por km rodado</p>
-                  <p>Manda foto do cupom ou &quot;abasteci X reais Y litros&quot;</p>
                 </>
               )
             }
@@ -244,26 +229,12 @@ export default function HomePage() {
                       {item.label}: −{formatBRL(item.amount)}
                     </p>
                   ))}
-                  {s.otherCost > 0 && (
-                    <p>Config (diário): −{formatBRL(s.otherCost)}</p>
-                  )}
-                  {manualItems.length === 0 && s.otherCost > 0 && (
-                    <>
-                      <p>Alimentação, bebidas, lanche, água</p>
-                      <p>Estacionamento, pedágio, ferramentas</p>
-                    </>
-                  )}
                 </>
-              ) : s.costsConfigured === false ? (
-                <p>
-                  Registre despesas acima ou salve custos em{" "}
-                  <Link href="/config" className="text-primary underline-offset-2 hover:underline">
-                    Config
-                  </Link>{" "}
-                  para estimar outros gastos do dia
-                </p>
               ) : (
-                <p>Nenhuma despesa manual nem valor diário em Config</p>
+                <p>
+                  Registre despesas com valor negativo na lista de entregas
+                  (lanche, estacionamento, etc.)
+                </p>
               )
             }
           />

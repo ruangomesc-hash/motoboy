@@ -12,7 +12,7 @@ const STEPS = [
       <>
         <p>
           Antes de ver seu lucro do dia, vamos configurar seu perfil uma única vez.
-          Isso deixa o cálculo de gasolina, metas e custos certinhos.
+          Isso deixa metas e o resumo do dia certinhos.
         </p>
         <p className="text-emerald-400/90 text-xs">
           Leva cerca de 2 minutos.
@@ -49,19 +49,19 @@ const STEPS = [
     ),
   },
   {
-    id: "costs",
-    target: "onboarding-costs",
-    title: "Custos do dia a dia",
+    id: "fuel",
+    target: "onboarding-fuel",
+    title: "Gasolina do dia",
     body: (
       <>
         <p>
-          Informe preço da <strong>gasolina</strong>, <strong>km por litro</strong>,{" "}
-          <strong>manutenção por km</strong> e <strong>outros gastos</strong> (lanche,
-          água, estacionamento).
+          Para descontar combustível no lucro, mande no <strong>WhatsApp</strong>{" "}
+          a foto do cupom ou escreva, por exemplo: &quot;abasteci 40 reais 6
+          litros&quot;.
         </p>
         <p className="text-xs">
-          Se abastecer pelo WhatsApp com cupom, o valor real do posto substitui a
-          estimativa.
+          Despesas como lanche ou estacionamento você registra como entrega com
+          valor negativo na lista.
         </p>
       </>
     ),
@@ -116,7 +116,7 @@ export function ConfigSetupGuide({
     const targets = [
       "onboarding-profile",
       "onboarding-goals",
-      "onboarding-costs",
+      "onboarding-fuel",
       "onboarding-save",
     ];
     for (const id of targets) {

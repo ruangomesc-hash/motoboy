@@ -65,10 +65,9 @@ function ConfigPageInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fuelStats, setFuelStats] = useState<FuelDayStats | null>(null);
   const [currentKm, setCurrentKm] = useState<number | null>(null);
-  const [initialCosts, setInitialCosts] = useState(() => buildInitialConfigForm().costs);
   const formDirtyRef = useRef(false);
   const lastAppliedFingerprintRef = useRef<string | null>(null);
-  const { profile, monthlyGoal, costs } = form;
+  const { profile, monthlyGoal } = form;
 
   const applyMeToForm = useCallback(
     (me: MeSettingsSnapshot, opts?: { force?: boolean }) => {
@@ -83,7 +82,6 @@ function ConfigPageInner() {
         return;
       }
       setForm(next);
-      setInitialCosts(next.costs);
       lastAppliedFingerprintRef.current = fingerprint;
       formDirtyRef.current = false;
       if (next.profile.name?.trim() && next.profile.email?.trim()) {
@@ -326,7 +324,10 @@ function ConfigPageInner() {
         </p>
       </section>
 
-      <section className="p-4 rounded-xl border border-border bg-card space-y-2">
+      <section
+        id="onboarding-fuel"
+        className="scroll-mt-4 p-4 rounded-xl border border-border bg-card space-y-2 transition-shadow"
+      >
         <h2 className="text-sm font-medium text-emerald-400 flex items-center gap-2">
           <Fuel className="h-4 w-4" strokeWidth={1.75} />
           Gasolina do dia
@@ -363,44 +364,6 @@ function ConfigPageInner() {
             </span>
           </p>
         )}
-      </section>
-
-      <section
-        id="onboarding-costs"
-        className="scroll-mt-4 space-y-3 rounded-xl transition-shadow"
-      >
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Custos (fallback se não abastecer no Zap)
-        </h2>
-        <Field
-          label="Gasolina estimada (R$/L)"
-          value={costs.fuelPricePerLiter}
-          onChange={(v) =>
-            patchForm({ costs: { ...costs, fuelPricePerLiter: v } })
-          }
-        />
-        <Field
-          label="Km por litro"
-          value={costs.kmPerLiter}
-          onChange={(v) => patchForm({ costs: { ...costs, kmPerLiter: v } })}
-        />
-        <Field
-          label="Manutenção (R$/km)"
-          value={costs.maintenancePerKm}
-          onChange={(v) =>
-            patchForm({ costs: { ...costs, maintenancePerKm: v } })
-          }
-        />
-        <Field
-          label="Outros custos (R$/dia)"
-          value={costs.otherDailyCost}
-          onChange={(v) =>
-            patchForm({ costs: { ...costs, otherDailyCost: v } })
-          }
-        />
-        <p className="text-xs text-muted-foreground -mt-1">
-          Inclui alimentação, bebidas, estacionamento, pedágio etc.
-        </p>
       </section>
 
       <div className="space-y-2 scroll-mt-4" id="onboarding-save">
