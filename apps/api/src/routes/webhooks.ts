@@ -274,7 +274,6 @@ async function handleWhatsAppWebhook(
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   const env = app.config.env;
-  const asaas = new AsaasService(env);
 
   const whatsappHandler = (request: FastifyRequest, reply: FastifyReply) =>
     handleWhatsAppWebhook(app, request, reply);
@@ -292,6 +291,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       const body = request.body as AsaasWebhookPayload;
 
       try {
+        const asaas = new AsaasService(env, request.log);
         await asaas.handleWebhook(body, request.log);
         return reply.send({ ok: true });
       } catch (err) {

@@ -1,6 +1,13 @@
+import type { Env } from "@motoboy/types";
 import { prisma } from "@motoboy/db";
 import type { FastifyBaseLogger } from "fastify";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
+import { ensureRecurringSubscription } from "./asaas-recurring.js";
+
+export type AsaasWebhookOptions = {
+  log?: FastifyBaseLogger;
+  env?: Env;
+};
 
 export type AsaasWebhookPayload = {
   id?: string;
@@ -144,8 +151,9 @@ async function deactivateSubscription(
 
 async function handlePaymentWebhook(
   payload: AsaasWebhookPayload,
-  log?: FastifyBaseLogger,
+  options?: AsaasWebhookOptions,
 ) {
+  const log = options?.log;
   const event = payload.event ?? "";
   const pay = payload.payment;
   const chargeId = pay?.id;
@@ -188,6 +196,16 @@ async function handlePaymentWebhook(
   if (isPaid) {
     await upsertPaymentForCharge(user.id, chargeId, amount, "PAID", new Date());
     await activateUser(user.id);
+    if (options?.env) {
+      try {
+        await ensureRecurringSubscription(options.env, user.id, log);
+      } catch (err) {
+        log?.error(
+          { err, userId: user.id, chargeId },
+          "Pagamento confirmado, mas falha ao garantir assinatura recorrente",
+        );
+      }
+    }
     return;
   }
 
@@ -206,8 +224,9 @@ async function handlePaymentWebhook(
 
 async function handleSubscriptionWebhook(
   payload: AsaasWebhookPayload,
-  log?: FastifyBaseLogger,
+  options?: AsaasWebhookOptions,
 ) {
+  const log = options?.log;
   const event = payload.event ?? "";
   const sub = payload.subscription;
   const subId = sub?.id;
@@ -239,8 +258,9 @@ async function handleSubscriptionWebhook(
 
 async function handlePixRecurringWebhook(
   payload: AsaasWebhookPayload,
-  log?: FastifyBaseLogger,
+  options?: AsaasWebhookOptions,
 ) {
+  const log = options?.log;
   const event = payload.event ?? "";
   const user = await findUserForPayload(payload);
   if (!user) {
@@ -260,8 +280,9 @@ async function handlePixRecurringWebhook(
 
 export async function processAsaasWebhook(
   payload: AsaasWebhookPayload,
-  log?: FastifyBaseLogger,
+  options?: AsaasWebhookOptions,
 ): Promise<void> {
+  const log = options?.log;
   const eventId = webhookEventId(payload);
   const eventName = payload.event ?? "UNKNOWN";
 
@@ -279,17 +300,17 @@ export async function processAsaasWebhook(
     eventName === "SUBSCRIPTION_INACTIVATED" ||
     (payload.subscription && eventName.startsWith("SUBSCRIPTION_"))
   ) {
-    await handleSubscriptionWebhook(payload, log);
+    await handleSubscriptionWebhook(payload, options);
     return;
   }
 
   if (eventName.startsWith("PIX_AUTOMATIC_RECURRING_")) {
-    await handlePixRecurringWebhook(payload, log);
+    await handlePixRecurringWebhook(payload, options);
     return;
   }
 
   if (payload.payment) {
-    await handlePaymentWebhook(payload, log);
+    await handlePaymentWebhook(payload, options);
     return;
   }
 

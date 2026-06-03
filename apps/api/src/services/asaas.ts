@@ -12,6 +12,7 @@ import {
   processAsaasWebhook,
   type AsaasWebhookPayload,
 } from "./asaas-webhook.js";
+import { ensureRecurringSubscription } from "./asaas-recurring.js";
 
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 
@@ -51,7 +52,21 @@ export type SubscribeCheckoutResult = {
 };
 
 export class AsaasService {
-  constructor(private env: Env) {}
+  constructor(
+    private env: Env,
+    private log?: FastifyBaseLogger,
+  ) {}
+
+  private api<T>(
+    path: string,
+    init: RequestInit = {},
+    operation?: string,
+  ): Promise<T> {
+    return asaasRequest<T>(this.env, path, init, {
+      log: this.log,
+      operation,
+    });
+  }
 
   get configured(): boolean {
     return isAsaasConfigured(this.env);
@@ -82,9 +97,10 @@ export class AsaasService {
 
     if (user.asaasCustomerId) {
       try {
-        const existing = await asaasRequest<AsaasCustomer>(
-          this.env,
+        const existing = await this.api<AsaasCustomer>(
           `/customers/${user.asaasCustomerId}`,
+          {},
+          "getCustomer",
         );
         if (existing.id && !existing.deleted) {
           return existing.id;
@@ -96,9 +112,10 @@ export class AsaasService {
       }
     }
 
-    const listed = await asaasRequest<AsaasCustomerList>(
-      this.env,
+    const listed = await this.api<AsaasCustomerList>(
       `/customers?externalReference=${encodeURIComponent(user.id)}&limit=1`,
+      {},
+      "listCustomersByReference",
     );
     const found = listed.data?.[0];
     if (found?.id) {
@@ -109,16 +126,20 @@ export class AsaasService {
       return found.id;
     }
 
-    const created = await asaasRequest<AsaasCustomer>(this.env, "/customers", {
-      method: "POST",
-      body: JSON.stringify({
-        name: user.name?.trim() || "Motoboy Motocopiloto",
-        email: user.email ?? undefined,
-        mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
-        externalReference: user.id,
-        notificationDisabled: false,
-      }),
-    });
+    const created = await this.api<AsaasCustomer>(
+      "/customers",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: user.name?.trim() || "Motoboy Motocopiloto",
+          email: user.email ?? undefined,
+          mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
+          externalReference: user.id,
+          notificationDisabled: false,
+        }),
+      },
+      "createCustomer",
+    );
 
     if (!created.id) {
       throw new Error("Asaas não retornou ID do cliente");
@@ -132,7 +153,11 @@ export class AsaasService {
     return created.id;
   }
 
-  async createPaymentCharge(
+  /**
+   * Cobrança avulsa — apenas suporte/admin (regularização de Pix).
+   * Após o pagamento, `ensureRecurringSubscription` liga a recorrência mensal no Asaas.
+   */
+  async createSupportPaymentCharge(
     userId: string,
     paymentMethod: string = "PIX",
   ): Promise<{
@@ -158,17 +183,26 @@ export class AsaasService {
     const customerId = await this.getOrCreateCustomer(user);
     const billingType = toAsaasBillingType(paymentMethod);
 
-    const payment = await asaasRequest<AsaasPayment>(this.env, "/payments", {
-      method: "POST",
-      body: JSON.stringify({
-        customer: customerId,
-        billingType,
-        value: amount,
-        dueDate: dueDatePlusDays(3),
-        description: "Motocopiloto — assinatura mensal",
-        externalReference: userId,
-      }),
-    });
+    this.log?.info(
+      { userId, paymentMethod },
+      "Admin: criando cobrança avulsa de regularização",
+    );
+
+    const payment = await this.api<AsaasPayment>(
+      "/payments",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          customer: customerId,
+          billingType,
+          value: amount,
+          dueDate: dueDatePlusDays(3),
+          description: "Motocopiloto — regularização suporte",
+          externalReference: userId,
+        }),
+      },
+      "createSupportPayment",
+    );
 
     if (!payment.id) {
       throw new Error("Falha ao criar cobrança no Asaas");
@@ -200,12 +234,21 @@ export class AsaasService {
     };
   }
 
-  /** Assinatura recorrente mensal no Asaas + primeira cobrança. */
+  /** @deprecated Use `createSupportPaymentCharge` (admin). */
+  async createPaymentCharge(
+    userId: string,
+    paymentMethod: string = "PIX",
+  ) {
+    return this.createSupportPaymentCharge(userId, paymentMethod);
+  }
+
+  /** Assinatura recorrente mensal no Asaas + primeira cobrança (fluxo motoboy em /assinar). */
   async createSubscription(
     userId: string,
     paymentMethod: string = "PIX",
     log?: FastifyBaseLogger,
   ): Promise<SubscribeCheckoutResult> {
+    const routeLog = log ?? this.log;
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw Object.assign(new Error("Usuário não encontrado"), {
@@ -226,7 +269,11 @@ export class AsaasService {
       };
     }
 
-    const resumed = await this.resumePendingCheckout(user, paymentMethod, log);
+    const resumed = await this.resumePendingCheckout(
+      user,
+      paymentMethod,
+      routeLog,
+    );
     if (resumed) return resumed;
 
     const customerId = await this.getOrCreateCustomer(user);
@@ -235,8 +282,7 @@ export class AsaasService {
 
     let subId = user.asaasSubscriptionId;
     if (!subId) {
-      const sub = await asaasRequest<AsaasSubscription>(
-        this.env,
+      const sub = await this.api<AsaasSubscription>(
         "/subscriptions",
         {
           method: "POST",
@@ -250,6 +296,7 @@ export class AsaasService {
             externalReference: userId,
           }),
         },
+        "createSubscription",
       );
 
       if (!sub.id) {
@@ -264,11 +311,13 @@ export class AsaasService {
         });
       } catch (err) {
         try {
-          await asaasRequest(this.env, `/subscriptions/${subId}`, {
-            method: "DELETE",
-          });
+          await this.api(
+            `/subscriptions/${subId}`,
+            { method: "DELETE" },
+            "rollbackSubscription",
+          );
         } catch (rollbackErr) {
-          log?.error(
+          routeLog?.error(
             { err: rollbackErr, subId },
             "Falha ao reverter assinatura Asaas após erro no banco",
           );
@@ -277,16 +326,18 @@ export class AsaasService {
       }
     }
 
-    const payments = await asaasRequest<{ data?: AsaasPayment[] }>(
-      this.env,
+    const payments = await this.api<{ data?: AsaasPayment[] }>(
       `/subscriptions/${subId}/payments?limit=1&status=PENDING`,
+      {},
+      "listSubscriptionPaymentsPending",
     );
     let first = payments.data?.[0];
 
     if (!first?.id) {
-      const all = await asaasRequest<{ data?: AsaasPayment[] }>(
-        this.env,
+      const all = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${subId}/payments?limit=1`,
+        {},
+        "listSubscriptionPayments",
       );
       first = all.data?.[0];
     }
@@ -370,9 +421,10 @@ export class AsaasService {
 
     if (user.asaasSubscriptionId) {
       const billingType = toAsaasBillingType(paymentMethod);
-      const payments = await asaasRequest<{ data?: AsaasPayment[] }>(
-        this.env,
+      const payments = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${user.asaasSubscriptionId}/payments?limit=5`,
+        {},
+        "listSubscriptionPaymentsOpen",
       );
       const open = payments.data?.find(
         (p) =>
@@ -435,9 +487,11 @@ export class AsaasService {
 
     if (user.asaasSubscriptionId) {
       try {
-        await asaasRequest(this.env, `/subscriptions/${user.asaasSubscriptionId}`, {
-          method: "DELETE",
-        });
+        await this.api(
+          `/subscriptions/${user.asaasSubscriptionId}`,
+          { method: "DELETE" },
+          "cancelSubscription",
+        );
       } catch (err) {
         if (!(err instanceof AsaasApiError) || err.statusCode !== 404) {
           log?.error(
@@ -466,9 +520,10 @@ export class AsaasService {
       return { payload: null, encodedImage: null };
     }
     try {
-      const pix = await asaasRequest<AsaasPixQr>(
-        this.env,
+      const pix = await this.api<AsaasPixQr>(
         `/payments/${paymentId}/pixQrCode`,
+        {},
+        "getPixQrCode",
       );
       return {
         payload: pix.payload ?? null,
@@ -505,6 +560,9 @@ export class AsaasService {
     payload: AsaasWebhookPayload,
     log?: FastifyBaseLogger,
   ): Promise<void> {
-    await processAsaasWebhook(payload, log);
+    await processAsaasWebhook(payload, {
+      log: log ?? this.log,
+      env: this.env,
+    });
   }
 }

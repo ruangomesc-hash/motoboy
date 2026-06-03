@@ -245,8 +245,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post("/admin/users/:userId/payment-link", async (request, reply) => {
     const { userId } = request.params as { userId: string };
     try {
-      return await createAdminPaymentLink(userId, env);
+      return await createAdminPaymentLink(userId, env, request.log);
     } catch (err) {
+      request.log.error({ err, userId }, "Admin payment-link");
       const e = err as Error & { statusCode?: number };
       if (e.statusCode) {
         return reply.status(e.statusCode).send({ error: e.message });
@@ -258,7 +259,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post("/admin/users/:userId/activate", async (request, reply) => {
     const { userId } = request.params as { userId: string };
     try {
-      const user = await activateAdminUser(userId);
+      const user = await activateAdminUser(userId, env, request.log);
       return reply.send(user);
     } catch (err) {
       return sendPrismaOrServiceError(

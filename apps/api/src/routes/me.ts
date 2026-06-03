@@ -841,7 +841,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const paymentMethod = methodParsed.success ? methodParsed.data : "PIX";
 
     const userId = request.sessionUser!.id;
-    const asaas = new AsaasService(env);
+    const asaas = new AsaasService(env, request.log);
 
     if (!asaas.configured && isProductionRuntime()) {
       return reply.status(503).send({
@@ -899,7 +899,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const asaas = new AsaasService(env);
+    const asaas = new AsaasService(env, request.log);
     try {
       await asaas.cancelSubscription(userId, request.log);
       return { ok: true, status: "CANCELED" as const };

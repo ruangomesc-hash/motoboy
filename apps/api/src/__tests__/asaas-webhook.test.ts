@@ -46,7 +46,7 @@ describe("processAsaasWebhook", () => {
           status: "CONFIRMED",
         },
       },
-      log as never,
+      { log: log as never },
     );
 
     expect(prismaMock.user.findUnique).not.toHaveBeenCalled();

@@ -1,8 +1,10 @@
+import type { FastifyBaseLogger } from "fastify";
 import { prisma } from "@motoboy/db";
 import type { AdminPaymentLinkResponse, AdminUserRow, Env } from "@motoboy/types";
 import { getAdminUserRowById, SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import { recordActivitySafe } from "./activity-log.js";
 import { AsaasService } from "./asaas.js";
+import { ensureRecurringSubscription } from "./asaas-recurring.js";
 
 function buildWhatsappText(
   name: string | null,
@@ -24,17 +26,19 @@ function whatsappUrl(phone: string, text: string): string {
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 
+/** Link Pix avulso para suporte; após pagamento a recorrência mensal segue no Asaas. */
 export async function createAdminPaymentLink(
   userId: string,
   env: Env,
+  log?: FastifyBaseLogger,
 ): Promise<AdminPaymentLinkResponse> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw Object.assign(new Error("Cliente não encontrado"), { statusCode: 404 });
   }
 
-  const asaas = new AsaasService(env);
-  const result = await asaas.createPaymentCharge(
+  const asaas = new AsaasService(env, log);
+  const result = await asaas.createSupportPaymentCharge(
     user.id,
     user.subscriptionPaymentMethod ?? "PIX",
   );
@@ -56,7 +60,11 @@ export async function createAdminPaymentLink(
   };
 }
 
-export async function activateAdminUser(userId: string): Promise<AdminUserRow> {
+export async function activateAdminUser(
+  userId: string,
+  env: Env,
+  log?: FastifyBaseLogger,
+): Promise<AdminUserRow> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw Object.assign(new Error("Cliente não encontrado"), { statusCode: 404 });
@@ -96,6 +104,26 @@ export async function activateAdminUser(userId: string): Promise<AdminUserRow> {
       },
     }),
   ]);
+
+  const asaas = new AsaasService(env, log);
+  if (asaas.configured) {
+    const refreshed = await prisma.user.findUnique({ where: { id: userId } });
+    if (refreshed) {
+      try {
+        await asaas.getOrCreateCustomer(refreshed);
+      } catch (err) {
+        log?.error({ err, userId }, "Falha ao criar cliente Asaas na ativação admin");
+      }
+    }
+    try {
+      await ensureRecurringSubscription(env, userId, log);
+    } catch (err) {
+      log?.error(
+        { err, userId },
+        "Cliente ativado no admin, mas falha ao garantir assinatura recorrente no Asaas",
+      );
+    }
+  }
 
   await recordActivitySafe(userId, {
     category: "PROFILE",

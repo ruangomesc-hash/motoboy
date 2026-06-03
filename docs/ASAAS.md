@@ -43,8 +43,8 @@ Quando o pagamento é confirmado:
 | Fluxo | Endpoint | Asaas |
 |-------|----------|-------|
 | Motoboy assina (checkout transparente) | `POST /me/subscribe` | Cria cliente + assinatura mensal + 1ª cobrança; retorna Pix/boleto no JSON |
-| Admin link Pix | `POST /admin/users/:id/payment-link` | Cria cliente + cobrança avulsa |
-| Admin baixa manual | `POST /admin/users/:id/activate` | Só banco (sem Asaas) |
+| Admin link Pix | `POST /admin/users/:id/payment-link` | Cobrança **avulsa** (regularização suporte); após pagamento, `ensureRecurringSubscription` liga a recorrência mensal |
+| Admin baixa manual | `POST /admin/users/:id/activate` | Ativa no banco + garante assinatura recorrente no Asaas quando possível |
 
 Clientes e assinaturas Asaas ficam em `User.asaasCustomerId` e `User.asaasSubscriptionId`. Idempotência de webhooks em `AsaasWebhookEvent`.
 
