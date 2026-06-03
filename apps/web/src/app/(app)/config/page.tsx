@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatBRL } from "@/lib/utils";
 import type { FuelDayStats, SubscriptionStatus } from "@motoboy/types";
-import { normalizeSubscriptionPaymentMethod } from "@/lib/profile-options";
 import { toStoredWhatsApp } from "@motoboy/types";
 import { Check, Fuel, Gauge, History, Target } from "lucide-react";
 import Link from "next/link";
@@ -264,11 +263,6 @@ function ConfigPageInner() {
     router.replace(buildConfigHref(tab, searchParams));
   }
 
-  const subscriptionActive = subscription?.status === "ACTIVE";
-  const activePaymentMethod = normalizeSubscriptionPaymentMethod(
-    subscription?.subscriptionPaymentMethod,
-  );
-
   const saveButton = (
     <div className="space-y-2 scroll-mt-4" id="onboarding-save">
       <Button onClick={save} className="w-full" size="lg" disabled={saving}>
@@ -438,15 +432,12 @@ function ConfigPageInner() {
       ) : (
         <>
           <ConfigPaymentSection
+            subscription={subscription}
             paymentMethod={profile.subscriptionPaymentMethod}
             onPaymentMethodChange={(id) =>
               setProfile({ ...profile, subscriptionPaymentMethod: id })
             }
-            subscriptionActive={subscriptionActive}
-            subscriptionPaymentMethod={activePaymentMethod}
-            subscribedAt={subscription?.subscribedAt ?? null}
           />
-          {saveButton}
         </>
       )}
 

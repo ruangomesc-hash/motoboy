@@ -17,6 +17,8 @@ type Props = {
   subscribedAt?: string | null;
   disabled?: boolean;
   readOnly?: boolean;
+  /** Quando o selo já está num banner acima (aba Pagamento). */
+  hideActiveBadge?: boolean;
 };
 
 export function PaymentMethodCards({
@@ -27,6 +29,7 @@ export function PaymentMethodCards({
   subscribedAt,
   disabled = false,
   readOnly = false,
+  hideActiveBadge = false,
 }: Props) {
   const activeId = subscriptionActive
     ? normalizeSubscriptionPaymentMethod(activeMethod ?? selected)
@@ -41,7 +44,7 @@ export function PaymentMethodCards({
 
         return (
           <div key={opt.id} className="flex flex-col gap-1.5">
-            {isActivePlan && (
+            {isActivePlan && !hideActiveBadge && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-0.5">
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
                   <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
