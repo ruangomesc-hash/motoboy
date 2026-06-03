@@ -20,12 +20,15 @@ type Props = {
   initialMethod: SubscriptionPaymentMethod;
   asaasConfigured: boolean;
   onActivated?: () => void;
+  /** Só layout — não chama API (conta já ACTIVE + ?preview=checkout). */
+  previewOnly?: boolean;
 };
 
 export function AsaasTransparentCheckout({
   initialMethod,
   asaasConfigured,
   onActivated,
+  previewOnly = false,
 }: Props) {
   const api = useApi();
   const { status: sessionStatus } = useSession();
@@ -61,6 +64,10 @@ export function AsaasTransparentCheckout({
   }, [checkout, polling, pollStatus]);
 
   async function startCheckout() {
+    if (previewOnly) {
+      setError("Modo visualização — não é possível gerar cobrança com assinatura ativa.");
+      return;
+    }
     if (sessionStatus !== "authenticated") {
       setError("Aguarde o login ou entre de novo.");
       return;
@@ -161,7 +168,7 @@ export function AsaasTransparentCheckout({
               <button
                 key={opt.id}
                 type="button"
-                disabled={!asaasConfigured}
+                disabled={!asaasConfigured && !previewOnly}
                 onClick={() => setPaymentMethod(opt.id)}
                 className={cn(
                   "rounded-xl border p-3 text-left transition-colors",
@@ -182,7 +189,7 @@ export function AsaasTransparentCheckout({
       <Button
         size="lg"
         className="w-full"
-        disabled={loading || !asaasConfigured}
+        disabled={loading || (!asaasConfigured && !previewOnly)}
         onClick={startCheckout}
       >
         {loading ? (
@@ -190,6 +197,8 @@ export function AsaasTransparentCheckout({
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             Gerando cobrança…
           </>
+        ) : previewOnly ? (
+          "Gerar pagamento (visualização)"
         ) : (
           "Gerar pagamento"
         )}
