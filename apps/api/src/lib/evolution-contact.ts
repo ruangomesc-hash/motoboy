@@ -119,6 +119,30 @@ function firstReplyJidFromKey(
   return null;
 }
 
+/** Todos os celulares extraídos do `key` (ordem Evolution), exceto linha do bot. */
+export function collectStoredPhonesFromEvolutionKey(
+  key: EvolutionMessageKey,
+  botPhoneKeys?: Set<string>,
+): string[] {
+  const seen = new Set<string>();
+  const phones: string[] = [];
+  const rawCandidates = [
+    key.remoteJidAlt,
+    key.senderPn,
+    key.participant,
+    key.remoteJid,
+  ].filter((v): v is string => Boolean(v?.trim()));
+
+  for (const raw of rawCandidates) {
+    if (botPhoneKeys?.size && isEvolutionBotPhone(raw, botPhoneKeys)) continue;
+    const stored = storedPhoneFromJid(ensureJid(raw));
+    if (!stored || seen.has(stored)) continue;
+    seen.add(stored);
+    phones.push(stored);
+  }
+  return phones;
+}
+
 /**
  * Resolve telefone (banco) e destino de resposta (Evolution sendText).
  * Prioriza JID real (@s.whatsapp.net) sobre @lid.
@@ -157,6 +181,34 @@ export function resolveEvolutionContact(
   }
 
   return null;
+}
+
+/** União de candidatos do webhook para achar conta no banco (vários campos do Evolution). */
+export function collectInboundPhoneCandidates(
+  body: unknown,
+  key: EvolutionMessageKey,
+  contact: EvolutionResolvedContact | null,
+  replyTo: string | null,
+  botPhoneKeys?: Set<string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: string | null | undefined) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+
+  for (const p of collectStoredPhonesFromEvolutionKey(key, botPhoneKeys)) {
+    push(p);
+  }
+  push(contact?.storedPhone ?? null);
+  if (replyTo) push(resolveStoredPhoneFromReplyTo(replyTo));
+  const rootSender = extractEvolutionRootSender(body);
+  if (rootSender && !(botPhoneKeys?.size && isEvolutionBotPhone(rootSender, botPhoneKeys))) {
+    push(storedPhoneFromJid(ensureJid(rootSender)));
+  }
+  return out;
 }
 
 export type EvolutionWebhookContactOptions = {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import {
+  collectStoredPhonesFromEvolutionKey,
   resolveEvolutionContact,
   resolveEvolutionWebhookContact,
   resolveStoredPhoneFromReplyTo,
@@ -80,6 +81,16 @@ describe("parseEvolutionInboundMessage", () => {
 });
 
 describe("resolveEvolutionContact", () => {
+  it("coleta todos os números do key (não só o primeiro)", () => {
+    const phones = collectStoredPhonesFromEvolutionKey({
+      remoteJidAlt: "5531999988881@s.whatsapp.net",
+      senderPn: "5531999988888@s.whatsapp.net",
+      remoteJid: "69385314111689@lid",
+      fromMe: false,
+    });
+    expect(phones).toEqual(["5531999988881", "5531999988888"]);
+  });
+
   it("usa remoteJidAlt quando remoteJid é @lid", () => {
     const contact = resolveEvolutionContact({
       remoteJid: "69385314111689@lid",

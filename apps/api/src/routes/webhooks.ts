@@ -12,9 +12,10 @@ import { isProductionRuntime } from "../lib/runtime-env.js";
 import { authRateLimit } from "../lib/rate-limit.js";
 import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import {
+  collectInboundPhoneCandidates,
   resolveEvolutionWebhookContact,
-  resolveStoredPhoneFromReplyTo,
 } from "../lib/evolution-contact.js";
+import { findUserByPhoneCandidates } from "../services/user.js";
 import {
   extractEvolutionMessageText,
   inferEvolutionMessageType,
@@ -113,8 +114,15 @@ async function handleWhatsAppWebhook(
 
     replyTo = contact.replyTo;
 
-    const fromNumber =
-      contact.storedPhone ?? resolveStoredPhoneFromReplyTo(replyTo);
+    const phoneCandidates = collectInboundPhoneCandidates(
+      body,
+      data.key,
+      contact,
+      replyTo,
+      botPhoneKeys,
+    );
+    const matchedUser = await findUserByPhoneCandidates(phoneCandidates);
+    const fromNumber = matchedUser?.matchedPhone ?? phoneCandidates[0] ?? null;
 
     if (!fromNumber) {
       request.log.warn({ key: data.key, replyTo }, "Webhook: no_stored_phone");

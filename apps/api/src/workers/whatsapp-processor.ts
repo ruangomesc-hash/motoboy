@@ -8,7 +8,11 @@ import {
 import type { Env, ExtractionResult } from "@motoboy/types";
 import type { Server as SocketServer } from "socket.io";
 import type { FastifyBaseLogger } from "fastify";
-import { findUserByPhone, isTrialExpired } from "../services/user.js";
+import {
+  findUserByPhone,
+  findUserByPhoneCandidates,
+  isTrialExpired,
+} from "../services/user.js";
 import { EvolutionService } from "../services/evolution.js";
 import {
   createDeliveryFromExtraction,
@@ -38,7 +42,12 @@ import {
   getOdometerDayStats,
   formatOdometerConfirmation,
 } from "../services/odometer.js";
-import { coerceBrazilStoredPhone } from "../lib/evolution-contact.js";
+import {
+  coerceBrazilStoredPhone,
+  collectInboundPhoneCandidates,
+} from "../lib/evolution-contact.js";
+import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
+import { parseEvolutionInboundMessage } from "../lib/evolution-webhook.js";
 import { normalizePhone } from "../lib/phone.js";
 import { getBullMQConnection } from "../lib/bullmq-connection.js";
 import { recordClientErrorSafe } from "../services/client-error-log.js";
@@ -227,6 +236,41 @@ function jobStoredPhone(job: Job<WhatsAppJobData>): string | null {
   }
 }
 
+function inboundPhoneCandidatesFromJob(
+  job: Job<WhatsAppJobData>,
+  env: Env,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: string | null | undefined) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+
+  push(jobStoredPhone(job));
+  push(coerceBrazilStoredPhone(job.data.fromNumber));
+  if (job.data.replyTarget) {
+    push(coerceBrazilStoredPhone(job.data.replyTarget));
+  }
+
+  const parsed = parseEvolutionInboundMessage(job.data.rawContent);
+  if (parsed?.key) {
+    const botKeys = getEvolutionBotPhoneKeys(env);
+    for (const candidate of collectInboundPhoneCandidates(
+      job.data.rawContent,
+      parsed.key,
+      null,
+      jobReplyTo(job),
+      botKeys,
+    )) {
+      push(candidate);
+    }
+  }
+
+  return out;
+}
+
 export type WhatsAppProcessContext = {
   env: Env;
   log: FastifyBaseLogger;
@@ -251,7 +295,8 @@ async function processWhatsAppJobInternal(
   const ai = new AiService(env.OPENAI_API_KEY);
   const { messageType, rawContent } = job.data;
   const replyTo = jobReplyTo(job);
-  const phone = jobStoredPhone(job);
+  const phoneCandidates = inboundPhoneCandidatesFromJob(job, env);
+  let phone = phoneCandidates[0] ?? jobStoredPhone(job);
   let userId: string | undefined;
 
   try {
@@ -281,20 +326,22 @@ async function processWhatsAppJobInternal(
           return;
         }
 
-        const user = await findUserByPhone(phone);
+        const lookup = await findUserByPhoneCandidates(phoneCandidates);
+        const user = lookup?.user ?? null;
+        if (user && lookup) phone = lookup.matchedPhone;
         if (!user) {
           await prisma.whatsAppMessage.update({
             where: { id: inbound.id },
             data: { processedAs: "user_not_found" },
           });
           const hint =
-            phone.length >= 4
+            phone && phone.length >= 4
               ? ` (recebemos …${phone.slice(-4)})`
               : "";
           await safeWhatsAppReply(
             evolution,
             replyTo,
-            `❌ WhatsApp não cadastrado${hint}. Abra o app → Configurações e use o mesmo celular que envia mensagem aqui (DDD + 9 dígitos).`,
+            `❌ WhatsApp não cadastrado${hint}. Abra o app → Configurações e confira o número exibido — deve ser o mesmo celular que envia mensagem aqui (DDD + 9 dígitos). Se o final do número não bater, salve de novo em Config.`,
             log,
           );
           return;

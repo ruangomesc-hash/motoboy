@@ -135,6 +135,19 @@ export async function findUserByPhone(whatsappNumber: string) {
   });
 }
 
+/** Tenta cada candidato do webhook até achar usuário (Evolution manda números diferentes por campo). */
+export async function findUserByPhoneCandidates(candidates: string[]) {
+  const tried = new Set<string>();
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed || tried.has(trimmed)) continue;
+    tried.add(trimmed);
+    const user = await findUserByPhone(trimmed);
+    if (user) return { user, matchedPhone: trimmed };
+  }
+  return null;
+}
+
 /** Admin / deploy: alinha 55+11 e o 9 do celular em todas as contas existentes. */
 export async function normalizeAllUsersWhatsAppNumbers(): Promise<{
   scanned: number;
