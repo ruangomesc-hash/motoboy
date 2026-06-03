@@ -2,6 +2,8 @@ import { Worker, type Job } from "bullmq";
 import { prisma } from "@motoboy/db";
 import {
   AiService,
+  formatAppLinkWhatsAppReply,
+  isAppLinkRequest,
   tryParseDeliveryFromText,
   tryParseExpenseFromText,
 } from "@motoboy/ai";
@@ -125,7 +127,18 @@ async function tryFastParseWhatsAppMessage(
   evolution: EvolutionService,
   io: SocketServer | null,
   log: FastifyBaseLogger,
+  env: Env,
 ): Promise<boolean> {
+  if (isAppLinkRequest(text)) {
+    await safeWhatsAppReply(
+      evolution,
+      jobReplyTo(job),
+      formatAppLinkWhatsAppReply(resolvePublicAppUrl(env)),
+      log,
+    );
+    return true;
+  }
+
   const expense = tryParseExpenseFromText(text);
   if (expense) {
     await finalizeWhatsAppExpense(
@@ -412,6 +425,7 @@ async function processWhatsAppJobInternal(
           evolution,
           io,
           log,
+          env,
         )) {
           await prisma.whatsAppMessage.update({
             where: { id: inbound.id },
@@ -601,6 +615,7 @@ async function processTextMessage(
       evolution,
       io,
       log,
+      env,
     )
   ) {
     return;

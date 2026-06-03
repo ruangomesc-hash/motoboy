@@ -125,3 +125,8 @@ export { buildExtractionPrompt, VISION_PROMPT };
 export { normalizeMotoboyMessage } from "./normalize-message.js";
 export { tryParseExpenseFromText } from "./parse-expense-text.js";
 export { tryParseDeliveryFromText } from "./parse-delivery-text.js";
+export {
+  isAppLinkRequest,
+  formatAppLinkWhatsAppReply,
+  normalizeAppLinkText,
+} from "./app-link-lexicon.js";
