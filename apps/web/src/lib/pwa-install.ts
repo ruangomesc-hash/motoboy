@@ -1,11 +1,9 @@
-const DISMISS_KEY = "motocopiloto_pwa_install_dismiss_v1";
+const DISMISS_PERMANENT_KEY = "motocopiloto_pwa_install_never_v1";
+const DISMISS_SESSION_KEY = "motocopiloto_pwa_install_later_session_v1";
+
+export const PWA_INSTALL_OPEN_EVENT = "motocopiloto:open-pwa-install";
 
 export type PwaInstallDismissReason = "later" | "installed";
-
-type DismissRecord = {
-  reason: PwaInstallDismissReason;
-  until: number;
-};
 
 export function isStandaloneDisplay(): boolean {
   if (typeof window === "undefined") return false;
@@ -24,7 +22,6 @@ export function isMobileBrowser(): boolean {
   return navigator.maxTouchPoints > 1 && window.innerWidth < 900;
 }
 
-/** iPhone/iPad — instalação é sempre via Compartilhar → Tela de Início. */
 export function isIosDevice(): boolean {
   if (typeof window === "undefined") return false;
   const ua = navigator.userAgent;
@@ -32,38 +29,45 @@ export function isIosDevice(): boolean {
   return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 }
 
-function readDismiss(): DismissRecord | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(DISMISS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DismissRecord;
-    if (!parsed?.until || !parsed.reason) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+/** Não mostrar de novo — já instalou o atalho. */
+export function dismissPwaInstallPermanently(): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DISMISS_PERMANENT_KEY, "1");
+  sessionStorage.removeItem(DISMISS_SESSION_KEY);
 }
 
-export function dismissPwaInstallPrompt(reason: PwaInstallDismissReason): void {
+/** Lembrar mais tarde — só nesta aba/sessão do navegador (some ao fechar o app do browser). */
+export function dismissPwaInstallForSession(): void {
   if (typeof window === "undefined") return;
-  const days = reason === "installed" ? 3650 : 14;
-  const record: DismissRecord = {
-    reason,
-    until: Date.now() + days * 24 * 60 * 60 * 1000,
-  };
-  localStorage.setItem(DISMISS_KEY, JSON.stringify(record));
+  sessionStorage.setItem(DISMISS_SESSION_KEY, "1");
+}
+
+/** @deprecated use dismissPwaInstallPermanently or dismissPwaInstallForSession */
+export function dismissPwaInstallPrompt(reason: PwaInstallDismissReason): void {
+  if (reason === "installed") dismissPwaInstallPermanently();
+  else dismissPwaInstallForSession();
+}
+
+export function clearPwaInstallDismiss(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(DISMISS_PERMANENT_KEY);
+  sessionStorage.removeItem(DISMISS_SESSION_KEY);
+  localStorage.removeItem("motocopiloto_pwa_install_dismiss_v1");
 }
 
 export function shouldShowPwaInstallPrompt(): boolean {
   if (typeof window === "undefined") return false;
   if (isStandaloneDisplay()) return false;
   if (!isMobileBrowser()) return false;
-
-  const dismissed = readDismiss();
-  if (dismissed && dismissed.until > Date.now()) return false;
-
+  if (localStorage.getItem(DISMISS_PERMANENT_KEY) === "1") return false;
+  if (sessionStorage.getItem(DISMISS_SESSION_KEY) === "1") return false;
   return true;
+}
+
+export function openPwaInstallPrompt(): void {
+  if (typeof window === "undefined") return;
+  clearPwaInstallDismiss();
+  window.dispatchEvent(new CustomEvent(PWA_INSTALL_OPEN_EVENT));
 }
 
 export type BeforeInstallPromptEvent = Event & {

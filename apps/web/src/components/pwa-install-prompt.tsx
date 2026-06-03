@@ -12,13 +12,15 @@ import {
   PWA_BRAND_ICON,
 } from "@/lib/pwa-install-guide";
 import {
-  dismissPwaInstallPrompt,
+  dismissPwaInstallForSession,
+  dismissPwaInstallPermanently,
   isBeforeInstallPromptEvent,
   isStandaloneDisplay,
+  PWA_INSTALL_OPEN_EVENT,
   shouldShowPwaInstallPrompt,
   type BeforeInstallPromptEvent,
 } from "@/lib/pwa-install";
-import { Download, Smartphone } from "lucide-react";
+import { Download, HardDrive } from "lucide-react";
 
 export function PwaInstallPrompt() {
   const { status } = useSession();
@@ -26,6 +28,7 @@ export function PwaInstallPrompt() {
   const [mounted, setMounted] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [canNativeInstall, setCanNativeInstall] = useState(false);
+  const [neverShowAgain, setNeverShowAgain] = useState(false);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
 
   const browserKind = mounted ? detectInstallBrowser() : "other-mobile";
@@ -54,7 +57,14 @@ export function PwaInstallPrompt() {
       setCanNativeInstall(true);
     };
 
+    const onForceOpen = () => {
+      if (status !== "authenticated" || isStandaloneDisplay()) return;
+      setNeverShowAgain(false);
+      setOpen(true);
+    };
+
     window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener(PWA_INSTALL_OPEN_EVENT, onForceOpen);
     const timer = window.setTimeout(evaluateOpen, 3000);
     const poll = window.setInterval(() => {
       if (!needsReleaseRefresh()) {
@@ -65,6 +75,7 @@ export function PwaInstallPrompt() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener(PWA_INSTALL_OPEN_EVENT, onForceOpen);
       window.clearTimeout(timer);
       window.clearInterval(poll);
     };
@@ -79,6 +90,11 @@ export function PwaInstallPrompt() {
     };
   }, [open]);
 
+  function closeWithDismissChoice() {
+    if (neverShowAgain) dismissPwaInstallPermanently();
+    setOpen(false);
+  }
+
   async function handleInstall() {
     const deferred = deferredPromptRef.current;
     if (!deferred) return;
@@ -87,7 +103,7 @@ export function PwaInstallPrompt() {
       await deferred.prompt();
       const choice = await deferred.userChoice;
       if (choice.outcome === "accepted") {
-        dismissPwaInstallPrompt("installed");
+        dismissPwaInstallPermanently();
         setOpen(false);
       }
     } catch {
@@ -99,12 +115,7 @@ export function PwaInstallPrompt() {
   }
 
   function handleLater() {
-    dismissPwaInstallPrompt("later");
-    setOpen(false);
-  }
-
-  function handleAlreadyInstalled() {
-    dismissPwaInstallPrompt("installed");
+    dismissPwaInstallForSession();
     setOpen(false);
   }
 
@@ -117,9 +128,9 @@ export function PwaInstallPrompt() {
       aria-modal="true"
       aria-labelledby="pwa-install-title"
     >
-      <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-xl space-y-4">
+      <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-xl space-y-3">
         <div className="flex items-start gap-3">
-          <div className="relative h-14 w-14 shrink-0 rounded-xl overflow-hidden border border-emerald-500/30 bg-[#0a0a0a]">
+          <div className="relative h-14 w-14 shrink-0 rounded-full overflow-hidden border border-emerald-500/30 bg-[#0a0a0a]">
             <Image
               src={PWA_BRAND_ICON}
               alt="Ícone Motocopiloto"
@@ -129,19 +140,26 @@ export function PwaInstallPrompt() {
               unoptimized
             />
           </div>
-          <div className="space-y-2 min-w-0 flex-1">
+          <div className="space-y-1 min-w-0 flex-1">
             <h2 id="pwa-install-title" className="text-lg font-semibold leading-tight">
               Instalar no celular
             </h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Mesmo ícone do app na tela inicial — abre direto, sem procurar no
-              navegador.
+            <p className="text-sm text-muted-foreground leading-snug">
+              Atalho na tela inicial — mesmo ícone do Motocopiloto.
             </p>
             <p className="text-[11px] text-muted-foreground/90">
               {guide.browserLabel}
             </p>
           </div>
         </div>
+
+        <p className="flex items-start gap-2 text-[11px] leading-snug text-muted-foreground rounded-lg bg-muted/40 px-2.5 py-2">
+          <HardDrive className="h-3.5 w-3.5 shrink-0 text-emerald-400/90 mt-0.5" strokeWidth={1.75} />
+          <span>
+            Não baixa um app pesado nem ocupa memória do celular — é só um atalho
+            que abre o site em tela cheia.
+          </span>
+        </p>
 
         {showNativeButton && (
           <Button
@@ -156,36 +174,41 @@ export function PwaInstallPrompt() {
           </Button>
         )}
 
-        <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside leading-relaxed">
+        <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside leading-snug">
           {guide.steps.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
 
-        <div className="flex flex-col gap-2">
-          {browserKind === "ios" && (
-            <Button type="button" className="w-full" size="lg" onClick={handleLater}>
-              Entendi, vou adicionar
-            </Button>
-          )}
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={handleLater}
-            >
-              Agora não
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="flex-1 text-muted-foreground"
-              onClick={handleAlreadyInstalled}
-            >
-              Já instalei
-            </Button>
-          </div>
+        <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-border px-3 py-2.5">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-emerald-500"
+            checked={neverShowAgain}
+            onChange={(e) => setNeverShowAgain(e.target.checked)}
+          />
+          <span className="text-sm leading-snug">
+            Já instalei o atalho — não mostrar este aviso de novo
+          </span>
+        </label>
+
+        <div className="flex flex-col gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={closeWithDismissChoice}
+          >
+            {neverShowAgain ? "Fechar e não mostrar de novo" : "Fechar"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-muted-foreground"
+            onClick={handleLater}
+          >
+            Agora não (volta ao abrir o site de novo)
+          </Button>
         </div>
       </div>
     </div>,

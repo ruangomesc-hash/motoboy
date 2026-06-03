@@ -41,6 +41,7 @@ import {
   type MeSettingsSnapshot,
 } from "@/lib/me-settings";
 import { AppPage } from "@/components/app-page";
+import { openPwaInstallPrompt } from "@/lib/pwa-install";
 
 function ConfigPageInner() {
   const api = useApi();
@@ -386,6 +387,13 @@ function ConfigPageInner() {
         </Button>
       </div>
 
+      <button
+        type="button"
+        className="w-full text-center text-xs text-muted-foreground hover:text-primary"
+        onClick={() => openPwaInstallPrompt()}
+      >
+        Como instalar o atalho na tela inicial
+      </button>
       <button
         type="button"
         className="w-full text-center text-xs text-muted-foreground hover:text-primary"
