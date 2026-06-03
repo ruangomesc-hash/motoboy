@@ -109,6 +109,7 @@ async function upsertPaymentForCharge(
       asaasChargeId: chargeId,
       status,
       amount,
+      chargeKind: "SUBSCRIPTION",
       paidAt: paidAt ?? (status === "PAID" ? new Date() : null),
     },
   });

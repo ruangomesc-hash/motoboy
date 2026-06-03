@@ -8,16 +8,12 @@ Documentação: [docs.asaas.com](https://docs.asaas.com/)
 |----------|-------------|-----------|
 | `ASAAS_API_KEY` | Sim (produção) | Chave em **Integrações → API** no painel Asaas |
 | `ASAAS_WEBHOOK_TOKEN` | Sim (produção) | Token definido ao cadastrar o webhook no Asaas |
-| `ASAAS_SANDBOX` | Sim | `true` = sandbox.asaas.com · `false` = api.asaas.com (produção) |
 
 Sem `ASAAS_API_KEY`, o app usa **modo mock** (útil só em dev).
 
-## URLs da API (já configuradas no código)
+## URL da API (já configurada no código)
 
-| Ambiente | Base URL |
-|----------|----------|
-| Sandbox | `https://sandbox.asaas.com/api/v3` |
-| Produção | `https://api.asaas.com/v3` |
+Base: `https://api.asaas.com/v3`
 
 Autenticação: header `access_token: SUA_API_KEY`
 
@@ -59,13 +55,6 @@ Cancelamento pelo app: `POST /me/subscription/cancel` → `DELETE /v3/subscripti
 
 O formulário de **cartão** na mesma tela será integrado com a API de checkout transparente do Asaas (tokenização no front).
 
-## Testar em sandbox
-
-1. Crie conta em [sandbox.asaas.com](https://sandbox.asaas.com/)
-2. Gere API Key de sandbox
-3. Na Vercel (preview): `ASAAS_SANDBOX=true` + `ASAAS_API_KEY` de sandbox
-4. Use cartões/Pix de teste do Asaas
-
 ## Health check
 
 `GET /api/backend/health` retorna:
@@ -74,7 +63,6 @@ O formulário de **cartão** na mesma tela será integrado com a API de checkout
 {
   "asaas": {
     "configured": true,
-    "sandbox": true,
     "webhookPath": "/api/backend/webhooks/asaas"
   }
 }

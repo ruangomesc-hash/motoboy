@@ -145,7 +145,6 @@ export const demoSubscription: SubscriptionStatus = {
   lastPayment: null,
   asaas: {
     configured: true,
-    sandbox: true,
     webhookPath: "/api/backend/webhooks/asaas",
   },
 };

@@ -344,10 +344,6 @@ export const envSchema = z.object({
   GOOGLE_MAPS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   ASAAS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   ASAAS_WEBHOOK_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
-  ASAAS_SANDBOX: z
-    .string()
-    .optional()
-    .transform((v) => v === "true"),
   JWT_SECRET: z.string().min(16),
   API_URL: z.string().default("http://localhost:3001"),
   APP_URL: z.string().default("http://localhost:3002"),
@@ -483,9 +479,7 @@ export const billingProviderStatusSchema = z.object({
   webhookPath: z.string(),
 });
 
-export const billingAsaasStatusSchema = billingProviderStatusSchema.extend({
-  sandbox: z.boolean(),
-});
+export const billingAsaasStatusSchema = billingProviderStatusSchema;
 
 export const subscriptionStatusSchema = z.object({
   status: z.enum(["TRIAL", "ACTIVE", "PAUSED", "CANCELED"]),

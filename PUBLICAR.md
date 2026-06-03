@@ -46,13 +46,12 @@ Após o primeiro deploy com sucesso, no Mac: `pnpm db:deploy` (com `.env` do Sup
 
 ## 2b. Asaas (pagamentos)
 
-1. Conta em [asaas.com](https://www.asaas.com/) (ou [sandbox](https://sandbox.asaas.com/) para testes)
-2. **Integrações → API** → copie a chave → `ASAAS_API_KEY`
+1. Conta em [asaas.com](https://www.asaas.com/)
+2. **Integrações → API** → copie a chave → `ASAAS_API_KEY` (projeto Vercel)
 3. **Integrações → Webhooks** → URL:
    `https://SEU-DOMINIO.vercel.app/api/backend/webhooks/asaas`
    - Token = `ASAAS_WEBHOOK_TOKEN` (mesmo valor na Vercel)
    - Eventos: pagamento recebido / confirmado
-4. `ASAAS_SANDBOX=true` em preview · `false` em produção
 
 Detalhes: [docs/ASAAS.md](./docs/ASAAS.md)
 

@@ -260,16 +260,26 @@ export async function createApp(
     const runWhatsAppWorker =
       process.env.RUN_WHATSAPP_WORKER === "true" && isRedisEnabled(env);
     const whatsappProcessing = whatsappProcessingMode();
+    const { getBillingSchemaReady, billingSchemaOk } = await import(
+      "./lib/billing-schema.js"
+    );
+    const billingSchema = await getBillingSchemaReady();
+    const billingReady = billingSchemaOk(billingSchema);
+
     const migrationsHint = !adminTable
       ? "Rode pnpm db:deploy ou redeploy Vercel com DATABASE_URL em Build"
       : !userPasswordColumn
         ? "Rode a migration User.passwordHash no Supabase (20260527210000_user_password_hash)"
-        : null;
+        : !billingReady
+          ? "Rode pnpm db:deploy (User.cpfCnpj + Payment.chargeKind) para checkout Pix/cartão"
+          : null;
     return {
       ok: true,
       database: "connected",
       adminTable,
       userPasswordColumn,
+      billingSchema,
+      billingReady,
       migrationsHint,
       redis: isRedisEnabled(env),
       whatsappWorker: runWhatsAppWorker,

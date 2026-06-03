@@ -132,12 +132,10 @@ export class AsaasService {
 
   connectionStatus(): {
     configured: boolean;
-    sandbox: boolean;
     webhookPath: string;
   } {
     return {
       configured: this.configured,
-      sandbox: Boolean(this.env.ASAAS_SANDBOX),
       webhookPath: "/api/backend/webhooks/asaas",
     };
   }

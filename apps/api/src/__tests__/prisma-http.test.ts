@@ -33,6 +33,15 @@ describe("mapPrismaHttpError", () => {
     expect(mapped?.body.error).toContain("senha");
   });
 
+  it("maps P2022 chargeKind to billing migrations hint", () => {
+    const mapped = mapPrismaHttpError({
+      code: "P2022",
+      message: 'The column "chargeKind" does not exist',
+    });
+    expect(mapped?.status).toBe(503);
+    expect(mapped?.body.code).toBe("BILLING_MIGRATIONS_REQUIRED");
+  });
+
   it("returns null for unknown errors", () => {
     expect(mapPrismaHttpError(new Error("boom"))).toBeNull();
   });

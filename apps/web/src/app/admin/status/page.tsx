@@ -798,10 +798,6 @@ export default function AdminStatusPage() {
             value={boolLabel(h?.asaas?.configured)}
           />
           <DetailRow
-            label="Sandbox"
-            value={boolLabel(h?.asaas?.sandbox)}
-          />
-          <DetailRow
             label="Webhook"
             value={h?.asaas?.webhookPath ?? "—"}
             mono

@@ -7,9 +7,14 @@ export type SystemHealthResponse = {
   userPasswordColumn?: boolean;
   migrationsHint?: string | null;
   redis?: boolean;
+  billingSchema?: {
+    userCpfCnpj: boolean;
+    paymentChargeKind: boolean;
+  };
+  billingReady?: boolean;
+  migrationsHint?: string | null;
   asaas?: {
     configured: boolean;
-    sandbox: boolean;
     webhookPath: string;
   };
 };

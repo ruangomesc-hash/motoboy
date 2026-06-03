@@ -27,6 +27,28 @@ export function mapPrismaHttpError(err: unknown): {
     };
   }
 
+  if (code === "P2022" && /cpfCnpj/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Banco sem coluna CPF (User.cpfCnpj). Rode `pnpm db:deploy` e redeploy na Vercel.",
+        code: "BILLING_MIGRATIONS_REQUIRED",
+      },
+    };
+  }
+
+  if (code === "P2022" && /chargeKind/i.test(message)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Banco sem coluna de tipo de cobrança (Payment.chargeKind). Rode `pnpm db:deploy` e redeploy na Vercel.",
+        code: "BILLING_MIGRATIONS_REQUIRED",
+      },
+    };
+  }
+
   if (isPrismaTableMissingError(err)) {
     return {
       status: 503,

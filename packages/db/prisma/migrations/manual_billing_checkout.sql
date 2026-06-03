@@ -1,4 +1,7 @@
--- Diferencia cobrança de assinatura vs avulsa (admin/suporte)
+-- Checkout Pix/cartão (rode no Supabase SQL Editor se pnpm db:deploy não rodou na Vercel)
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "cpfCnpj" TEXT;
+
 DO $$ BEGIN
   CREATE TYPE "PaymentChargeKind" AS ENUM ('SUBSCRIPTION', 'SUPPORT');
 EXCEPTION

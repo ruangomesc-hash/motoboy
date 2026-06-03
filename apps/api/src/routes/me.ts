@@ -916,6 +916,11 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     });
 
     try {
+      const { assertBillingSchemaReady } = await import(
+        "../lib/billing-schema.js"
+      );
+      await assertBillingSchemaReady();
+
       const result = await asaas.createSubscription(
         userId,
         paymentMethod,
@@ -934,24 +939,36 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         activated: result.activated ?? false,
       };
     } catch (err) {
+      const { mapPrismaHttpError } = await import("../lib/prisma-http.js");
+      const prismaMapped = mapPrismaHttpError(err);
+      if (prismaMapped) {
+        request.log.error(
+          { err, paymentMethod, code: prismaMapped.body.code },
+          "Subscribe checkout (banco)",
+        );
+        return reply.status(prismaMapped.status).send(prismaMapped.body);
+      }
+
       const statusCode = (err as { statusCode?: number }).statusCode;
+      const code = (err as { code?: string }).code;
       const message =
         err instanceof Error ? err.message : "Erro ao abrir pagamento";
       request.log.error({ err, paymentMethod }, "Subscribe checkout");
       if (statusCode === 400) {
-        return reply.status(400).send({ error: message });
+        return reply.status(400).send({ error: message, code });
       }
       if (statusCode === 404) {
-        return reply.status(404).send({ error: message });
+        return reply.status(404).send({ error: message, code });
       }
       if (statusCode === 409) {
-        return reply.status(409).send({ error: message });
+        return reply.status(409).send({ error: message, code });
       }
       if (statusCode === 503) {
-        return reply.status(503).send({ error: message });
+        return reply.status(503).send({ error: message, code });
       }
       return reply.status(502).send({
         error: message || "Não foi possível abrir o pagamento. Tente novamente.",
+        code: code ?? "CHECKOUT_ERROR",
       });
     }
   });

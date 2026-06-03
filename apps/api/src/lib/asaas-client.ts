@@ -4,13 +4,12 @@ import {
   type AsaasRequestContext,
 } from "./asaas-request-log.js";
 
-export const ASAAS_BASE_SANDBOX = "https://sandbox.asaas.com/api/v3";
-export const ASAAS_BASE_PROD = "https://api.asaas.com/v3";
+export const ASAAS_BASE_URL = "https://api.asaas.com/v3";
 
 export type AsaasBillingType = "PIX" | "CREDIT_CARD" | "BOLETO" | "UNDEFINED";
 
-export function asaasBaseUrl(env: Env): string {
-  return env.ASAAS_SANDBOX ? ASAAS_BASE_SANDBOX : ASAAS_BASE_PROD;
+export function asaasBaseUrl(_env: Env): string {
+  return ASAAS_BASE_URL;
 }
 
 export function isAsaasConfigured(env: Env): boolean {
