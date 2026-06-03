@@ -6,6 +6,7 @@ import type {
 } from "@motoboy/types";
 import { formatExpenseDisplayLabel } from "@motoboy/types";
 import { getTodaySummary, formatCurrency } from "./today.js";
+import { formatDeliveryRecordLabel } from "@motoboy/types";
 import { formatDeliverySource } from "./activity-labels.js";
 
 function parseOccurredAt(iso?: string): Date {
@@ -157,8 +158,10 @@ function formatConfirmLine(d: DeliveryConfirmationSlice): string {
     typeof d.grossValue === "number"
       ? d.grossValue
       : Number(d.grossValue.toString());
-  const name =
-    d.originName?.trim() || formatDeliverySource(String(d.source));
+  const name = formatDeliveryRecordLabel(
+    String(d.source),
+    d.originName,
+  );
   return `✅ ${formatCurrency(value)} da ${name} registrado.`;
 }
 

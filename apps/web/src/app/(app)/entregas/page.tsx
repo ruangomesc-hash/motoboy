@@ -7,21 +7,14 @@ import { formatBRL, formatTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AddDeliveryForm } from "@/components/add-delivery-form";
 import { AddExpenseForm } from "@/components/add-expense-form";
-import { formatExpenseDisplayLabel, isExpenseEntry } from "@motoboy/types";
+import {
+  formatDeliveryRecordLabel,
+  formatExpenseDisplayLabel,
+  isExpenseEntry,
+} from "@motoboy/types";
 import { formatSignedBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
 import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
-
-function sourceLabel(source: string): string {
-  const map: Record<string, string> = {
-    IFOOD: "iFood",
-    NINETY_NINE: "99",
-    RAPPI: "Rappi",
-    PARTICULAR: "Particular",
-    OTHER: "Outro",
-  };
-  return map[source] ?? source;
-}
 
 export default function EntregasPage() {
   const {
@@ -106,7 +99,7 @@ export default function EntregasPage() {
                 <p className="text-xs text-muted-foreground mt-1 break-words">
                   {expense
                     ? formatExpenseDisplayLabel(d.originName)
-                    : (d.originName ?? sourceLabel(d.source))}
+                    : formatDeliveryRecordLabel(d.source, d.originName)}
                   {!expense && d.distanceKm
                     ? ` · ${Number(d.distanceKm)} km`
                     : ""}

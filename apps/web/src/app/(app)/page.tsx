@@ -10,7 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatSignedBRL, formatTime } from "@/lib/utils";
-import { formatExpenseDisplayLabel, isExpenseEntry } from "@motoboy/types";
+import {
+  formatDeliveryRecordLabel,
+  formatExpenseDisplayLabel,
+  isExpenseEntry,
+} from "@motoboy/types";
 import Link from "next/link";
 import { MotocopilotoLogo } from "@/components/brand/logo";
 import { AppPage } from "@/components/app-page";
@@ -34,17 +38,6 @@ import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import { recomputeTodayFromDeliveries } from "@/lib/today-recent-from-deliveries";
 
 const BOT_NUMBER = process.env.NEXT_PUBLIC_EVOLUTION_BOT_NUMBER ?? "5511999999999";
-
-function sourceLabel(source: string): string {
-  const map: Record<string, string> = {
-    IFOOD: "iFood",
-    NINETY_NINE: "99",
-    RAPPI: "Rappi",
-    PARTICULAR: "Particular",
-    OTHER: "Outro",
-  };
-  return map[source] ?? source;
-}
 
 export default function HomePage() {
   const { today, profileName, todayDeliveries } = useAppData();
@@ -349,7 +342,7 @@ export default function HomePage() {
                   {" · "}
                   {expense
                     ? formatExpenseDisplayLabel(d.originName)
-                    : (d.originName ?? sourceLabel(d.source))}
+                    : formatDeliveryRecordLabel(d.source, d.originName)}
                 </span>
                 <span className="text-muted-foreground shrink-0 tabular-nums">
                   {formatTime(d.occurredAt)}

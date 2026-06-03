@@ -9,6 +9,7 @@ export * from "./delivery-entry";
 export * from "./expense-tags";
 export * from "./period-range";
 export * from "./daily-cost";
+export * from "./delivery-display";
 
 /** Zod: string de telefone → 11 dígitos locais (DDD + celular). */
 export const brazilWhatsAppFieldSchema = z
