@@ -20,14 +20,26 @@ const ACCOUNT_PHRASES = [
   "Quase pronto para rodar.",
 ];
 
+const STARTUP_PHRASES = [
+  "Abrindo o Motocopiloto…",
+  "Atualizando seu painel…",
+  "Sincronizando entregas e lucro…",
+  "Quase pronto — só um instante.",
+];
+
 export function AppLoadingSplash({
   variant = "home",
   className,
 }: {
-  variant?: "home" | "account";
+  variant?: "home" | "account" | "startup";
   className?: string;
 }) {
-  const phrases = variant === "account" ? ACCOUNT_PHRASES : HOME_PHRASES;
+  const phrases =
+    variant === "account"
+      ? ACCOUNT_PHRASES
+      : variant === "startup"
+        ? STARTUP_PHRASES
+        : HOME_PHRASES;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {

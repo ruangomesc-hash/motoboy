@@ -38,8 +38,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className="dark">
-      <body className={inter.className}>
+    <html lang="pt-BR" className="dark" style={{ backgroundColor: "#0a0a0a" }}>
+      <body
+        className={inter.className}
+        style={{ backgroundColor: "#0a0a0a" }}
+      >
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
