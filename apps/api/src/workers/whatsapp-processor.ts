@@ -56,6 +56,7 @@ import { recordClientErrorSafe } from "../services/client-error-log.js";
 import { formatWhatsAppProcessingError } from "../lib/whatsapp-user-message.js";
 import { resolvePublicAppUrl } from "../lib/app-url.js";
 import { safeWhatsAppErrorReply, safeWhatsAppReply } from "../lib/whatsapp-reply.js";
+import { handleUnknownSenderInbound } from "../services/whatsapp-unknown-sender.js";
 
 function dayBounds() {
   const start = new Date();
@@ -343,20 +344,16 @@ async function processWhatsAppJobInternal(
         const user = lookup?.user ?? null;
         if (user && lookup) phone = lookup.matchedPhone;
         if (!user) {
+          const unknown = await handleUnknownSenderInbound({
+            phone,
+            replyTo,
+            evolution,
+            log,
+          });
           await prisma.whatsAppMessage.update({
             where: { id: inbound.id },
-            data: { processedAs: "user_not_found" },
+            data: { processedAs: unknown.processedAs },
           });
-          const hint =
-            phone && phone.length >= 4
-              ? ` (recebemos …${phone.slice(-4)})`
-              : "";
-          await safeWhatsAppReply(
-            evolution,
-            replyTo,
-            `❌ WhatsApp não cadastrado${hint}. Abra o app → Configurações e confira o número exibido — deve ser o mesmo celular que envia mensagem aqui (DDD + 9 dígitos). Se o final do número não bater, salve de novo em Config.`,
-            log,
-          );
           return;
         }
         userId = user.id;

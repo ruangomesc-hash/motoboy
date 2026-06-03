@@ -10,6 +10,7 @@ import { evolutionWebhookSecrets } from "../lib/webhook-auth.js";
 import { isRedisEnabled } from "../lib/redis.js";
 import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
 import { diagnosePhoneUserLink } from "./user.js";
+import { listUnknownSenders } from "./whatsapp-unknown-sender.js";
 
 export type WhatsAppPipelineIssue = {
   severity: "critical" | "warning" | "info";
@@ -64,6 +65,17 @@ export type WhatsAppPipelineDiagnostics = {
       lookupKeys: string[];
       registeredAs: string | null;
     }>;
+    unknownSenders: Array<{
+      phone: string;
+      messageCount: number;
+      replyCount: number;
+      blocked: boolean;
+      firstSeenAt: string;
+      lastMessageAt: string;
+      lastReplyAt: string | null;
+      blockedAt: string | null;
+    }>;
+    legacyUnknownMessageCount24h: number;
     recentWhatsAppErrors: Array<{
       createdAt: string;
       errorCode: string;
@@ -412,17 +424,13 @@ export async function getWhatsAppPipelineDiagnostics(
   const isBotFromNumber = (fromNumber: string) =>
     botPhoneKeys.has(fromNumber.replace(/@s\.whatsapp\.net$/i, ""));
 
-  const userNotFound24h = recentMessages.filter(
-    (m) => m.processedAs === "user_not_found" && !isBotFromNumber(m.fromNumber),
-  ).length;
-  if (userNotFound24h > 0) {
-    issues.push({
-      severity: "critical",
-      code: "USER_PHONE_NOT_FOUND",
-      message: `${userNotFound24h} mensagem(ns) de número não cadastrado no app.`,
-      action: "Configurações → WhatsApp = mesmo celular que manda mensagem no Zap.",
-    });
-  }
+  const unknownProcessed = new Set([
+    "unknown_replied_once",
+    "unknown_ignored",
+    "unknown_blocked",
+    "unknown_reply_failed",
+    "user_not_found",
+  ]);
 
   if (
     webhookHitsLast24h === 0 &&
@@ -535,22 +543,24 @@ export async function getWhatsAppPipelineDiagnostics(
     });
   }
 
-  if (unmatchedPhones.length > 0) {
-    const sample = unmatchedPhones
-      .filter((p) => !botPhoneKeys.has(p.fromNumber))
-      .slice(0, 3)
-      .map((p) => p.fromNumber)
-      .join(", ");
-    if (sample) {
-      issues.push({
-        severity: "critical",
-        code: "ZAP_PHONE_NOT_IN_USERS_TABLE",
-        message: `${unmatchedPhones.length} número(s) do motoboy sem conta: ${sample}${unmatchedPhones.length > 3 ? "…" : ""}.`,
-        action:
-          "No app, Entrar/Cadastro e Configurações com o celular de quem manda mensagem para a linha Motocopiloto (não o número 5531992907578).",
-      });
-    }
+  const unknownSenders = await listUnknownSenders(40);
+  const activeUnknown = unknownSenders.filter((u) => !u.blocked);
+
+  if (activeUnknown.length > 0) {
+    issues.push({
+      severity: "info",
+      code: "UNREGISTERED_WHATSAPP_SENDERS",
+      message: `${activeUnknown.length} número(s) sem cadastro mandaram Zap (resposta automática limitada a 1x; depois ignorados).`,
+      action:
+        "Veja a lista abaixo — bloqueie spam. Motoboys devem cadastrar o celular pessoal no app (não a linha 5531992907578).",
+    });
   }
+
+  const legacyUnknown24h = recentMessages.filter(
+    (m) =>
+      unknownProcessed.has(m.processedAs ?? "") &&
+      !isBotFromNumber(m.fromNumber),
+  ).length;
 
   return {
     checkedAt: new Date().toISOString(),
@@ -595,6 +605,8 @@ export async function getWhatsAppPipelineDiagnostics(
         };
       }),
       unmatchedPhones,
+      unknownSenders,
+      legacyUnknownMessageCount24h: legacyUnknown24h,
       recentWhatsAppErrors: recentWhatsAppErrors.map((e) => ({
         createdAt: e.createdAt.toISOString(),
         errorCode: e.errorCode,

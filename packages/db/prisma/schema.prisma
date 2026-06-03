@@ -263,6 +263,22 @@ model WhatsAppMessage {
   @@index([fromNumber, receivedAt])
 }
 
+/** Números que mandaram Zap sem conta — rate limit de resposta e bloqueio manual. */
+model WhatsAppUnknownSender {
+  phone         String    @id
+  messageCount  Int       @default(0)
+  replyCount    Int       @default(0)
+  firstSeenAt   DateTime  @default(now())
+  lastMessageAt DateTime  @default(now())
+  lastReplyAt   DateTime?
+  blocked       Boolean   @default(false)
+  blockedAt     DateTime?
+  blockedReason String?
+  updatedAt     DateTime  @updatedAt
+
+  @@index([blocked, lastMessageAt])
+}
+
 model FuelRefuel {
   id              String   @id @default(cuid())
   userId          String

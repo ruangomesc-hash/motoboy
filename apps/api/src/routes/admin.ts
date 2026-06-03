@@ -40,6 +40,10 @@ import {
   repairEvolutionWebhook,
 } from "../services/whatsapp-diagnostics.js";
 import {
+  blockUnknownSenderPhone,
+  unblockUnknownSenderPhone,
+} from "../services/whatsapp-unknown-sender.js";
+import {
   createAdminUser,
   deleteAdminUser,
   exportAllAdminUsersCsv,
@@ -357,6 +361,28 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post("/admin/users/reconcile-legacy", async (_request, reply) => {
     const result = await reconcileLegacyUsers();
     return reply.send({ ok: true, ...result });
+  });
+
+  app.post("/admin/whatsapp/unknown-senders/:phone/block", async (request, reply) => {
+    const { phone } = request.params as { phone: string };
+    try {
+      const decoded = decodeURIComponent(phone);
+      return await blockUnknownSenderPhone(decoded);
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.status(e.statusCode ?? 400).send({ error: e.message });
+    }
+  });
+
+  app.post("/admin/whatsapp/unknown-senders/:phone/unblock", async (request, reply) => {
+    const { phone } = request.params as { phone: string };
+    try {
+      const decoded = decodeURIComponent(phone);
+      return await unblockUnknownSenderPhone(decoded);
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.status(e.statusCode ?? 400).send({ error: e.message });
+    }
   });
 
   app.post("/admin/whatsapp/repair-webhook", async (_request, reply) => {

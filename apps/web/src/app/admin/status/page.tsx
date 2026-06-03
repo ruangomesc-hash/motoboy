@@ -154,12 +154,21 @@ export default function AdminStatusPage() {
         lookupKeys: string[];
         registeredAs: string | null;
       }>;
+      unknownSenders?: Array<{
+        phone: string;
+        messageCount: number;
+        replyCount: number;
+        blocked: boolean;
+        lastMessageAt: string;
+        lastReplyAt: string | null;
+      }>;
     };
     evolution: { connectionState: string | null; instance: string | null };
     processing: string;
   } | null>(null);
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [repairingWebhook, setRepairingWebhook] = useState(false);
+  const [blockingPhone, setBlockingPhone] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -246,6 +255,27 @@ export default function AdminStatusPage() {
 
   const waCritical =
     whatsappPipeline?.issues.filter((i) => i.severity === "critical") ?? [];
+
+  const toggleUnknownBlock = async (phone: string, action: "block" | "unblock") => {
+    setBlockingPhone(phone);
+    try {
+      const res = await fetch("/api/admin/whatsapp/block", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, action }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(body.error ?? `Erro ${res.status}`);
+      }
+      await load();
+    } catch (err) {
+      setWhatsappError(err instanceof Error ? err.message : "Falha ao bloquear");
+    } finally {
+      setBlockingPhone(null);
+    }
+  };
 
   const repairWebhook = async () => {
     setRepairingWebhook(true);
@@ -440,30 +470,85 @@ export default function AdminStatusPage() {
                     Últimas mensagens no banco
                   </p>
                   <ul className="text-xs font-mono space-y-1">
-                    {whatsappPipeline.database.recentMessages.map((m) => (
+                    {whatsappPipeline.database.recentMessages.map((m) => {
+                      const pa = m.processedAs ?? "?";
+                      const unknownLabel =
+                        pa === "unknown_replied_once"
+                          ? "sem cadastro (1 resposta enviada)"
+                          : pa === "unknown_ignored"
+                            ? "sem cadastro (ignorado)"
+                            : pa === "unknown_blocked"
+                              ? "sem cadastro (bloqueado)"
+                              : pa === "user_not_found"
+                                ? "sem cadastro (legado)"
+                                : null;
+                      return (
                       <li key={m.receivedAt + m.fromNumber} className="leading-relaxed">
                         {formatCheckedAt(m.receivedAt)} · {m.fromNumber} ·{" "}
-                        {m.processedAs ?? "?"} · user={m.userId ?? "—"}
-                        {m.phoneLink && m.phoneLink.linkStatus !== "webhook_audit" && (
+                        {unknownLabel ?? pa} · user={m.userId ?? "—"}
+                        {m.phoneLink &&
+                          m.phoneLink.linkStatus !== "webhook_audit" &&
+                          !unknownLabel && (
                           <span className="block text-[11px] text-muted-foreground mt-0.5">
                             {m.phoneLink.linkStatus === "linked"
                               ? `✓ vinculado → ${m.phoneLink.registeredAs}${m.phoneLink.userName ? ` (${m.phoneLink.userName})` : ""}`
                               : m.phoneLink.linkStatus === "not_in_database"
-                                ? `✗ sem conta no banco (buscou: ${m.phoneLink.lookupKeys.join(", ")})`
+                                ? `sem conta (variantes: ${m.phoneLink.lookupKeys.join(", ")})`
                                 : `? número inválido`}
                           </span>
                         )}
                       </li>
+                    );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {(whatsappPipeline.database.unknownSenders?.length ?? 0) > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                  <p className="text-sm font-medium text-amber-100">
+                    Números não cadastrados (não é erro do sistema)
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Spam ou curiosos: o bot responde no máximo 1 vez e depois
+                    ignora. Bloqueie para nunca mais responder.
+                  </p>
+                  <ul className="space-y-2">
+                    {whatsappPipeline.database.unknownSenders.map((u) => (
+                      <li
+                        key={u.phone}
+                        className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono rounded-md border border-white/10 bg-black/20 px-2 py-2"
+                      >
+                        <div className="min-w-0">
+                          <span className="text-foreground">{u.phone}</span>
+                          <span className="text-muted-foreground ml-2">
+                            {u.messageCount} msg · {u.replyCount} resp.
+                            {u.blocked ? " · bloqueado" : ""}
+                          </span>
+                          <span className="block text-[10px] text-muted-foreground mt-0.5">
+                            última: {formatCheckedAt(u.lastMessageAt)}
+                          </span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={u.blocked ? "outline" : "destructive"}
+                          className="h-7 text-xs shrink-0"
+                          disabled={blockingPhone === u.phone}
+                          onClick={() =>
+                            void toggleUnknownBlock(
+                              u.phone,
+                              u.blocked ? "unblock" : "block",
+                            )
+                          }
+                        >
+                          {blockingPhone === u.phone
+                            ? "…"
+                            : u.blocked
+                              ? "Desbloquear"
+                              : "Bloquear"}
+                        </Button>
+                      </li>
                     ))}
                   </ul>
-                  {(whatsappPipeline.database.unmatchedPhones?.length ?? 0) > 0 && (
-                    <p className="text-xs text-amber-200/90 mt-2">
-                      Números do Zap sem usuário:{" "}
-                      {whatsappPipeline.database.unmatchedPhones
-                        ?.map((p) => p.fromNumber)
-                        .join(", ")}
-                    </p>
-                  )}
                 </div>
               )}
             </>
