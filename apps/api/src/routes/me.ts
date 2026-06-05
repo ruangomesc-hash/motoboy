@@ -20,6 +20,8 @@ import {
   getUserGoalsContext,
 } from "../services/goals-plan.js";
 import { toUserProfile, updateUserProfile } from "../services/profile.js";
+import { normalizeCpfCnpjDigits } from "../lib/cpf-cnpj.js";
+import { withPrismaRetry } from "../lib/prisma-retry.js";
 import { migrateUserWhatsAppToCanonical } from "../services/user.js";
 import {
   costDiffFields,
@@ -867,9 +869,17 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
+      const userId = request.sessionUser!.id;
+      const cpfCnpj = normalizeCpfCnpjDigits(parsed.data.cpfCnpj);
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: userId },
+          data: { cpfCnpj },
+        }),
+      );
       const result = await asaas.preparePixCustomer(
-        request.sessionUser!.id,
-        parsed.data.cpfCnpj,
+        userId,
+        cpfCnpj,
         request.log,
       );
       return result;
@@ -882,8 +892,17 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/me/subscribe/pix/pending", async (request) => {
+    const userId = request.sessionUser!.id;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    if (user?.status === "ACTIVE") {
+      return { pending: false as const };
+    }
+
     const asaas = new AsaasService(env, request.log);
-    const pending = await asaas.getPendingPixCheckout(request.sessionUser!.id);
+    const pending = await asaas.getPendingPixCheckout(userId);
     if (!pending) {
       return { pending: false as const };
     }
@@ -1009,14 +1028,15 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       if (paymentMethod === "PIX") {
-        void prisma.user
-          .update({
+        await withPrismaRetry(() =>
+          prisma.user.update({
             where: { id: userId },
-            data: { subscriptionPaymentMethod: "PIX" },
-          })
-          .catch(() => {
-            /* não bloqueia checkout */
-          });
+            data: {
+              subscriptionPaymentMethod: "PIX",
+              cpfCnpj: normalizeCpfCnpjDigits(checkoutOptions.cpfCnpj!),
+            },
+          }),
+        );
       } else {
         const { withPrismaRetry } = await import("../lib/prisma-retry.js");
         await withPrismaRetry(() =>

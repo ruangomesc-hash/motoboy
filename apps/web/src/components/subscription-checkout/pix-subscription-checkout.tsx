@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, Loader2 } from "lucide-react";
-import type { SubscribeResponse } from "@motoboy/types";
+import { Check, Copy, Loader2, Sparkles } from "lucide-react";
+import type { SubscribeResponse, UserProfile } from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
 import {
   clearPixCheckoutSession,
@@ -97,9 +97,10 @@ export function PixSubscriptionCheckout({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(() =>
-    checkoutFromSession(),
+    subscriptionActive ? null : checkoutFromSession(),
   );
   const [copied, setCopied] = useState(false);
+  const [cpfPersisted, setCpfPersisted] = useState(false);
   const formHydrated = useRef(false);
   const formDirty = useRef(false);
   const autoResumeDone = useRef(false);
@@ -158,12 +159,15 @@ export function PixSubscriptionCheckout({
     [startPolling],
   );
 
-  const activeCheckout =
-    checkout ??
-    (readPixCheckoutSession()?.chargeId ? checkoutFromSession() : null);
+  const activeCheckout = subscriptionActive
+    ? null
+    : checkout ??
+      (readPixCheckoutSession()?.chargeId ? checkoutFromSession() : null);
 
   const needsRealtimeQr =
-    Boolean(activeCheckout?.chargeId) && !hasPixQr(activeCheckout ?? {});
+    !subscriptionActive &&
+    Boolean(activeCheckout?.chargeId) &&
+    !hasPixQr(activeCheckout ?? {});
 
   useRealtimePixQr(
     activeCheckout?.chargeId,
@@ -171,6 +175,31 @@ export function PixSubscriptionCheckout({
     handleQrReady,
     needsRealtimeQr && sessionStatus === "authenticated",
   );
+
+  useEffect(() => {
+    if (profile?.cpfCnpj?.replace(/\D/g, "").length === 11) {
+      setCpfPersisted(true);
+    }
+  }, [profile?.cpfCnpj]);
+
+  useEffect(() => {
+    if (!profile?.cpfCnpj) return;
+    const savedCpf = buildDefaultPixForm(profile).cpfCnpj;
+    setForm((prev) => {
+      const prevDigits = prev.cpfCnpj.replace(/\D/g, "");
+      const savedDigits = savedCpf.replace(/\D/g, "");
+      if (
+        formDirty.current &&
+        prevDigits.length >= 11 &&
+        prevDigits !== savedDigits
+      ) {
+        return prev;
+      }
+      if (prevDigits === savedDigits) return prev;
+      return { cpfCnpj: savedCpf };
+    });
+    if (!formHydrated.current) formHydrated.current = true;
+  }, [profile?.cpfCnpj]);
 
   useEffect(() => {
     if (!profile || formHydrated.current) return;
@@ -181,6 +210,26 @@ export function PixSubscriptionCheckout({
     );
     formHydrated.current = true;
   }, [profile]);
+
+  useEffect(() => {
+    if (!subscriptionActive) return;
+    setCheckout(null);
+    clearPixCheckoutSession();
+    stopPolling();
+  }, [subscriptionActive, stopPolling]);
+
+  useEffect(() => {
+    if (!subscriptionActive || sessionStatus !== "authenticated") return;
+    void api<UserProfile>("/me/profile", {}, { skipSync: true })
+      .then((p) => {
+        if (!p.cpfCnpj) return;
+        setForm(buildDefaultPixForm(p));
+        setCpfPersisted(true);
+      })
+      .catch(() => {
+        /* perfil indisponível */
+      });
+  }, [api, sessionStatus, subscriptionActive]);
 
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
@@ -199,9 +248,13 @@ export function PixSubscriptionCheckout({
           body: JSON.stringify({ cpfCnpj: cpf }),
         },
         { skipSync: true },
-      ).catch(() => {
-        prepareSent.current = null;
-      });
+      )
+        .then(() => {
+          setCpfPersisted(true);
+        })
+        .catch(() => {
+          prepareSent.current = null;
+        });
     }, 450);
 
     return () => window.clearTimeout(timer);
@@ -348,7 +401,13 @@ export function PixSubscriptionCheckout({
     }
   }
 
-  if (activeCheckout?.paymentMethod === "PIX" && activeCheckout.chargeId) {
+  const cpfSaved = subscriptionActive || cpfPersisted;
+
+  if (
+    !subscriptionActive &&
+    activeCheckout?.paymentMethod === "PIX" &&
+    activeCheckout.chargeId
+  ) {
     const qrSrc = pixQrSrc(activeCheckout.pixQrCodeImage);
     const missingQr = !activeCheckout.pixCopyPaste && !qrSrc;
 
@@ -425,6 +484,19 @@ export function PixSubscriptionCheckout({
 
   return (
     <div className="space-y-4">
+      {subscriptionActive && (
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-1">
+          <p className="text-sm font-medium text-emerald-300 flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            Assinatura Pix ativa
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Suas cobranças mensais são geradas automaticamente. Não é necessário
+            gerar um novo Pix.
+          </p>
+        </div>
+      )}
+
       <PixCheckoutFields
         form={form}
         onChange={(next) => {
@@ -432,6 +504,7 @@ export function PixSubscriptionCheckout({
           setForm(next);
         }}
         disabled={loading}
+        cpfSaved={cpfSaved}
       />
 
       {!subscriptionActive && (

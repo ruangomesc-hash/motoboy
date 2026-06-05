@@ -99,7 +99,7 @@ function formatPhoneForAsaas(whatsapp: string): string {
   return digits;
 }
 
-type AsaasCustomer = { id: string; deleted?: boolean };
+type AsaasCustomer = { id: string; deleted?: boolean; cpfCnpj?: string };
 type AsaasCustomerList = { data?: AsaasCustomer[] };
 type AsaasPayment = {
   id: string;
@@ -222,11 +222,16 @@ export class AsaasService {
       where: { id: userId },
       select: {
         id: true,
+        status: true,
         asaasSubscriptionId: true,
         subscriptionPaymentMethod: true,
         asaasCustomerId: true,
       },
     });
+
+    if (user?.status === "ACTIVE") {
+      return null;
+    }
 
     if (user) {
       const fromSubscription = await this.resumePendingCheckout(user, "PIX");
@@ -1438,14 +1443,38 @@ export class AsaasService {
     }
 
     if (user.status === "ACTIVE") {
-      if (!user.asaasSubscriptionId && this.configured) {
-        try {
-          await ensureRecurringSubscription(this.env, userId, log);
-        } catch (err) {
-          log?.warn(
-            { err, userId },
-            "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
-          );
+      if (this.configured) {
+        if (!user.asaasSubscriptionId) {
+          try {
+            await ensureRecurringSubscription(this.env, userId, log);
+          } catch (err) {
+            log?.warn(
+              { err, userId },
+              "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
+            );
+          }
+        }
+        if (!user.cpfCnpj && user.asaasCustomerId) {
+          try {
+            const customer = await this.api<AsaasCustomer>(
+              `/customers/${user.asaasCustomerId}`,
+              {},
+              "syncCustomerCpfFromAsaas",
+            );
+            const cpf = customer.cpfCnpj
+              ? normalizeCpfCnpjDigits(customer.cpfCnpj)
+              : "";
+            if (cpf && isValidCpfCnpj(cpf)) {
+              await withPrismaRetry(() =>
+                prisma.user.update({
+                  where: { id: userId },
+                  data: { cpfCnpj: cpf },
+                }),
+              );
+            }
+          } catch (err) {
+            log?.warn({ err, userId }, "Falha ao sincronizar CPF do Asaas");
+          }
         }
       }
       return { status: user.status, activated: false };

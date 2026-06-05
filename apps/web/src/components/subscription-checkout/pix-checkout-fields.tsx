@@ -38,19 +38,32 @@ type Props = {
   form: PixCheckoutForm;
   onChange: (next: PixCheckoutForm) => void;
   disabled?: boolean;
+  /** CPF já salvo no cadastro — exibe preenchido e não editável. */
+  cpfSaved?: boolean;
 };
 
-export function PixCheckoutFields({ form, onChange, disabled = false }: Props) {
+export function PixCheckoutFields({
+  form,
+  onChange,
+  disabled = false,
+  cpfSaved = false,
+}: Props) {
+  const fieldDisabled = disabled || cpfSaved;
+
   return (
     <div
       className={cn(
-        "rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2",
-        "animate-in fade-in slide-in-from-top-1 duration-200",
+        "rounded-xl border p-4 space-y-2",
+        cpfSaved
+          ? "border-emerald-500/30 bg-emerald-500/5"
+          : "border-primary/30 bg-primary/5 animate-in fade-in slide-in-from-top-1 duration-200",
       )}
     >
       <p className="text-sm font-medium text-foreground">Pix — CPF do titular</p>
       <p className="text-xs text-muted-foreground">
-        Informe o CPF antes de gerar o QR Code (exigência do Asaas).
+        {cpfSaved
+          ? "CPF salvo no seu cadastro para cobranças futuras."
+          : "Informe o CPF antes de gerar o QR Code (exigência do Asaas)."}
       </p>
       <div>
         <label className="text-sm text-muted-foreground" htmlFor="pix-cpf">
@@ -62,7 +75,8 @@ export function PixCheckoutFields({ form, onChange, disabled = false }: Props) {
           onChange={(e) => onChange({ cpfCnpj: maskCpfInput(e.target.value) })}
           placeholder="000.000.000-00"
           inputMode="numeric"
-          disabled={disabled}
+          disabled={fieldDisabled}
+          readOnly={cpfSaved}
           className="mt-1"
           autoComplete="off"
         />
