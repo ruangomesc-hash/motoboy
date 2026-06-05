@@ -37,6 +37,8 @@ const FIRST_PAYMENT_POLL_MS = 1000;
 const PIX_SUB_PAYMENT_FAST_ATTEMPTS = 6;
 /** Poll da 1ª cobrança de cartão inline (Asaas gera de forma assíncrona). */
 const CARD_FIRST_PAYMENT_POLL_ATTEMPTS = 12;
+const CARD_SUBSCRIBE_ASAAS_TIMEOUT_MS = 55_000;
+const CARD_STATUS_ASAAS_TIMEOUT_MS = 9_000;
 const PIX_QR_POLL_MS = 250;
 /** Poll longo só em ?wait=1 (fallback). */
 const PIX_QR_WAIT_ATTEMPTS = 24;
@@ -274,40 +276,159 @@ export class AsaasService {
     return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
   }
 
-  /** Retoma checkout de cartão pendente (cartão validado, aguardando 1ª cobrança). */
-  async getPendingCardCheckout(
+  /**
+   * Poll leve do cartão (1 query DB + 1 lista no Asaas) — usado pelo app em tempo real.
+   */
+  async getCardCheckoutStatusFast(
     userId: string,
-  ): Promise<SubscribeCheckoutResult | null> {
+    log?: FastifyBaseLogger,
+  ): Promise<{
+    status: string;
+    activated: boolean;
+    subscribedAt: string | null;
+    pending: {
+      chargeId: string;
+      subscriptionId: string;
+      amount: number;
+      cardAuthorized: true;
+    } | null;
+  }> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
         status: true,
+        subscribedAt: true,
         asaasSubscriptionId: true,
-        subscriptionPaymentMethod: true,
       },
     });
-
-    if (user?.status === "ACTIVE" || !user) {
-      return null;
+    if (!user) {
+      throw Object.assign(new Error("Usuário não encontrado"), {
+        statusCode: 404,
+      });
     }
 
-    const sync = await this.syncSubscriptionPaymentStatus(userId);
-    if (sync.activated || sync.status === "ACTIVE") {
-      return null;
+    if (user.status === "ACTIVE") {
+      return {
+        status: "ACTIVE",
+        activated: true,
+        subscribedAt: user.subscribedAt?.toISOString() ?? null,
+        pending: null,
+      };
     }
 
-    const resumed = await this.resumePendingCheckout(user, "CREDIT_CARD");
-    if (!resumed) {
+    const subId = user.asaasSubscriptionId?.trim();
+    if (!subId) {
+      return {
+        status: user.status,
+        activated: false,
+        subscribedAt: null,
+        pending: null,
+      };
+    }
+
+    if (!this.configured) {
+      return {
+        status: user.status,
+        activated: false,
+        subscribedAt: null,
+        pending: {
+          chargeId: subId,
+          subscriptionId: subId,
+          amount: SUBSCRIPTION_PRICE,
+          cardAuthorized: true,
+        },
+      };
+    }
+
+    try {
+      const listed = await this.api<{ data?: AsaasPayment[] }>(
+        `/subscriptions/${subId}/payments?limit=5`,
+        { signal: AbortSignal.timeout(CARD_STATUS_ASAAS_TIMEOUT_MS) },
+        "cardStatusListPayments",
+      );
+
+      const fullUser = await prisma.user.findUnique({ where: { id: userId } });
+      if (!fullUser) {
+        return {
+          status: user.status,
+          activated: false,
+          subscribedAt: null,
+          pending: null,
+        };
+      }
+
+      for (const row of listed.data ?? []) {
+        if (!row.id || !isAsaasPaymentPaid(row.status)) continue;
+        const activated = await this.activateUserFromPaidCharge(
+          userId,
+          fullUser,
+          row.id,
+          row,
+          log,
+        );
+        if (activated) {
+          const fresh = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { status: true, subscribedAt: true },
+          });
+          return {
+            status: fresh?.status ?? "ACTIVE",
+            activated: true,
+            subscribedAt: fresh?.subscribedAt?.toISOString() ?? null,
+            pending: null,
+          };
+        }
+      }
+
+      const first = listed.data?.[0];
+      const chargeId = first?.id ?? subId;
+      return {
+        status: user.status,
+        activated: false,
+        subscribedAt: null,
+        pending: {
+          chargeId,
+          subscriptionId: subId,
+          amount: SUBSCRIPTION_PRICE,
+          cardAuthorized: true,
+        },
+      };
+    } catch (err) {
+      log?.warn({ err, userId, subId }, "card/status: falha ao listar cobranças");
+      return {
+        status: user.status,
+        activated: false,
+        subscribedAt: null,
+        pending: {
+          chargeId: subId,
+          subscriptionId: subId,
+          amount: SUBSCRIPTION_PRICE,
+          cardAuthorized: true,
+        },
+      };
+    }
+  }
+
+  /** Retoma checkout de cartão pendente (cartão validado, aguardando 1ª cobrança). */
+  async getPendingCardCheckout(
+    userId: string,
+    log?: FastifyBaseLogger,
+  ): Promise<SubscribeCheckoutResult | null> {
+    const status = await this.getCardCheckoutStatusFast(userId, log);
+    if (status.activated || !status.pending) {
       return null;
     }
 
     return {
-      ...resumed,
       checkoutUrl: "",
       invoiceUrl: "",
+      amount: status.pending.amount,
+      chargeId: status.pending.chargeId,
+      subscriptionId: status.pending.subscriptionId,
+      pixCopyPaste: null,
+      pixQrCodeImage: null,
       cardAuthorized: true,
-      activated: resumed.activated ?? false,
+      activated: false,
     };
   }
 
@@ -1190,6 +1311,60 @@ export class AsaasService {
       return this.createPixCheckout(userId, cpfRaw, routeLog);
     }
 
+    const nextDueDate = dueDateToday();
+
+    /**
+     * Cartão inline: caminho rápido — um cliente Asaas, POST assinatura, resposta
+     * imediata; ativação via poll no app (como Pix após gerar cobrança).
+     */
+    if (inlineCard) {
+      const cpfCnpj = normalizeCpfCnpjDigits(cpfRaw);
+      if (!isValidCpfCnpj(cpfCnpj)) {
+        throw Object.assign(new Error(formatCpfCnpjError()), {
+          statusCode: 400,
+        });
+      }
+
+      let userForCheckout = user;
+      if (user.cpfCnpj !== cpfCnpj) {
+        userForCheckout = { ...user, cpfCnpj };
+      }
+
+      if (userForCheckout.status === "CANCELED") {
+        await this.prepareCanceledUserForResubscribe(
+          userForCheckout.id,
+          routeLog,
+        );
+        const refreshed = await prisma.user.findUnique({ where: { id: userId } });
+        if (refreshed) userForCheckout = refreshed;
+      }
+
+      const customerId = await this.getOrCreateCustomer(
+        userForCheckout,
+        cpfCnpj,
+      );
+
+      void this.markStalePendingPaymentsFailed(userId);
+      const staleSubId = userForCheckout.asaasSubscriptionId;
+      if (staleSubId) {
+        void this.clearAsaasSubscription(userId, staleSubId, routeLog);
+        await withPrismaRetry(() =>
+          prisma.user.update({
+            where: { id: userId },
+            data: { asaasSubscriptionId: null },
+          }),
+        );
+      }
+
+      return this.createSubscriptionWithCreditCard(
+        customerId,
+        userId,
+        nextDueDate,
+        options!,
+        routeLog,
+      );
+    }
+
     const customerId = await this.syncCustomerCpf(user, cpfRaw);
 
     const userFresh = await prisma.user.findUnique({ where: { id: userId } });
@@ -1217,33 +1392,6 @@ export class AsaasService {
       userForCheckout,
       userForCheckout.cpfCnpj,
     );
-
-    const nextDueDate = dueDateToday();
-
-    /**
-     * Cartão inline: POST traz dados novos do cartão — nunca reaproveitar cobrança
-     * pendente (diferente do Pix, onde o mesmo QR vale). Retomada só via GET pending.
-     */
-    if (inlineCard) {
-      await this.markStalePendingPaymentsFailed(userId);
-      let subId = userForCheckout.asaasSubscriptionId;
-      subId = await this.ensureSubscriptionBillingType(
-        userId,
-        subId,
-        billingType,
-        routeLog,
-      );
-      if (subId) {
-        await this.clearAsaasSubscription(userId, subId, routeLog);
-      }
-      return this.createSubscriptionWithCreditCard(
-        cardCustomerId,
-        userId,
-        nextDueDate,
-        options!,
-        routeLog,
-      );
-    }
 
     const resumed = forceFreshCheckout
       ? null
@@ -1414,6 +1562,22 @@ export class AsaasService {
     });
   }
 
+  /** Grava cobrança no banco sem bloquear a resposta do POST cartão. */
+  private ensureFirstCardPaymentRecordAsync(
+    userId: string,
+    subId: string,
+    log?: FastifyBaseLogger,
+  ): void {
+    void (async () => {
+      const first = await this.findFirstOpenSubscriptionPayment(subId, 4);
+      if (first?.id) {
+        await this.ensurePendingPaymentRecord(userId, first.id);
+      }
+    })().catch((err) => {
+      log?.warn({ err, userId, subId }, "Registro cobrança cartão (async)");
+    });
+  }
+
   private async createSubscriptionWithCreditCard(
     customerId: string,
     userId: string,
@@ -1429,6 +1593,7 @@ export class AsaasService {
       "/subscriptions",
       {
         method: "POST",
+        signal: AbortSignal.timeout(CARD_SUBSCRIBE_ASAAS_TIMEOUT_MS),
         body: JSON.stringify({
           customer: customerId,
           billingType: "CREDIT_CARD",
@@ -1473,33 +1638,18 @@ export class AsaasService {
 
     log?.info({ userId, subId: sub.id }, "Assinatura criada com cartão (inline)");
 
-    const first = await this.waitForFirstSubscriptionPayment(
-      sub.id,
-      "CREDIT_CARD",
-      log,
-      CARD_FIRST_PAYMENT_POLL_ATTEMPTS,
-    );
-    const chargeId = first?.id ?? null;
-    if (chargeId) {
-      await this.ensurePendingPaymentRecord(userId, chargeId);
-    }
-
-    const sync = await this.syncSubscriptionPaymentStatus(
-      userId,
-      log,
-      chargeId ?? undefined,
-    );
+    void this.ensureFirstCardPaymentRecordAsync(userId, sub.id, log);
 
     return {
       checkoutUrl: "",
-      chargeId: chargeId ?? sub.id,
+      chargeId: sub.id,
       invoiceUrl: "",
       pixCopyPaste: null,
       pixQrCodeImage: null,
       amount: SUBSCRIPTION_PRICE,
       subscriptionId: sub.id,
       cardAuthorized: true,
-      activated: sync.activated,
+      activated: false,
     };
   }
 
@@ -1668,7 +1818,10 @@ export class AsaasService {
       user.asaasSubscriptionId?.trim() ||
       null;
 
-    if (focusId) {
+    const focusIdIsSubscription =
+      Boolean(focusId && focusSubId && focusId === focusSubId);
+
+    if (focusId && !focusIdIsSubscription) {
       try {
         const remote = await this.getPaymentById(focusId);
         const activated = await this.activateUserFromPaidCharge(
@@ -1684,63 +1837,23 @@ export class AsaasService {
       } catch (err) {
         log?.warn({ err, userId, chargeId: focusId }, "Sync cobrança focada");
       }
+    }
 
-      if (focusSubId) {
-        try {
-          const listed = await this.api<{ data?: AsaasPayment[] }>(
-            `/subscriptions/${focusSubId}/payments?limit=10`,
-            {},
-            "listSubscriptionPaymentsSync",
-          );
-          for (const row of listed.data ?? []) {
-            if (!row.id) continue;
-            try {
-              const remote = await this.getPaymentById(row.id);
-              const activated = await this.activateUserFromPaidCharge(
-                userId,
-                user,
-                row.id,
-                remote,
-                log,
-              );
-              if (activated) {
-                return { status: "ACTIVE", activated: true };
-              }
-            } catch {
-              /* próxima cobrança */
-            }
-          }
-        } catch (err) {
-          log?.warn(
-            { err, userId, subId: focusSubId },
-            "Sync cobranças da assinatura",
-          );
-        }
-      }
-
-      const fresh = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { status: true },
-      });
-      if (fresh?.status === "ACTIVE") {
-        return { status: "ACTIVE", activated: true };
-      }
-    } else if (focusSubId) {
+    if (focusSubId) {
       try {
         const listed = await this.api<{ data?: AsaasPayment[] }>(
           `/subscriptions/${focusSubId}/payments?limit=10`,
           {},
-          "listSubscriptionPaymentsSyncBySub",
+          "listSubscriptionPaymentsSync",
         );
         for (const row of listed.data ?? []) {
           if (!row.id) continue;
           try {
-            const remote = await this.getPaymentById(row.id);
             const activated = await this.activateUserFromPaidCharge(
               userId,
               user,
               row.id,
-              remote,
+              row,
               log,
             );
             if (activated) {
@@ -1753,8 +1866,16 @@ export class AsaasService {
       } catch (err) {
         log?.warn(
           { err, userId, subId: focusSubId },
-          "Sync cobranças por subscriptionId",
+          "Sync cobranças da assinatura",
         );
+      }
+
+      const fresh = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { status: true },
+      });
+      if (fresh?.status === "ACTIVE") {
+        return { status: "ACTIVE", activated: true };
       }
     }
 

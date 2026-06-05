@@ -30,9 +30,14 @@ export async function apiFetch<T>(
   const isDeliveryMutation =
     path.startsWith("/me/deliveries") &&
     (method === "PATCH" || method === "POST" || method === "DELETE");
+  const isCardStatusPoll = path.includes("/me/subscribe/card/status");
   const timeoutMs =
     method === "POST" && path.includes("/me/subscribe") && !path.includes("/prepare")
-      ? 45_000
+      ? 90_000
+      : isCardStatusPoll
+        ? 12_000
+      : method === "POST" && path.includes("/me/subscription/refresh")
+        ? 25_000
       : method === "POST" && path.includes("/pix/prepare")
         ? 18_000
       : isPixQrWait

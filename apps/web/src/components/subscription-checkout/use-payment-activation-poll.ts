@@ -3,16 +3,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubscribeResponse, SubscriptionPaymentMethod } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
-import { PAYMENT_POLL_FAST_MS, PAYMENT_POLL_MAX_MS } from "./shared";
+import {
+  CARD_AUTHORIZE_PENDING_CHARGE,
+  PAYMENT_POLL_FAST_MS,
+  PAYMENT_POLL_MAX_MS,
+} from "./shared";
 
 export type PaymentActivatedHandler = (
   subscribedAt?: string | null,
   paymentMethod?: SubscriptionPaymentMethod,
 ) => void;
 
+type CardCheckoutStatusResponse = {
+  status: string;
+  activated: boolean;
+  subscribedAt: string | null;
+  pending: {
+    chargeId: string;
+    subscriptionId: string;
+    amount: number;
+    cardAuthorized: true;
+  } | null;
+};
+
+type PollOptions = {
+  onCheckoutResolved?: (data: SubscribeResponse) => void;
+};
+
 export function usePaymentActivationPoll(
   checkout: SubscribeResponse | null,
   onActivated?: PaymentActivatedHandler,
+  options?: PollOptions,
 ) {
   const api = useApi();
   const [polling, setPolling] = useState(false);
@@ -21,7 +42,9 @@ export function usePaymentActivationPoll(
   const [checkInFlight, setCheckInFlight] = useState(false);
   const pollStartedAt = useRef<number | null>(null);
   const onActivatedRef = useRef(onActivated);
+  const onCheckoutResolvedRef = useRef(options?.onCheckoutResolved);
   onActivatedRef.current = onActivated;
+  onCheckoutResolvedRef.current = options?.onCheckoutResolved;
 
   const checkActivation = useCallback(async (): Promise<boolean> => {
     const chargeId = checkout?.chargeId;
@@ -29,6 +52,39 @@ export function usePaymentActivationPoll(
     const paymentMethod = checkout?.paymentMethod;
     setCheckInFlight(true);
     try {
+      if (paymentMethod === "CREDIT_CARD") {
+        const status = await api<CardCheckoutStatusResponse>(
+          "/me/subscribe/card/status",
+          {},
+          { skipSync: true },
+        );
+
+        if (status.activated || status.status === "ACTIVE") {
+          setPolling(false);
+          setPollHint("");
+          onActivatedRef.current?.(
+            status.subscribedAt ?? null,
+            "CREDIT_CARD",
+          );
+          return true;
+        }
+
+        if (status.pending?.chargeId) {
+          onCheckoutResolvedRef.current?.({
+            amount: status.pending.amount,
+            chargeId: status.pending.chargeId,
+            subscriptionId: status.pending.subscriptionId,
+            paymentMethod: "CREDIT_CARD",
+            cardAuthorized: true,
+            activated: false,
+          });
+        }
+        return false;
+      }
+
+      const authorizing =
+        chargeId === CARD_AUTHORIZE_PENDING_CHARGE || !chargeId?.trim();
+
       const requestRefresh = (body: Record<string, string>) =>
         api<{
           status: string;
@@ -48,7 +104,11 @@ export function usePaymentActivationPoll(
         withSubscription?: boolean;
       }) => {
         const body: Record<string, string> = {};
-        if (opts?.withCharge !== false && chargeId) {
+        if (
+          opts?.withCharge !== false &&
+          chargeId &&
+          chargeId !== CARD_AUTHORIZE_PENDING_CHARGE
+        ) {
           body.chargeId = chargeId;
         }
         if (opts?.withSubscription !== false && subscriptionId) {
@@ -57,11 +117,14 @@ export function usePaymentActivationPoll(
         return body;
       };
 
-      let refreshed = await requestRefresh(buildBody());
+      let refreshed = authorizing
+        ? await requestRefresh({})
+        : await requestRefresh(buildBody());
 
       if (
         !refreshed.activated &&
         refreshed.status !== "ACTIVE" &&
+        !authorizing &&
         (chargeId || subscriptionId)
       ) {
         refreshed = await requestRefresh({});
@@ -85,7 +148,16 @@ export function usePaymentActivationPoll(
   }, [api, checkout?.chargeId, checkout?.paymentMethod, checkout?.subscriptionId]);
 
   useEffect(() => {
-    if (!checkout?.chargeId || !polling) {
+    if (!polling) {
+      return;
+    }
+    const hasTarget =
+      checkout?.paymentMethod === "CREDIT_CARD" ||
+      checkout?.subscriptionId ||
+      (checkout?.chargeId &&
+        checkout.chargeId !== CARD_AUTHORIZE_PENDING_CHARGE) ||
+      checkout?.chargeId === CARD_AUTHORIZE_PENDING_CHARGE;
+    if (!hasTarget) {
       return;
     }
 
@@ -117,7 +189,13 @@ export function usePaymentActivationPoll(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [checkout?.chargeId, polling, checkActivation]);
+  }, [
+    checkout?.chargeId,
+    checkout?.paymentMethod,
+    checkout?.subscriptionId,
+    polling,
+    checkActivation,
+  ]);
 
   function startPolling() {
     setPolling(true);

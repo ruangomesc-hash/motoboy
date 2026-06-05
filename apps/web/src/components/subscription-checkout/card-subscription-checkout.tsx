@@ -10,13 +10,17 @@ import type {
   SubscriptionPaymentMethod,
   UserProfile,
 } from "@motoboy/types";
+import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
 import {
   clearCardCheckoutSession,
   readCardCheckoutSession,
   writeCardCheckoutSession,
 } from "@/lib/card-checkout-session";
-import { requestSubscribeWithRetry } from "./shared";
+import {
+  CARD_AUTHORIZE_PENDING_CHARGE,
+  requestSubscribeWithRetry,
+} from "./shared";
 import {
   CardCheckoutFields,
   buildDefaultCardForm,
@@ -83,6 +87,8 @@ export function CardSubscriptionCheckout({
     [onActivated],
   );
 
+  const showCardCheckoutRef = useRef<(data: SubscribeResponse) => void>(() => {});
+
   const {
     polling,
     pollHint,
@@ -91,7 +97,12 @@ export function CardSubscriptionCheckout({
     startPolling,
     stopPolling,
     verifyPayment,
-  } = usePaymentActivationPoll(checkout, onPaymentActivated);
+  } = usePaymentActivationPoll(checkout, onPaymentActivated, {
+    onCheckoutResolved: (data) => {
+      if (data.chargeId === CARD_AUTHORIZE_PENDING_CHARGE) return;
+      showCardCheckoutRef.current(data);
+    },
+  });
 
   stopPollingRef.current = stopPolling;
 
@@ -126,6 +137,8 @@ export function CardSubscriptionCheckout({
     },
     [startPolling],
   );
+
+  showCardCheckoutRef.current = showCardCheckout;
 
   const fetchPendingCard = useCallback(async (): Promise<PendingCardResponse | null> => {
     try {
@@ -199,78 +212,84 @@ export function CardSubscriptionCheckout({
 
     setLoading(true);
     setError("");
-    setCheckout(null);
     stopPolling();
+    setCheckout({
+      amount: SUBSCRIPTION_PRICE_BRL,
+      chargeId: CARD_AUTHORIZE_PENDING_CHARGE,
+      paymentMethod: "CREDIT_CARD",
+      cardAuthorized: true,
+      activated: false,
+    });
+    startPolling();
 
     const payload = cardFormToPayload(form);
 
-    try {
-      await api(
-        "/me/profile",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            cpfCnpj: payload.cpfCnpj,
-            name: payload.creditCardHolderInfo.name,
-            email: payload.creditCardHolderInfo.email,
-          }),
-        },
-        { skipSync: true },
-      );
-
-      const data = await requestSubscribeWithRetry(api, {
-        paymentMethod: "CREDIT_CARD",
-        ...payload,
-      });
-
-      if (data.activated) {
-        onPaymentActivated(new Date().toISOString());
-        return;
-      }
-
-      if (data.paymentMethod !== "CREDIT_CARD") {
-        setError("Resposta inválida do servidor. Tente o cartão novamente.");
-        return;
-      }
-
-      if (data.cardAuthorized) {
-        showCardCheckout(data);
-        return;
-      }
-
-      setError("Não foi possível validar o cartão. Confira os dados e tente de novo.");
-    } catch (e) {
-      const err = e as Error & { status?: number; code?: string };
-      let msg = formatBillingCheckoutError(
-        err.message || "Erro ao processar cartão",
-        err.code,
-        err.status,
-      );
-      if (err.status === 409) {
-        msg =
-          "Há uma cobrança de cartão em processamento. Aguarde 1 minuto e tente de novo.";
-      }
-      const pending = await fetchPendingCard();
-      if (pending?.pending && pending.chargeId) {
-        if (pending.activated) {
-          onPaymentActivated(new Date().toISOString(), "CREDIT_CARD");
+    void requestSubscribeWithRetry(api, {
+      paymentMethod: "CREDIT_CARD",
+      ...payload,
+    })
+      .then((data) => {
+        if (data.activated) {
+          onPaymentActivated(
+            new Date().toISOString(),
+            "CREDIT_CARD",
+          );
           return;
         }
-        showCardCheckout({
-          amount: pending.amount ?? 0,
-          chargeId: pending.chargeId,
-          paymentMethod: "CREDIT_CARD",
-          subscriptionId: pending.subscriptionId,
-          cardAuthorized: true,
-          activated: false,
-        });
-        return;
-      }
+        if (data.paymentMethod !== "CREDIT_CARD") {
+          stopPolling();
+          setCheckout(null);
+          setError("Resposta inválida do servidor. Tente o cartão novamente.");
+          return;
+        }
+        if (data.cardAuthorized) {
+          showCardCheckout(data);
+        }
+      })
+      .catch(async (e) => {
+        const err = e as Error & { status?: number; code?: string };
+        const timedOut =
+          err.status === 504 ||
+          /demorou|timeout|aborted/i.test(err.message ?? "");
 
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
+        const pending = await fetchPendingCard();
+        if (pending?.pending && pending.chargeId) {
+          if (pending.activated) {
+            onPaymentActivated(new Date().toISOString(), "CREDIT_CARD");
+            return;
+          }
+          showCardCheckout({
+            amount: pending.amount ?? 0,
+            chargeId: pending.chargeId,
+            paymentMethod: "CREDIT_CARD",
+            subscriptionId: pending.subscriptionId,
+            cardAuthorized: true,
+            activated: false,
+          });
+          return;
+        }
+
+        if (timedOut) {
+          setError("");
+          return;
+        }
+
+        let msg = formatBillingCheckoutError(
+          err.message || "Erro ao processar cartão",
+          err.code,
+          err.status,
+        );
+        if (err.status === 409) {
+          msg =
+            "Há uma cobrança de cartão em processamento. Aguarde 1 minuto e tente de novo.";
+        }
+        stopPolling();
+        setCheckout(null);
+        setError(msg);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }
 
   async function abandonCardCheckout() {
@@ -310,6 +329,9 @@ export function CardSubscriptionCheckout({
     );
   }
 
+  const authorizingCard =
+    checkout?.chargeId === CARD_AUTHORIZE_PENDING_CHARGE;
+
   if (
     checkout?.paymentMethod === "CREDIT_CARD" &&
     checkout.cardAuthorized
@@ -318,17 +340,21 @@ export function CardSubscriptionCheckout({
       <div className="space-y-4">
         <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-2">
           <p className="text-sm font-medium text-emerald-300 flex items-center gap-2">
-            {polling || checkInFlight ? (
+            {polling || checkInFlight || loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            Cartão validado no Asaas
+            {authorizingCard || loading
+              ? "Validando cartão no Asaas…"
+              : "Cartão validado no Asaas"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {polling || checkInFlight
-              ? "Confirmando a primeira cobrança em tempo real…"
-              : "Use o botão abaixo se o acesso não liberar sozinho."}
+            {authorizingCard || loading
+              ? "Não feche esta tela — estamos confirmando com o banco em tempo real."
+              : polling || checkInFlight
+                ? "Confirmando a primeira cobrança em tempo real…"
+                : "Use o botão abaixo se o acesso não liberar sozinho."}
           </p>
         </div>
         {(polling || checkInFlight) && (

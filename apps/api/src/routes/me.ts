@@ -960,6 +960,12 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true as const };
   });
 
+  app.get("/me/subscribe/card/status", async (request) => {
+    const userId = request.sessionUser!.id;
+    const asaas = new AsaasService(env, request.log);
+    return asaas.getCardCheckoutStatusFast(userId, request.log);
+  });
+
   app.get("/me/subscribe/card/pending", async (request) => {
     const userId = request.sessionUser!.id;
     const user = await prisma.user.findUnique({
@@ -971,7 +977,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const asaas = new AsaasService(env, request.log);
-    const pending = await asaas.getPendingCardCheckout(userId);
+    const pending = await asaas.getPendingCardCheckout(userId, request.log);
     if (!pending) {
       return { pending: false as const };
     }
@@ -1132,19 +1138,36 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
           }),
         );
       } else {
-        const { withPrismaRetry } = await import("../lib/prisma-retry.js");
+        const holder = checkoutOptions.creditCardHolderInfo;
         await withPrismaRetry(() =>
           prisma.user.update({
             where: { id: userId },
-            data: { subscriptionPaymentMethod: paymentMethod },
+            data: {
+              subscriptionPaymentMethod: paymentMethod,
+              cpfCnpj: normalizeCpfCnpjDigits(checkoutOptions.cpfCnpj!),
+              ...(holder?.name?.trim()
+                ? { name: holder.name.trim() }
+                : {}),
+              ...(holder?.email?.trim()
+                ? { email: holder.email.trim().toLowerCase() }
+                : {}),
+            },
           }),
         );
       }
 
-      const { ensureBillingSchemaColumns } = await import(
-        "../lib/billing-schema.js",
-      );
-      await ensureBillingSchemaColumns();
+      const {
+        getBillingSchemaReady,
+        billingSchemaOk,
+        BILLING_MIGRATIONS_MESSAGE,
+      } = await import("../lib/billing-schema.js");
+      const billingReady = await getBillingSchemaReady();
+      if (!billingSchemaOk(billingReady)) {
+        return reply.status(503).send({
+          error: BILLING_MIGRATIONS_MESSAGE,
+          code: "BILLING_MIGRATIONS_REQUIRED",
+        });
+      }
 
       const result =
         paymentMethod === "PIX"

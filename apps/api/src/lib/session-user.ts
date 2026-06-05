@@ -38,13 +38,13 @@ export function hasAppAccess(user: SessionUser, now = new Date()): boolean {
   return false;
 }
 
-/** Rotas liberadas mesmo com trial expirado (pagar / ver status). */
+/** Rotas liberadas mesmo com trial expirado ou inadimplente (pagar / checkout). */
 export function isBillingRoute(method: string, path: string): boolean {
   const p = path.split("?")[0] ?? path;
   if (p === "/me/subscription") return true;
   if (p === "/me/subscription/cancel" && method === "POST") return true;
   if (p === "/me/subscription/refresh" && method === "POST") return true;
-  if (p === "/me/subscribe" && method === "POST") return true;
+  if (p.startsWith("/me/subscribe")) return true;
   if (p === "/me/profile" && (method === "PUT" || method === "GET")) return true;
   if (p === "/me" && method === "GET") return true;
   return false;
