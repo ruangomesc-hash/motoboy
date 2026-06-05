@@ -19,6 +19,14 @@ describe("mapAsaasCheckoutHttpError", () => {
     expect(mapped?.body.error).toContain("CPF");
   });
 
+  it("maps 504 to ASAAS_TIMEOUT", () => {
+    const mapped = mapAsaasCheckoutHttpError(
+      new AsaasApiError("Asaas demorou", 504),
+    );
+    expect(mapped?.status).toBe(504);
+    expect(mapped?.body.code).toBe("ASAAS_TIMEOUT");
+  });
+
   it("returns null for non-Asaas errors", () => {
     expect(mapAsaasCheckoutHttpError(new Error("x"))).toBeNull();
   });

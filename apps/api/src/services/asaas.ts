@@ -2,9 +2,11 @@ import type { Env } from "@motoboy/types";
 import type { FastifyBaseLogger } from "fastify";
 import { prisma } from "@motoboy/db";
 import {
+  asaasBaseUrl,
   asaasRequest,
   AsaasApiError,
   isAsaasConfigured,
+  probeAsaasConnection,
   toAsaasBillingType,
 } from "../lib/asaas-client.js";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
@@ -144,12 +146,268 @@ export class AsaasService {
     configured: boolean;
     webhookPath: string;
     webhookTokenConfigured: boolean;
+    sandbox: boolean;
+    apiBaseUrl: string;
   } {
     return {
       configured: this.configured,
       webhookPath: "/api/backend/webhooks/asaas",
       webhookTokenConfigured: Boolean(this.env.ASAAS_WEBHOOK_TOKEN?.trim()),
+      sandbox: Boolean(this.env.ASAAS_SANDBOX),
+      apiBaseUrl: asaasBaseUrl(this.env),
     };
+  }
+
+  async probeConnection(): Promise<{
+    ok: boolean;
+    latencyMs: number;
+    error?: string;
+  }> {
+    const probe = await probeAsaasConnection(this.env);
+    return {
+      ok: probe.ok,
+      latencyMs: probe.latencyMs,
+      error: probe.error,
+    };
+  }
+
+  /**
+   * Checkout Pix rápido: no máximo 1–2 chamadas ao Asaas no POST; QR via GET /pix-qr.
+   */
+  async getPendingPixCheckout(
+    userId: string,
+  ): Promise<SubscribeCheckoutResult | null> {
+    return this.resumePendingPixFromDb(userId);
+  }
+
+  async createPixCheckout(
+    userId: string,
+    cpfCnpjRaw: string,
+    log?: FastifyBaseLogger,
+  ): Promise<SubscribeCheckoutResult> {
+    const routeLog = log ?? this.log;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw Object.assign(new Error("Usuário não encontrado"), {
+        statusCode: 404,
+      });
+    }
+
+    const cpfCnpj = normalizeCpfCnpjDigits(cpfCnpjRaw);
+    if (!isValidCpfCnpj(cpfCnpj)) {
+      throw Object.assign(new Error(formatCpfCnpjError()), { statusCode: 400 });
+    }
+
+    if (!this.configured) {
+      const mock = await this.createMockCharge(userId, SUBSCRIPTION_PRICE);
+      return {
+        checkoutUrl: mock.invoiceUrl,
+        chargeId: mock.chargeId,
+        invoiceUrl: mock.invoiceUrl,
+        pixCopyPaste: mock.pixCopyPaste,
+        pixQrCodeImage: mock.pixQrCodeImage,
+        amount: mock.amount,
+        subscriptionId: `mock_sub_${userId}`,
+      };
+    }
+
+    const resumed = await this.resumePendingPixFromDb(userId);
+    if (resumed) {
+      routeLog?.info({ userId, chargeId: resumed.chargeId }, "Pix pendente (DB)");
+      return resumed;
+    }
+
+    const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
+    await this.markStalePixPaymentsFailed(userId);
+
+    let payment: AsaasPayment;
+    try {
+      payment = await this.createAsaasPixPayment(customerId, userId);
+    } catch (err) {
+      if (err instanceof AsaasApiError && err.statusCode === 404) {
+        routeLog?.warn({ userId, customerId }, "Cliente Asaas inválido — recriando");
+        await prisma.user.update({
+          where: { id: userId },
+          data: { asaasCustomerId: null },
+        });
+        const freshUser = await prisma.user.findUnique({ where: { id: userId } });
+        if (!freshUser) {
+          throw Object.assign(new Error("Usuário não encontrado"), {
+            statusCode: 404,
+          });
+        }
+        const newCustomerId = await this.ensurePixCustomer(
+          freshUser,
+          cpfCnpj,
+          routeLog,
+        );
+        payment = await this.createAsaasPixPayment(newCustomerId, userId);
+      } else {
+        throw err;
+      }
+    }
+
+    if (!payment.id) {
+      throw Object.assign(new Error("Asaas não retornou ID da cobrança Pix."), {
+        statusCode: 502,
+        code: "ASAAS_NO_PAYMENT_ID",
+      });
+    }
+
+    await this.ensurePendingPaymentRecord(userId, payment.id);
+
+    return {
+      checkoutUrl: "",
+      chargeId: payment.id,
+      invoiceUrl: "",
+      pixCopyPaste: null,
+      pixQrCodeImage: null,
+      amount: SUBSCRIPTION_PRICE,
+      subscriptionId: payment.id,
+      pixPending: true,
+    };
+  }
+
+  private async resumePendingPixFromDb(
+    userId: string,
+  ): Promise<SubscribeCheckoutResult | null> {
+    const since = new Date(Date.now() - PENDING_CHECKOUT_MAX_AGE_MS);
+    const pending = await prisma.payment.findFirst({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: "PENDING",
+        createdAt: { gte: since },
+        asaasChargeId: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!pending?.asaasChargeId) return null;
+
+    return {
+      checkoutUrl: "",
+      chargeId: pending.asaasChargeId,
+      invoiceUrl: "",
+      pixCopyPaste: null,
+      pixQrCodeImage: null,
+      amount: SUBSCRIPTION_PRICE,
+      subscriptionId: pending.asaasChargeId,
+      pixPending: true,
+    };
+  }
+
+  private async ensurePixCustomer(
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      whatsappNumber: string;
+      asaasCustomerId: string | null;
+      cpfCnpj: string | null;
+    },
+    cpfCnpj: string,
+    log?: FastifyBaseLogger,
+  ): Promise<string> {
+    if (user.asaasCustomerId) {
+      if (user.cpfCnpj !== cpfCnpj) {
+        await withPrismaRetry(() =>
+          prisma.user.update({
+            where: { id: user.id },
+            data: { cpfCnpj },
+          }),
+        );
+        void this.api(
+          `/customers/${user.asaasCustomerId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({ cpfCnpj }),
+          },
+          "updateCustomerCpfAsync",
+        ).catch((err) => {
+          log?.warn({ err, userId: user.id }, "Atualização CPF Asaas (async)");
+        });
+      }
+      return user.asaasCustomerId;
+    }
+
+    const listed = await this.api<AsaasCustomerList>(
+      `/customers?externalReference=${encodeURIComponent(user.id)}&limit=1`,
+      {},
+      "listCustomersByReferencePix",
+    );
+    const found = listed.data?.[0];
+    if (found?.id) {
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { asaasCustomerId: found.id, cpfCnpj },
+        }),
+      );
+      return found.id;
+    }
+
+    const created = await this.api<AsaasCustomer>(
+      "/customers",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: user.name?.trim() || "Motoboy Motocopiloto",
+          email: user.email ?? undefined,
+          mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
+          cpfCnpj,
+          externalReference: user.id,
+          notificationDisabled: false,
+        }),
+      },
+      "createCustomerPix",
+    );
+
+    if (!created.id) {
+      throw new Error("Asaas não retornou ID do cliente");
+    }
+
+    await withPrismaRetry(() =>
+      prisma.user.update({
+        where: { id: user.id },
+        data: { asaasCustomerId: created.id, cpfCnpj },
+      }),
+    );
+
+    return created.id;
+  }
+
+  private async createAsaasPixPayment(
+    customerId: string,
+    userId: string,
+  ): Promise<AsaasPayment> {
+    return this.api<AsaasPayment>(
+      "/payments",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          customer: customerId,
+          billingType: "PIX",
+          value: SUBSCRIPTION_PRICE,
+          dueDate: dueDatePlusDays(0),
+          description: "Motocopiloto — assinatura mensal",
+          externalReference: userId,
+        }),
+      },
+      "createPixSubscriptionPayment",
+    );
+  }
+
+  private async markStalePixPaymentsFailed(userId: string): Promise<void> {
+    await withPrismaRetry(() =>
+      prisma.payment.updateMany({
+        where: {
+          userId,
+          chargeKind: "SUBSCRIPTION",
+          status: "PENDING",
+        },
+        data: { status: "FAILED" },
+      }),
+    );
   }
 
   async syncCustomerCpf(
@@ -426,6 +684,10 @@ export class AsaasService {
       };
     }
 
+    if (billingType === "PIX") {
+      return this.createPixCheckout(userId, cpfRaw, routeLog);
+    }
+
     const customerId = await this.syncCustomerCpf(user, cpfRaw);
 
     const userFresh = await prisma.user.findUnique({ where: { id: userId } });
@@ -457,16 +719,6 @@ export class AsaasService {
           routeLog,
         );
     if (resumed) return resumed;
-
-    if (billingType === "PIX") {
-      await this.resetPixCheckoutState(userId, routeLog);
-      const resolved = await this.createPixSubscriptionDirectCheckout(
-        userId,
-        customerId,
-      );
-      this.assertCheckoutReady(resolved, billingType, false);
-      return resolved;
-    }
 
     const cardCustomerId = await this.getOrCreateCustomer(
       userForCheckout,

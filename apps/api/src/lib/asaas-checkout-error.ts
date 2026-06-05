@@ -7,6 +7,18 @@ export function mapAsaasCheckoutHttpError(err: unknown): {
   if (!(err instanceof AsaasApiError)) return null;
 
   const msg = err.message?.trim() || "Erro no gateway de pagamento.";
+  if (err.statusCode === 504) {
+    return {
+      status: 504,
+      body: {
+        error: msg.includes("Asaas")
+          ? msg
+          : "Asaas demorou para responder. Confira ASAAS_API_KEY e se ASAAS_SANDBOX está correto na Vercel.",
+        code: "ASAAS_TIMEOUT",
+      },
+    };
+  }
+
   if (err.statusCode === 401 || err.statusCode === 403) {
     return {
       status: 503,

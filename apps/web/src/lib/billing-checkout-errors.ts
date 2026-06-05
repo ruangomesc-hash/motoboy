@@ -13,6 +13,9 @@ export function formatBillingCheckoutError(
   if (code === "ASAAS_AUTH_ERROR") {
     return message;
   }
+  if (code === "ASAAS_TIMEOUT") {
+    return message;
+  }
   if (code === "DATABASE_POOL_TIMEOUT" || code === "DATABASE_UNAVAILABLE") {
     return message;
   }

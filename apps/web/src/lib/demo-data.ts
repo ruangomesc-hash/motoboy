@@ -699,6 +699,9 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       pixPending: !isCard,
     } as T);
   }
+  if (path === "/me/subscribe/pix/pending" && method === "GET") {
+    return Promise.resolve({ pending: false } as T);
+  }
   if (
     path.startsWith("/me/subscribe/charges/") &&
     path.endsWith("/pix-qr") &&

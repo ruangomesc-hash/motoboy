@@ -841,6 +841,20 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/me/subscribe/pix/pending", async (request) => {
+    const asaas = new AsaasService(env, request.log);
+    const pending = await asaas.getPendingPixCheckout(request.sessionUser!.id);
+    if (!pending) {
+      return { pending: false as const };
+    }
+    return {
+      pending: true as const,
+      chargeId: pending.chargeId,
+      amount: pending.amount,
+      pixPending: true,
+    };
+  });
+
   app.get("/me/subscribe/charges/:chargeId/pix-qr", async (request, reply) => {
     const userId = request.sessionUser!.id;
     const chargeId = (request.params as { chargeId: string }).chargeId?.trim();
@@ -960,12 +974,19 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       );
       await ensureBillingSchemaColumns();
 
-      const result = await asaas.createSubscription(
-        userId,
-        paymentMethod,
-        request.log,
-        checkoutOptions,
-      );
+      const result =
+        paymentMethod === "PIX"
+          ? await asaas.createPixCheckout(
+              userId,
+              checkoutOptions.cpfCnpj!,
+              request.log,
+            )
+          : await asaas.createSubscription(
+              userId,
+              paymentMethod,
+              request.log,
+              checkoutOptions,
+            );
       return {
         amount: result.amount,
         chargeId: result.chargeId,

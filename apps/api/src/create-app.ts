@@ -290,6 +290,20 @@ export async function createApp(
     };
   });
 
+  /** Testa conectividade com a API Asaas (chave + ambiente sandbox/produção). */
+  app.get("/health/asaas", async (_request, reply) => {
+    const { probeAsaasConnection } = await import("./lib/asaas-client.js");
+    const probe = await probeAsaasConnection(env);
+    return reply.status(probe.ok ? 200 : 503).send({
+      ok: probe.ok,
+      sandbox: probe.sandbox,
+      baseUrl: probe.baseUrl,
+      latencyMs: probe.latencyMs,
+      error: probe.error ?? null,
+      httpStatus: probe.httpStatus ?? null,
+    });
+  });
+
   /** Diagnóstico público do pipeline Zap (sem PII — use /admin/whatsapp/pipeline para detalhe). */
   app.get("/health/whatsapp", async (_request, reply) => {
     const { getWhatsAppPipelineDiagnostics } = await import(

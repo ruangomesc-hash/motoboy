@@ -71,6 +71,32 @@ export function PixSubscriptionCheckout({
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
 
+  async function tryRecoverPendingPix(
+    apiClient: ReturnType<typeof useApi>,
+  ): Promise<SubscribeResponse | null> {
+    try {
+      const pending = await apiClient<{
+        pending: boolean;
+        chargeId?: string;
+      }>("/me/subscribe/pix/pending", {}, { skipSync: true });
+      if (!pending.pending || !pending.chargeId) return null;
+      const qr = await pollPixQrUntilReady(apiClient, pending.chargeId, {
+        maxMs: 30_000,
+      });
+      if (!qr) return null;
+      return {
+        amount: 0,
+        chargeId: pending.chargeId,
+        paymentMethod: "PIX",
+        pixCopyPaste: qr.pixCopyPaste,
+        pixQrCodeImage: qr.pixQrCodeImage,
+        pixPending: false,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async function generatePix() {
     if (subscriptionActive) {
       setError("Você já tem assinatura ativa.");
@@ -145,9 +171,17 @@ export function PixSubscriptionCheckout({
         msg =
           "Há um Pix anterior em processamento. Aguarde 1 minuto e tente de novo.";
       }
-      if (err.status === 504) {
+      if (err.status === 504 || err.code === "ASAAS_TIMEOUT") {
+        const recovered = await tryRecoverPendingPix(api);
+        if (recovered) {
+          setCheckout(recovered);
+          startPolling();
+          return;
+        }
         msg =
-          "O servidor demorou demais. Aguarde 5 segundos e toque em Gerar Pix novamente.";
+          err.code === "ASAAS_TIMEOUT"
+            ? msg
+            : "O servidor demorou demais. Aguarde 5 segundos e toque em Gerar Pix novamente.";
       }
       setError(msg);
     } finally {

@@ -343,6 +343,11 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_MAPS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   ASAAS_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** `true` → api-sandbox.asaas.com (chave de sandbox no painel Asaas). */
+  ASAAS_SANDBOX: z.preprocess(
+    (v) => v === true || v === "true" || v === "1",
+    z.boolean().optional(),
+  ),
   ASAAS_WEBHOOK_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
   JWT_SECRET: z.string().min(16),
   API_URL: z.string().default("http://localhost:3001"),
@@ -480,6 +485,8 @@ export const billingProviderStatusSchema = z.object({
   configured: z.boolean(),
   webhookPath: z.string(),
   webhookTokenConfigured: z.boolean().optional(),
+  sandbox: z.boolean().optional(),
+  apiBaseUrl: z.string().optional(),
 });
 
 export const billingAsaasStatusSchema = billingProviderStatusSchema;
