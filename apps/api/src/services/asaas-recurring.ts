@@ -9,12 +9,7 @@ import {
 } from "../lib/asaas-client.js";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import type { AsaasRequestContext } from "../lib/asaas-request-log.js";
-
-function dueDatePlusDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+import { nextDueDateOnBillingDay } from "../lib/billing-calendar.js";
 
 type AsaasSubscriptionDetail = {
   id: string;
@@ -90,6 +85,9 @@ export async function ensureRecurringSubscription(
   }
 
   const billingType = toAsaasBillingType(user.subscriptionPaymentMethod ?? "PIX");
+  const billingAnchor = user.subscribedAt ?? new Date();
+  const nextDueDate = nextDueDateOnBillingDay(billingAnchor, new Date());
+
   const sub = await asaasRequest<AsaasSubscriptionDetail>(
     env,
     "/subscriptions",
@@ -100,7 +98,7 @@ export async function ensureRecurringSubscription(
         billingType,
         value: SUBSCRIPTION_PRICE,
         cycle: "MONTHLY",
-        nextDueDate: dueDatePlusDays(32),
+        nextDueDate,
         description: "Motocopiloto — assinatura mensal (recorrência)",
         externalReference: userId,
       }),
@@ -118,7 +116,7 @@ export async function ensureRecurringSubscription(
   });
 
   log?.info(
-    { userId, subscriptionId: sub.id },
+    { userId, subscriptionId: sub.id, nextDueDate, billingAnchor },
     "Assinatura recorrente Asaas garantida após regularização",
   );
 

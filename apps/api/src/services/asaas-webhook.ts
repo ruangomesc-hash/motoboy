@@ -3,6 +3,8 @@ import { prisma } from "@motoboy/db";
 import type { FastifyBaseLogger } from "fastify";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import { ensureRecurringSubscription } from "./asaas-recurring.js";
+import { isPaymentSettledAfterDueDate } from "../lib/billing-calendar.js";
+import { scheduleNextSubscriptionBilling } from "./asaas-subscription-schedule.js";
 
 export type AsaasWebhookOptions = {
   log?: FastifyBaseLogger;
@@ -19,6 +21,7 @@ export type AsaasWebhookPayload = {
     externalReference?: string;
     value?: number;
     customer?: string;
+    dueDate?: string;
   };
   subscription?: {
     id?: string;
@@ -195,19 +198,44 @@ async function handlePaymentWebhook(
     FAILED_PAYMENT_EVENTS.has(event) || isOverdue;
 
   if (isPaid) {
-    await upsertPaymentForCharge(user.id, chargeId, amount, "PAID", new Date());
+    const paidAt = new Date();
+    await upsertPaymentForCharge(user.id, chargeId, amount, "PAID", paidAt);
     const linkedSubscriptionId = pay?.subscription?.trim() || null;
+    const isFirstPayment = !user.subscribedAt;
+    const wasOverdue =
+      user.status === "PAUSED" ||
+      isPaymentSettledAfterDueDate(paidAt, pay?.dueDate);
+    const subscribedAtAfter = user.subscribedAt ?? paidAt;
+
     if (linkedSubscriptionId) {
       await prisma.user.update({
         where: { id: user.id },
         data: {
           status: "ACTIVE",
-          subscribedAt: user.subscribedAt ?? new Date(),
+          subscribedAt: subscribedAtAfter,
           trialEndsAt: null,
           asaasSubscriptionId: linkedSubscriptionId,
           subscriptionPaymentMethod: "PIX",
         },
       });
+      if (options?.env) {
+        void scheduleNextSubscriptionBilling(
+          options.env,
+          {
+            subscriptionId: linkedSubscriptionId,
+            paidAt,
+            subscribedAt: subscribedAtAfter,
+            wasOverdue,
+            isFirstPayment,
+          },
+          log,
+        ).catch((err) => {
+          log?.warn(
+            { err, userId: user.id, chargeId, subscriptionId: linkedSubscriptionId },
+            "Webhook: falha ao agendar próximo vencimento",
+          );
+        });
+      }
     } else {
       await activateUser(user.id);
       if (options?.env) {

@@ -22,15 +22,34 @@ type Props = {
 
 function nextRenewalLabel(subscribedAt: string | null): string | null {
   if (!subscribedAt) return null;
-  const start = new Date(subscribedAt);
-  if (Number.isNaN(start.getTime())) return null;
-  const next = new Date(start);
-  next.setMonth(next.getMonth() + 1);
-  return next.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  const anchor = new Date(subscribedAt);
+  if (Number.isNaN(anchor.getTime())) return null;
+
+  const anchorDay = anchor.getDate();
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth();
+
+  for (let i = 0; i < 24; i++) {
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const candidate = new Date(year, month, Math.min(anchorDay, lastDay));
+    const minNext = new Date(anchor);
+    minNext.setMonth(minNext.getMonth() + 1);
+    if (candidate > now && candidate >= minNext) {
+      return candidate.toLocaleDateString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+  }
+
+  return null;
 }
 
 export function ConfigPaymentSection({

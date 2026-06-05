@@ -16,6 +16,12 @@ import {
 } from "./asaas-webhook.js";
 import { ensureRecurringSubscription } from "./asaas-recurring.js";
 import {
+  dueDatePlusDays,
+  dueDateToday,
+  isPaymentSettledAfterDueDate,
+} from "../lib/billing-calendar.js";
+import { scheduleNextSubscriptionBilling } from "./asaas-subscription-schedule.js";
+import {
   ensurePrismaConnection,
   withPrismaRetry,
 } from "../lib/prisma-retry.js";
@@ -86,12 +92,6 @@ export function isAsaasHostedInvoiceUrl(url: string | null | undefined): boolean
   );
 }
 
-function dueDatePlusDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 function formatPhoneForAsaas(whatsapp: string): string {
   const digits = whatsapp.replace(/\D/g, "");
   if (digits.length >= 12) return digits;
@@ -111,6 +111,7 @@ type AsaasPayment = {
   value?: number;
   billingType?: string;
   subscription?: string;
+  dueDate?: string;
 };
 
 function isAsaasPaymentPaid(status: string | undefined): boolean {
@@ -376,7 +377,7 @@ export class AsaasService {
     await this.markStalePixPaymentsFailed(userId);
 
     const billingType = "PIX";
-    const nextDueDate = dueDatePlusDays(0);
+    const nextDueDate = dueDateToday();
 
     let subId = await this.ensureSubscriptionBillingType(
       userId,
@@ -1093,7 +1094,7 @@ export class AsaasService {
       userForCheckout.cpfCnpj,
     );
 
-    const nextDueDate = dueDatePlusDays(0);
+    const nextDueDate = dueDateToday();
 
     let subId = userForCheckout.asaasSubscriptionId;
     subId = await this.ensureSubscriptionBillingType(
@@ -1356,7 +1357,9 @@ export class AsaasService {
   private async activateUserFromPaidCharge(
     userId: string,
     user: {
+      status: string;
       subscribedAt: Date | null;
+      asaasSubscriptionId: string | null;
     },
     chargeId: string,
     remote: AsaasPayment,
@@ -1366,20 +1369,28 @@ export class AsaasService {
       return false;
     }
 
+    const paidAt = new Date();
+    const isFirstPayment = !user.subscribedAt;
+    const wasOverdue =
+      user.status === "PAUSED" ||
+      isPaymentSettledAfterDueDate(paidAt, remote.dueDate);
+    const subscribedAtAfter = user.subscribedAt ?? paidAt;
+
     await withPrismaRetry(() =>
       prisma.payment.updateMany({
         where: { userId, asaasChargeId: chargeId },
-        data: { status: "PAID", paidAt: new Date() },
+        data: { status: "PAID", paidAt },
       }),
     );
-    const linkedSubscriptionId = remote.subscription?.trim() || null;
+    const linkedSubscriptionId =
+      remote.subscription?.trim() || user.asaasSubscriptionId || null;
 
     await withPrismaRetry(() =>
       prisma.user.update({
         where: { id: userId },
         data: {
           status: "ACTIVE",
-          subscribedAt: user.subscribedAt ?? new Date(),
+          subscribedAt: subscribedAtAfter,
           trialEndsAt: null,
           subscriptionPaymentMethod:
             remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
@@ -1398,6 +1409,22 @@ export class AsaasService {
         );
       });
     } else {
+      void scheduleNextSubscriptionBilling(
+        this.env,
+        {
+          subscriptionId: linkedSubscriptionId,
+          paidAt,
+          subscribedAt: subscribedAtAfter,
+          wasOverdue,
+          isFirstPayment,
+        },
+        log,
+      ).catch((err) => {
+        log?.warn(
+          { err, userId, chargeId, subscriptionId: linkedSubscriptionId },
+          "Pagamento confirmado, mas falha ao agendar próximo vencimento",
+        );
+      });
       log?.info(
         { userId, chargeId, subscriptionId: linkedSubscriptionId },
         "Assinatura Asaas vinculada ao pagamento confirmado",
