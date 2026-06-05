@@ -316,11 +316,13 @@ export class AsaasService {
     await this.markStalePendingPaymentsFailed(userId);
   }
 
-  /** Pré-aquece cliente Asaas enquanto o usuário preenche o CPF (POST fica mais rápido). */
+  /**
+   * Salva CPF no perfil antes do checkout (rota já persiste no banco).
+   * Não cria cliente no Asaas — isso só ocorre em POST /me/subscribe (ação explícita).
+   */
   async preparePixCustomer(
     userId: string,
     cpfCnpjRaw: string,
-    log?: FastifyBaseLogger,
   ): Promise<{ ok: true; customerReady: boolean }> {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
@@ -332,11 +334,7 @@ export class AsaasService {
     if (!isValidCpfCnpj(cpfCnpj)) {
       throw Object.assign(new Error(formatCpfCnpjError()), { statusCode: 400 });
     }
-    if (!this.configured) {
-      return { ok: true, customerReady: true };
-    }
-    const customerId = await this.ensurePixCustomer(user, cpfCnpj, log);
-    return { ok: true, customerReady: Boolean(customerId) };
+    return { ok: true, customerReady: false };
   }
 
   async createPixCheckout(
@@ -717,6 +715,25 @@ export class AsaasService {
     };
   }
 
+  /** Garante CPF no Asaas quando o cliente já existia (ex.: tentativas Pix com erro). */
+  private queueCustomerCpfSync(
+    customerId: string,
+    cpfCnpj: string,
+    log?: FastifyBaseLogger,
+    operation = "syncCustomerCpf",
+  ): void {
+    void this.api(
+      `/customers/${customerId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ cpfCnpj }),
+      },
+      operation,
+    ).catch((err) => {
+      log?.warn({ err, customerId }, "Atualização CPF Asaas (async)");
+    });
+  }
+
   private async ensurePixCustomer(
     user: {
       id: string;
@@ -737,17 +754,13 @@ export class AsaasService {
             data: { cpfCnpj },
           }),
         );
-        void this.api(
-          `/customers/${user.asaasCustomerId}`,
-          {
-            method: "PUT",
-            body: JSON.stringify({ cpfCnpj }),
-          },
-          "updateCustomerCpfAsync",
-        ).catch((err) => {
-          log?.warn({ err, userId: user.id }, "Atualização CPF Asaas (async)");
-        });
       }
+      this.queueCustomerCpfSync(
+        user.asaasCustomerId,
+        cpfCnpj,
+        log,
+        "updateCustomerCpfPix",
+      );
       return user.asaasCustomerId;
     }
 
@@ -764,8 +777,24 @@ export class AsaasService {
           data: { asaasCustomerId: found.id, cpfCnpj },
         }),
       );
+      this.queueCustomerCpfSync(
+        found.id,
+        cpfCnpj,
+        log,
+        "updateCustomerCpfOnPixLink",
+      );
       return found.id;
     }
+
+    log?.info(
+      {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        trigger: "subscribe_pix",
+      },
+      "Criando cliente no Asaas (assinatura Pix)",
+    );
 
     const created = await this.api<AsaasCustomer>(
       "/customers",
@@ -792,6 +821,11 @@ export class AsaasService {
         where: { id: user.id },
         data: { asaasCustomerId: created.id, cpfCnpj },
       }),
+    );
+
+    log?.info(
+      { userId: user.id, asaasCustomerId: created.id },
+      "Cliente Asaas vinculado ao usuário",
     );
 
     return created.id;
@@ -887,6 +921,12 @@ export class AsaasService {
       return `mock_cus_${user.id}`;
     }
 
+    const cpfDigits = cpfCnpj
+      ? normalizeCpfCnpjDigits(cpfCnpj)
+      : user.cpfCnpj
+        ? normalizeCpfCnpjDigits(user.cpfCnpj)
+        : null;
+
     if (user.asaasCustomerId) {
       try {
         const existing = await this.api<AsaasCustomer>(
@@ -895,6 +935,14 @@ export class AsaasService {
           "getCustomer",
         );
         if (existing.id && !existing.deleted) {
+          if (cpfDigits) {
+            this.queueCustomerCpfSync(
+              existing.id,
+              cpfDigits,
+              this.log,
+              "updateCustomerCpfOnGet",
+            );
+          }
           return existing.id;
         }
       } catch (err) {
@@ -914,17 +962,32 @@ export class AsaasService {
       await withPrismaRetry(() =>
         prisma.user.update({
           where: { id: user.id },
-          data: { asaasCustomerId: found.id },
+          data: {
+            asaasCustomerId: found.id,
+            ...(cpfDigits ? { cpfCnpj: cpfDigits } : {}),
+          },
         }),
       );
+      if (cpfDigits) {
+        this.queueCustomerCpfSync(
+          found.id,
+          cpfDigits,
+          this.log,
+          "updateCustomerCpfOnReferenceLink",
+        );
+      }
       return found.id;
     }
 
-    const cpfDigits = cpfCnpj
-      ? normalizeCpfCnpjDigits(cpfCnpj)
-      : user.cpfCnpj
-        ? normalizeCpfCnpjDigits(user.cpfCnpj)
-        : null;
+    this.log?.info(
+      {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        trigger: cpfDigits ? "subscribe_checkout" : "admin_or_support",
+      },
+      "Criando cliente no Asaas",
+    );
 
     const created = await this.api<AsaasCustomer>(
       "/customers",
@@ -951,6 +1014,11 @@ export class AsaasService {
         where: { id: user.id },
         data: { asaasCustomerId: created.id },
       }),
+    );
+
+    this.log?.info(
+      { userId: user.id, asaasCustomerId: created.id },
+      "Cliente Asaas vinculado ao usuário",
     );
 
     return created.id;
@@ -983,11 +1051,21 @@ export class AsaasService {
       return this.createMockCharge(userId, amount);
     }
 
-    const customerId = await this.getOrCreateCustomer(user);
+    const cpfDigits = user.cpfCnpj
+      ? normalizeCpfCnpjDigits(user.cpfCnpj)
+      : "";
+    const customerId = await this.getOrCreateCustomer(user, cpfDigits || null);
     const billingType = toAsaasBillingType(paymentMethod);
 
     this.log?.info(
-      { userId, paymentMethod },
+      {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        paymentMethod,
+        hasCpf: Boolean(cpfDigits),
+        trigger: "admin_payment_link",
+      },
       "Admin: criando cobrança avulsa de regularização",
     );
 

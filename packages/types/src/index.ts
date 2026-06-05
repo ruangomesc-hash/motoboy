@@ -865,6 +865,7 @@ export const adminUserRowSchema = z.object({
   usageMonths: z.number(),
   usageRemainderDays: z.number(),
   hasPassword: z.boolean(),
+  cpfCnpj: z.string().nullable().optional(),
 });
 
 export const adminSetUserPasswordSchema = z.object({

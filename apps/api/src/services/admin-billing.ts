@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import { prisma } from "@motoboy/db";
 import type { AdminPaymentLinkResponse, AdminUserRow, Env } from "@motoboy/types";
+import { isValidCpfCnpj, normalizeCpfCnpjDigits } from "../lib/cpf-cnpj.js";
 import { getAdminUserRowById, SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import { recordActivitySafe } from "./activity-log.js";
 import { AsaasService } from "./asaas.js";
@@ -35,6 +36,18 @@ export async function createAdminPaymentLink(
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     throw Object.assign(new Error("Cliente não encontrado"), { statusCode: 404 });
+  }
+
+  const cpfDigits = user.cpfCnpj
+    ? normalizeCpfCnpjDigits(user.cpfCnpj)
+    : "";
+  if (!cpfDigits || !isValidCpfCnpj(cpfDigits)) {
+    throw Object.assign(
+      new Error(
+        "Cadastre o CPF do cliente no app antes de gerar cobrança Pix no Asaas.",
+      ),
+      { statusCode: 400 },
+    );
   }
 
   const asaas = new AsaasService(env, log);
@@ -105,22 +118,26 @@ export async function activateAdminUser(
     }),
   ]);
 
+  const refreshed = await prisma.user.findUnique({ where: { id: userId } });
   const asaas = new AsaasService(env, log);
-  if (asaas.configured) {
-    const refreshed = await prisma.user.findUnique({ where: { id: userId } });
-    if (refreshed) {
+  if (asaas.configured && refreshed) {
+    /**
+     * Baixa manual só libera o app. Cliente no Asaas só existe se já houve
+     * cobrança (ex.: Link Pix) — evita cadastro órfão de trial ativado no admin.
+     */
+    if (refreshed?.asaasCustomerId) {
       try {
-        await asaas.getOrCreateCustomer(refreshed);
+        await ensureRecurringSubscription(env, userId, log);
       } catch (err) {
-        log?.error({ err, userId }, "Falha ao criar cliente Asaas na ativação admin");
+        log?.error(
+          { err, userId },
+          "Cliente ativado no admin, mas falha ao garantir assinatura recorrente no Asaas",
+        );
       }
-    }
-    try {
-      await ensureRecurringSubscription(env, userId, log);
-    } catch (err) {
-      log?.error(
-        { err, userId },
-        "Cliente ativado no admin, mas falha ao garantir assinatura recorrente no Asaas",
+    } else {
+      log?.info(
+        { userId, name: refreshed?.name, email: refreshed?.email },
+        "Ativação admin: acesso liberado no app sem criar cliente no Asaas",
       );
     }
   }
@@ -140,7 +157,9 @@ export async function activateAdminUser(
         field: "subscription",
         label: "Assinatura",
         from: pending ? "Pagamento pendente" : "Sem cobrança aberta",
-        to: "Ativa — baixa manual no painel admin",
+        to: refreshed?.asaasCustomerId
+          ? "Ativa — baixa manual (com recorrência Asaas)"
+          : "Ativa — baixa manual (só no app)",
       },
     ],
     source: "app",

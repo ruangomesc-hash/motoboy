@@ -126,6 +126,7 @@ function mapUserRow(
     id: string;
     name: string | null;
     email: string | null;
+    cpfCnpj: string | null;
     passwordHash: string | null;
     whatsappNumber: string;
     city: string | null;
@@ -146,6 +147,7 @@ function mapUserRow(
     id: u.id,
     name: u.name,
     email: u.email,
+    cpfCnpj: u.cpfCnpj ?? null,
     whatsappNumber: u.whatsappNumber,
     city: u.city,
     affiliateId: u.referredByAffiliate?.id ?? null,

@@ -926,12 +926,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
           data: { cpfCnpj },
         }),
       );
-      const result = await asaas.preparePixCustomer(
-        userId,
-        cpfCnpj,
-        request.log,
-      );
-      return result;
+      return asaas.preparePixCustomer(userId, cpfCnpj);
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
       const message =

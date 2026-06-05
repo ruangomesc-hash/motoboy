@@ -243,6 +243,7 @@ export function PixSubscriptionCheckout({
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
 
+  /** Só grava CPF no perfil — cliente Asaas é criado ao clicar em Gerar Pix. */
   useEffect(() => {
     if (!formReady || sessionStatus !== "authenticated") return;
     const cpf = form.cpfCnpj.replace(/\D/g, "");

@@ -134,10 +134,20 @@ export function ClientPaymentActions({
           className="h-8 text-xs justify-start px-2"
           disabled={loadingLink}
           onClick={generateLink}
+          title={
+            client.cpfCnpj
+              ? "Gera cobrança Pix no Asaas"
+              : "Cadastre o CPF do cliente no app antes de gerar Link Pix"
+          }
         >
           <Link2 className="h-3.5 w-3.5 mr-1 shrink-0" />
           Link Pix
         </Button>
+        {!client.cpfCnpj && (
+          <p className="text-[10px] text-amber-400/90 leading-tight">
+            Sem CPF no app — preencha no perfil antes do Link Pix
+          </p>
+        )}
         <Button
           type="button"
           size="sm"
