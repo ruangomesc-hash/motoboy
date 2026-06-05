@@ -179,7 +179,21 @@ export class AsaasService {
   async getPendingPixCheckout(
     userId: string,
   ): Promise<SubscribeCheckoutResult | null> {
-    return this.resumePendingPixFromDb(userId);
+    const fromDb = await this.resumePendingPixFromDb(userId);
+    if (fromDb) return this.attachPixQrIfReady(fromDb);
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { asaasCustomerId: true },
+    });
+    if (!user?.asaasCustomerId) return null;
+
+    const fromAsaas = await this.resumePendingPixFromAsaas(
+      userId,
+      user.asaasCustomerId,
+    );
+    if (!fromAsaas) return null;
+    return this.attachPixQrIfReady(fromAsaas);
   }
 
   async createPixCheckout(
@@ -216,7 +230,7 @@ export class AsaasService {
     const resumed = await this.resumePendingPixFromDb(userId);
     if (resumed) {
       routeLog?.info({ userId, chargeId: resumed.chargeId }, "Pix pendente (DB)");
-      return resumed;
+      return this.attachPixQrIfReady(resumed);
     }
 
     const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
@@ -227,7 +241,7 @@ export class AsaasService {
         { userId, chargeId: resumedAsaas.chargeId },
         "Pix pendente (Asaas API)",
       );
-      return resumedAsaas;
+      return this.attachPixQrIfReady(resumedAsaas);
     }
 
     await this.markStalePixPaymentsFailed(userId);
@@ -268,7 +282,7 @@ export class AsaasService {
 
     await this.ensurePendingPaymentRecord(userId, payment.id);
 
-    return {
+    return this.attachPixQrIfReady({
       checkoutUrl: "",
       chargeId: payment.id,
       invoiceUrl: "",
@@ -277,7 +291,34 @@ export class AsaasService {
       amount: SUBSCRIPTION_PRICE,
       subscriptionId: payment.id,
       pixPending: true,
+    });
+  }
+
+  private async attachPixQrIfReady(
+    result: SubscribeCheckoutResult,
+  ): Promise<SubscribeCheckoutResult> {
+    if (!this.configured) return result;
+    const pix = await this.fetchPixQrWithAttempts(
+      result.chargeId,
+      PIX_QR_QUICK_ATTEMPTS,
+    );
+    const hasQr = Boolean(pix.payload || pix.encodedImage);
+    return {
+      ...result,
+      pixCopyPaste: pix.payload,
+      pixQrCodeImage: pix.encodedImage,
+      pixPending: !hasQr,
     };
+  }
+
+  private async isAsaasPaymentPending(chargeId: string): Promise<boolean> {
+    try {
+      const payment = await this.getPaymentById(chargeId);
+      const status = payment.status?.toUpperCase() ?? "";
+      return status === "PENDING" || status === "OVERDUE";
+    } catch {
+      return false;
+    }
   }
 
   /** Reaproveita cobrança Pix pendente no Asaas quando o registro local ainda não existe. */
@@ -341,13 +382,26 @@ export class AsaasService {
       where: {
         userId,
         chargeKind: "SUBSCRIPTION",
-        status: "PENDING",
         createdAt: { gte: since },
         asaasChargeId: { not: null },
       },
       orderBy: { createdAt: "desc" },
     });
     if (!pending?.asaasChargeId) return null;
+
+    if (pending.status !== "PENDING") {
+      if (!(await this.isAsaasPaymentPending(pending.asaasChargeId))) {
+        return null;
+      }
+      await withPrismaRetry(() =>
+        prisma.payment.update({
+          where: { id: pending.id },
+          data: { status: "PENDING" },
+        }),
+      ).catch(() => {
+        /* segue com cobrança válida no Asaas */
+      });
+    }
 
     return {
       checkoutUrl: "",
@@ -1315,15 +1369,17 @@ export class AsaasService {
         /* registro local pode falhar sem impedir leitura do QR */
       });
     } else if (pending.status !== "PENDING") {
-      throw Object.assign(
-        new Error("Cobrança Pix não encontrada ou já finalizada."),
-        { statusCode: 404 },
-      );
+      if (!(await this.isAsaasPaymentPending(chargeId))) {
+        throw Object.assign(
+          new Error("Cobrança Pix não encontrada ou já finalizada."),
+          { statusCode: 404 },
+        );
+      }
     }
 
     const pix = await this.fetchPixQrWithAttempts(
       chargeId,
-      PIX_QR_POLL_SINGLE_ATTEMPT,
+      PIX_QR_QUICK_ATTEMPTS,
     );
     if (!pix.payload && !pix.encodedImage) {
       return null;

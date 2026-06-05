@@ -851,7 +851,9 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       pending: true as const,
       chargeId: pending.chargeId,
       amount: pending.amount,
-      pixPending: true,
+      pixPending: pending.pixPending ?? true,
+      pixCopyPaste: pending.pixCopyPaste ?? null,
+      pixQrCodeImage: pending.pixQrCodeImage ?? null,
     };
   });
 
