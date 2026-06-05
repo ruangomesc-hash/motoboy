@@ -1372,11 +1372,9 @@ export class AsaasService {
 
     log?.info({ userId, subId: sub.id }, "Assinatura criada com cartão (inline)");
 
-    const first = await this.waitForFirstSubscriptionPayment(
+    const first = await this.findFirstOpenSubscriptionPayment(
       sub.id,
-      "CREDIT_CARD",
-      log,
-      FIRST_PAYMENT_POLL_ATTEMPTS,
+      PIX_SUB_PAYMENT_FAST_ATTEMPTS,
     );
     const chargeId = first?.id ?? null;
     if (chargeId) {
@@ -1386,7 +1384,7 @@ export class AsaasService {
     const sync = await this.syncSubscriptionPaymentStatus(
       userId,
       log,
-      chargeId ?? undefined,
+      chargeId ?? sub.id,
     );
 
     return {
@@ -1616,7 +1614,39 @@ export class AsaasService {
       if (fresh?.status === "ACTIVE") {
         return { status: "ACTIVE", activated: true };
       }
-      return { status: user.status, activated: false };
+    }
+
+    if (user.asaasSubscriptionId) {
+      try {
+        const listed = await this.api<{ data?: AsaasPayment[] }>(
+          `/subscriptions/${user.asaasSubscriptionId}/payments?limit=10`,
+          {},
+          "listSubscriptionPaymentsSyncBroad",
+        );
+        for (const row of listed.data ?? []) {
+          if (!row.id) continue;
+          try {
+            const remote = await this.getPaymentById(row.id);
+            const activated = await this.activateUserFromPaidCharge(
+              userId,
+              user,
+              row.id,
+              remote,
+              log,
+            );
+            if (activated) {
+              return { status: "ACTIVE", activated: true };
+            }
+          } catch {
+            /* próxima cobrança */
+          }
+        }
+      } catch (err) {
+        log?.warn(
+          { err, userId, subId: user.asaasSubscriptionId },
+          "Sync cobranças da assinatura (varredura)",
+        );
+      }
     }
 
     const since = new Date(Date.now() - PENDING_CHECKOUT_MAX_AGE_MS);

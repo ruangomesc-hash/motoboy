@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
-import type { SubscriptionStatus } from "@motoboy/types";
+import type {
+  SubscriptionPaymentMethod,
+  SubscriptionStatus,
+} from "@motoboy/types";
 import { fetchSystemHealth } from "@/lib/system-health";
 
 export type BillingStatusLoadState = "idle" | "loading" | "ready" | "error";
@@ -24,7 +27,10 @@ export type BillingStatusSnapshot = {
   asaasConfigured: boolean | null;
   refresh: (opts?: BillingRefreshOptions) => void;
   /** Atualiza a UI na hora quando o pagamento foi confirmado. */
-  applyActiveStatus: (subscribedAt?: string | null) => void;
+  applyActiveStatus: (
+    subscribedAt?: string | null,
+    paymentMethod?: SubscriptionPaymentMethod,
+  ) => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -74,12 +80,18 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     }
   }, []);
 
-  const applyActiveStatus = useCallback((subscribedAt?: string | null) => {
+  const applyActiveStatus = useCallback(
+    (
+      subscribedAt?: string | null,
+      paymentMethod?: SubscriptionPaymentMethod,
+    ) => {
     setSubscription((prev) => {
       const base = prev ?? fallbackSubscription(asaasFromHealth.current);
       return {
         ...base,
         status: "ACTIVE",
+        subscriptionPaymentMethod:
+          paymentMethod ?? base.subscriptionPaymentMethod ?? "PIX",
         subscribedAt:
           subscribedAt ??
           base.subscribedAt ??
@@ -88,7 +100,8 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     });
     setLoadState("ready");
     hadSuccessfulLoad.current = true;
-  }, []);
+  },
+  []);
 
   const refresh = useCallback(
     (opts?: BillingRefreshOptions) => {

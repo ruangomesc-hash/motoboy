@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import type { SubscribeResponse } from "@motoboy/types";
+import { Check, Loader2, Sparkles } from "lucide-react";
+import type {
+  SubscribeResponse,
+  SubscriptionPaymentMethod,
+} from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
 import {
   clearCardCheckoutSession,
@@ -58,13 +61,21 @@ export function CardSubscriptionCheckout({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
+  const [justActivated, setJustActivated] = useState(false);
   const formHydrated = useRef(false);
   const autoResumeDone = useRef(false);
+  const stopPollingRef = useRef<() => void>(() => {});
 
-  const handleActivated = useCallback(
-    (subscribedAt?: string | null) => {
+  const onPaymentActivated = useCallback(
+    (
+      subscribedAt?: string | null,
+      paymentMethod?: SubscriptionPaymentMethod,
+    ) => {
       clearCardCheckoutSession();
-      onActivated?.(subscribedAt);
+      setCheckout(null);
+      setJustActivated(true);
+      stopPollingRef.current();
+      onActivated?.(subscribedAt, paymentMethod ?? "CREDIT_CARD");
     },
     [onActivated],
   );
@@ -73,13 +84,17 @@ export function CardSubscriptionCheckout({
     polling,
     pollHint,
     refreshing,
+    checkInFlight,
     startPolling,
     stopPolling,
     verifyPayment,
-  } = usePaymentActivationPoll(checkout, handleActivated);
+  } = usePaymentActivationPoll(checkout, onPaymentActivated);
+
+  stopPollingRef.current = stopPolling;
 
   useEffect(() => {
     if (!subscriptionActive) return;
+    setJustActivated(false);
     clearCardCheckoutSession();
     stopPolling();
   }, [subscriptionActive, stopPolling]);
@@ -201,7 +216,7 @@ export function CardSubscriptionCheckout({
       });
 
       if (data.activated) {
-        handleActivated(new Date().toISOString());
+        onPaymentActivated(new Date().toISOString());
         return;
       }
 
@@ -233,22 +248,58 @@ export function CardSubscriptionCheckout({
     }
   }
 
+  if (justActivated) {
+    return (
+      <div className="rounded-2xl border-2 border-emerald-500/50 bg-gradient-to-b from-emerald-500/20 to-emerald-500/5 p-5 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 border border-emerald-500/40">
+            <Check className="h-6 w-6 text-emerald-400" strokeWidth={2.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-emerald-300">Assinatura ativa</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Cobrança via cartão confirmada. Carregando detalhes…
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-2 text-sm text-emerald-100">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Liberando seu acesso Pro…
+        </div>
+      </div>
+    );
+  }
+
   if (
     checkout?.paymentMethod === "CREDIT_CARD" &&
     checkout.cardAuthorized
   ) {
     return (
       <div className="space-y-4">
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-          Cartão validado no Asaas.{" "}
-          {polling
-            ? "Aguardando confirmação da primeira cobrança…"
-            : "Use o botão abaixo se o acesso não liberar sozinho."}
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-2">
+          <p className="text-sm font-medium text-emerald-300 flex items-center gap-2">
+            {polling || checkInFlight ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Cartão validado no Asaas
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {polling || checkInFlight
+              ? "Confirmando a primeira cobrança em tempo real…"
+              : "Use o botão abaixo se o acesso não liberar sozinho."}
+          </p>
         </div>
-        {polling && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Confirmando pagamento do cartão…
+        {(polling || checkInFlight) && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center space-y-2">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto text-emerald-400" />
+            <p className="text-sm font-medium text-emerald-100">
+              Verificando pagamento do cartão…
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Assim que a cobrança for confirmada, sua assinatura ativa na hora.
+            </p>
           </div>
         )}
         {pollHint && (
@@ -297,7 +348,7 @@ export function CardSubscriptionCheckout({
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Processando cartão…
+                Validando cartão no Asaas…
               </>
             ) : (
               "Assinar com cartão"

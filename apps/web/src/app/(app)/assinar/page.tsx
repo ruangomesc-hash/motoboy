@@ -4,7 +4,10 @@ import { Suspense, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
-import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
+import {
+  SUBSCRIPTION_PRICE_BRL,
+  type SubscriptionPaymentMethod,
+} from "@motoboy/types";
 import { AppPage } from "@/components/app-page";
 import { AppLoadingSplash } from "@/components/app-loading-splash";
 import { AsaasTransparentCheckout } from "@/components/asaas-transparent-checkout";
@@ -97,8 +100,11 @@ function AssinarPageContent() {
     subscription?.subscriptionPaymentMethod,
   );
 
-  function handleActivated(subscribedAt?: string | null) {
-    applyActiveStatus(subscribedAt);
+  function handleActivated(
+    subscribedAt?: string | null,
+    paymentMethod?: SubscriptionPaymentMethod,
+  ) {
+    applyActiveStatus(subscribedAt, paymentMethod);
     refresh({ silent: true, fast: true });
   }
 

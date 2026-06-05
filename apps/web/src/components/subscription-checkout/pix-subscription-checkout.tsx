@@ -129,9 +129,9 @@ export function PixSubscriptionCheckout({
     startPolling,
     stopPolling,
     verifyPayment,
-  } = usePaymentActivationPoll(checkout, (subscribedAt) => {
+  } = usePaymentActivationPoll(checkout, (subscribedAt, paymentMethod) => {
     clearPixCheckoutSession();
-    onActivated?.(subscribedAt);
+    onActivated?.(subscribedAt, paymentMethod ?? "PIX");
   });
 
   const clearPixCheckout = useCallback(() => {
@@ -346,7 +346,7 @@ export function PixSubscriptionCheckout({
 
       if (data.activated) {
         clearPixCheckoutSession();
-        onActivated?.(new Date().toISOString());
+        onActivated?.(new Date().toISOString(), "PIX");
         return;
       }
 

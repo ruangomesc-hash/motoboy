@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SubscribeResponse } from "@motoboy/types";
+import type { SubscribeResponse, SubscriptionPaymentMethod } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
 import { PAYMENT_POLL_FAST_MS, PAYMENT_POLL_MAX_MS } from "./shared";
 
-export type PaymentActivatedHandler = (subscribedAt?: string | null) => void;
+export type PaymentActivatedHandler = (
+  subscribedAt?: string | null,
+  paymentMethod?: SubscriptionPaymentMethod,
+) => void;
 
 export function usePaymentActivationPoll(
   checkout: SubscribeResponse | null,
@@ -22,27 +25,40 @@ export function usePaymentActivationPoll(
 
   const checkActivation = useCallback(async (): Promise<boolean> => {
     const chargeId = checkout?.chargeId;
+    const paymentMethod = checkout?.paymentMethod;
     setCheckInFlight(true);
     try {
-      const refreshed = await api<{
-        status: string;
-        activated: boolean;
-        subscribedAt?: string | null;
-      }>(
-        "/me/subscription/refresh",
-        {
-          method: "POST",
-          body: JSON.stringify(
-            chargeId ? { chargeId } : {},
-          ),
-        },
-        { skipSync: true },
-      );
+      const requestRefresh = (body: Record<string, string>) =>
+        api<{
+          status: string;
+          activated: boolean;
+          subscribedAt?: string | null;
+        }>(
+          "/me/subscription/refresh",
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+          },
+          { skipSync: true },
+        );
+
+      let refreshed = await requestRefresh(chargeId ? { chargeId } : {});
+
+      if (
+        !refreshed.activated &&
+        refreshed.status !== "ACTIVE" &&
+        chargeId
+      ) {
+        refreshed = await requestRefresh({});
+      }
 
       if (refreshed.activated || refreshed.status === "ACTIVE") {
         setPolling(false);
         setPollHint("");
-        onActivatedRef.current?.(refreshed.subscribedAt ?? null);
+        onActivatedRef.current?.(
+          refreshed.subscribedAt ?? null,
+          paymentMethod,
+        );
         return true;
       }
     } catch {
@@ -51,7 +67,7 @@ export function usePaymentActivationPoll(
       setCheckInFlight(false);
     }
     return false;
-  }, [api, checkout?.chargeId]);
+  }, [api, checkout?.chargeId, checkout?.paymentMethod]);
 
   useEffect(() => {
     if (!checkout?.chargeId || !polling) {
