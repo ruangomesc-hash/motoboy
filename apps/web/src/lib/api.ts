@@ -26,7 +26,11 @@ export async function apiFetch<T>(
 
   const method = (options.method ?? "GET").toUpperCase();
   const timeoutMs =
-    method === "POST" && path.includes("/me/subscribe") ? 28_000 : 14_000;
+    method === "POST" && path.includes("/me/subscribe")
+      ? 28_000
+      : path === "/me/subscription"
+        ? 20_000
+        : 14_000;
 
   let res: Response;
   try {

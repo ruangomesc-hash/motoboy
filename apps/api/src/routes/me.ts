@@ -797,29 +797,39 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/me/subscription", async (request) => {
-    const user = await prisma.user.findUnique({
-      where: { id: request.sessionUser!.id },
-      select: {
-        id: true,
-        status: true,
-        createdAt: true,
-        trialEndsAt: true,
-        subscribedAt: true,
-        subscriptionPaymentMethod: true,
-      },
-    });
-    const lastPayment = await prisma.payment.findFirst({
-      where: { userId: request.sessionUser!.id },
-      orderBy: { createdAt: "desc" },
-    });
+    const userId = request.sessionUser!.id;
+    const { withPrismaRetry } = await import("../lib/prisma-retry.js");
+
+    const [user, lastPayment] = await withPrismaRetry(() =>
+      Promise.all([
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            trialEndsAt: true,
+            subscribedAt: true,
+            subscriptionPaymentMethod: true,
+          },
+        }),
+        prisma.payment.findFirst({
+          where: { userId },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]),
+    );
+
     let trialEndsAt = user?.trialEndsAt ?? null;
     if (user?.status === "TRIAL" && user.trialEndsAt) {
-      trialEndsAt = await ensureTrialEndsAtPolicy({
-        id: user.id,
-        status: user.status,
-        createdAt: user.createdAt,
-        trialEndsAt: user.trialEndsAt,
-      });
+      trialEndsAt = await withPrismaRetry(() =>
+        ensureTrialEndsAtPolicy({
+          id: user.id,
+          status: user.status,
+          createdAt: user.createdAt,
+          trialEndsAt: user.trialEndsAt,
+        }),
+      );
     }
 
     return {

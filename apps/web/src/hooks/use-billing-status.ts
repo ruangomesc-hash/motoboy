@@ -16,8 +16,32 @@ export type BillingStatusSnapshot = {
   refresh: (opts?: { silent?: boolean }) => void;
 };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fallbackSubscription(
+  asaasConfigured: boolean | null,
+): SubscriptionStatus {
+  return {
+    status: "TRIAL",
+    trialEndsAt: null,
+    trialDays: 4,
+    subscribedAt: null,
+    subscriptionPaymentMethod: "PIX",
+    lastPayment: null,
+    asaas: {
+      configured: asaasConfigured === true,
+      webhookPath: "/api/backend/webhooks/asaas",
+      webhookTokenConfigured: false,
+      sandbox: false,
+      apiBaseUrl: "https://api.asaas.com/v3",
+    },
+  };
+}
+
 /**
- * Status de assinatura + Asaas. Falhas transitórias não apagam dados já carregados.
+ * Status de assinatura + Asaas. Falhas transitórias não bloqueiam o checkout Pix.
  */
 export function useBillingStatus(enabled = true): BillingStatusSnapshot {
   const api = useApi();
@@ -26,6 +50,17 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
   const [loadState, setLoadState] = useState<BillingStatusLoadState>("idle");
   const [asaasConfigured, setAsaasConfigured] = useState<boolean | null>(null);
   const hadSuccessfulLoad = useRef(false);
+  const asaasFromHealth = useRef<boolean | null>(null);
+
+  const applyAsaasFromHealth = useCallback((configured: boolean | undefined) => {
+    if (configured === true) {
+      asaasFromHealth.current = true;
+      setAsaasConfigured(true);
+    } else if (configured === false) {
+      asaasFromHealth.current = false;
+      setAsaasConfigured(false);
+    }
+  }, []);
 
   const refresh = useCallback(
     (opts?: { silent?: boolean }) => {
@@ -36,37 +71,49 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
         setLoadState("loading");
       }
 
-      void api<SubscriptionStatus>("/me/subscription", {}, { skipSync: true })
-        .then((data) => {
-          setSubscription(data);
-          setLoadState("ready");
-          hadSuccessfulLoad.current = true;
-          if (data.asaas?.configured === true) {
-            setAsaasConfigured(true);
-          } else if (data.asaas?.configured === false) {
-            setAsaasConfigured(false);
-          }
-        })
-        .catch(() => {
-          if (hadSuccessfulLoad.current) {
-            setLoadState("ready");
-            return;
-          }
-          setSubscription(null);
-          setLoadState("error");
-          setAsaasConfigured(null);
-        });
-
-      void fetchSystemHealth({ timeoutMs: 6_000 }).then((healthSnap) => {
-        const fromHealth = healthSnap.health?.asaas?.configured;
-        if (fromHealth === true) {
-          setAsaasConfigured(true);
-        } else if (fromHealth === false) {
-          setAsaasConfigured(false);
-        }
+      void fetchSystemHealth({ timeoutMs: 5_000 }).then((healthSnap) => {
+        applyAsaasFromHealth(healthSnap.health?.asaas?.configured);
       });
+
+      void (async () => {
+        const maxAttempts = 3;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            const data = await api<SubscriptionStatus>(
+              "/me/subscription",
+              {},
+              { skipSync: true },
+            );
+            setSubscription(data);
+            setLoadState("ready");
+            hadSuccessfulLoad.current = true;
+            if (data.asaas?.configured === true) {
+              setAsaasConfigured(true);
+            } else if (data.asaas?.configured === false) {
+              setAsaasConfigured(false);
+            }
+            return;
+          } catch {
+            if (attempt < maxAttempts - 1) {
+              await sleep(800 * (attempt + 1));
+              continue;
+            }
+            if (hadSuccessfulLoad.current) {
+              setLoadState("ready");
+              return;
+            }
+            if (asaasFromHealth.current === true) {
+              setSubscription(fallbackSubscription(true));
+              setLoadState("ready");
+              return;
+            }
+            setSubscription(fallbackSubscription(asaasFromHealth.current));
+            setLoadState(asaasFromHealth.current === null ? "error" : "ready");
+          }
+        }
+      })();
     },
-    [api, enabled, sessionStatus],
+    [api, applyAsaasFromHealth, enabled, sessionStatus],
   );
 
   useEffect(() => {
@@ -75,6 +122,7 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       setLoadState("idle");
       setSubscription(null);
       setAsaasConfigured(null);
+      asaasFromHealth.current = null;
       hadSuccessfulLoad.current = false;
       return;
     }
