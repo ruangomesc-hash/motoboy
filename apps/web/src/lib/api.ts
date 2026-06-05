@@ -27,6 +27,9 @@ export async function apiFetch<T>(
   const method = (options.method ?? "GET").toUpperCase();
   const isPixQrWait = path.includes("/pix-qr") && path.includes("wait=1");
   const isPixQrFast = path.includes("/pix-qr") && !isPixQrWait;
+  const isDeliveryMutation =
+    path.startsWith("/me/deliveries") &&
+    (method === "PATCH" || method === "POST" || method === "DELETE");
   const timeoutMs =
     method === "POST" && path.includes("/me/subscribe") && !path.includes("/prepare")
       ? 45_000
@@ -40,7 +43,9 @@ export async function apiFetch<T>(
             ? 20_000
             : path.includes("/pix/pending") || path.includes("/card/pending")
               ? 8_000
-              : 14_000;
+              : isDeliveryMutation
+                ? 22_000
+                : 14_000;
 
   let res: Response;
   try {

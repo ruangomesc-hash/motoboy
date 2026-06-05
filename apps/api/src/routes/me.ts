@@ -537,17 +537,31 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const updated = await prisma.delivery.updateMany({
-      where: { id, userId },
-      data,
-    });
-    if (updated.count === 0) {
-      return reply.status(404).send({ error: "Não encontrado" });
+    if (Object.keys(data).length === 0) {
+      return toPublicDelivery(existing);
     }
-    const delivery = await prisma.delivery.findFirst({
-      where: { id, userId },
-    });
-    if (!delivery) return reply.status(404).send({ error: "Não encontrado" });
+
+    let delivery: typeof existing;
+    try {
+      delivery = await withPrismaRetry(() =>
+        prisma.delivery.update({
+          where: { id },
+          data,
+        }),
+      );
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "P2025") {
+        return reply.status(404).send({ error: "Não encontrado" });
+      }
+      request.log.error({ err, userId, deliveryId: id }, "Falha ao atualizar entrega");
+      return reply.status(503).send({
+        error:
+          "Não foi possível salvar a alteração agora. Aguarde alguns segundos e tente de novo.",
+        code: "DELIVERY_SAVE_FAILED",
+      });
+    }
+
     const changes = diffValues(
       [
         data.grossValue !== undefined && {
@@ -588,13 +602,17 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       ].filter(Boolean) as Parameters<typeof diffValues>[0],
     );
     if (changes.length > 0) {
-      await recordActivity(userId, {
-        category: "DELIVERY",
-        action: "UPDATED",
-        title: isExpense ? "Despesa alterada" : "Entrega alterada",
-        entityId: id,
-        changes,
-      });
+      void recordActivitySafe(
+        userId,
+        {
+          category: "DELIVERY",
+          action: "UPDATED",
+          title: isExpense ? "Despesa alterada" : "Entrega alterada",
+          entityId: id,
+          changes,
+        },
+        request.log,
+      );
     }
     emitDeliveryUpdated(userId, delivery);
     return toPublicDelivery(delivery);

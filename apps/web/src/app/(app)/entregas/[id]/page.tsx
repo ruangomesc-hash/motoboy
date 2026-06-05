@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApi } from "@/hooks/use-api";
 import { useDeleteDelivery } from "@/hooks/use-delete-delivery";
@@ -71,6 +71,50 @@ function toPayload(d: DeliveryDetail): CreatedDelivery {
   };
 }
 
+const AUTO_SAVE_MS = 700;
+
+type SaveFormState = NonNullable<ReturnType<typeof toForm>>;
+
+function buildPatchBody(
+  delivery: DeliveryDetail,
+  form: SaveFormState,
+  expense: boolean,
+  expenseOrigin: string | null,
+  grossValue: number,
+  distanceKm: number | null,
+  occurredAt: string,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const storedGross = expense ? -Math.abs(grossValue) : grossValue;
+  const nextOrigin = expense
+    ? expenseOrigin ?? "Despesa"
+    : form.originName.trim() || null;
+
+  if (Number(delivery.grossValue) !== storedGross) {
+    body.grossValue = grossValue;
+  }
+  if ((delivery.originName ?? null) !== nextOrigin) {
+    body.originName = nextOrigin;
+  }
+  if (!expense) {
+    const nextDistance = form.distanceKm.trim() ? distanceKm : null;
+    const prevDistance =
+      delivery.distanceKm == null || delivery.distanceKm === ""
+        ? null
+        : Number(delivery.distanceKm);
+    if (prevDistance !== nextDistance) {
+      body.distanceKm = nextDistance;
+    }
+    if (delivery.source !== form.source) {
+      body.source = form.source;
+    }
+  }
+  if (delivery.occurredAt !== occurredAt) {
+    body.occurredAt = occurredAt;
+  }
+  return body;
+}
+
 export default function EntregaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -91,7 +135,11 @@ export default function EntregaDetailPage() {
   );
   const [loadingExtra, setLoadingExtra] = useState(!cached);
   const [saving, setSaving] = useState(false);
+  const [saveHint, setSaveHint] = useState<"idle" | "pending" | "saved">("idle");
   const [deleting, setDeleting] = useState(false);
+  const formDirtyRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInFlightRef = useRef(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,9 +169,11 @@ export default function EntregaDetailPage() {
     void api<DeliveryDetail>(`/me/deliveries/${id}`)
       .then((d) => {
         if (cancelled) return;
-        setDelivery(d);
-        setForm(toForm(d));
-        syncExpenseTagsFromDetail(d);
+        setDelivery((prev) => (prev ? { ...prev, ...d } : d));
+        if (!formDirtyRef.current) {
+          setForm(toForm(d));
+          syncExpenseTagsFromDetail(d);
+        }
       })
       .catch(() => {
         if (!cancelled && !cached) setDelivery(null);
@@ -136,99 +186,149 @@ export default function EntregaDetailPage() {
     };
   }, [api, id, cached]);
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!delivery || !form) return;
+  const persistDelivery = useCallback(
+    async (opts?: { fromSubmit?: boolean }) => {
+      if (!delivery || !form || saveInFlightRef.current) return false;
 
-    const grossValue = parseDecimalInput(form.grossValue);
-    if (grossValue == null || grossValue <= 0) {
-      setError("Informe um valor válido.");
-      return;
-    }
-    const distanceKm = form.distanceKm.trim()
-      ? parseDecimalInput(form.distanceKm)
-      : null;
-    if (form.distanceKm.trim() && (distanceKm == null || distanceKm < 0)) {
-      setError("Km inválido.");
-      return;
-    }
+      const grossValue = parseDecimalInput(form.grossValue);
+      if (grossValue == null || grossValue <= 0) {
+        if (opts?.fromSubmit) setError("Informe um valor válido.");
+        return false;
+      }
+      const distanceKm = form.distanceKm.trim()
+        ? parseDecimalInput(form.distanceKm)
+        : null;
+      if (form.distanceKm.trim() && (distanceKm == null || distanceKm < 0)) {
+        if (opts?.fromSubmit) setError("Km inválido.");
+        return false;
+      }
 
-    const expense = isExpenseEntry(delivery.grossValue);
-    if (expense && expenseTagId === "outro" && !expenseCustom.trim()) {
-      setError("Descreva a despesa em Outro");
-      return;
-    }
+      const expense = isExpenseEntry(delivery.grossValue);
+      if (expense && expenseTagId === "outro" && !expenseCustom.trim()) {
+        if (opts?.fromSubmit) setError("Descreva a despesa em Outro");
+        return false;
+      }
 
-    setSaving(true);
-    setError(null);
-    const previous = delivery;
-    const previousPayload = toPayload(previous);
-    const expenseOrigin = expense
-      ? expenseLabelFromTag(expenseTagId, expenseCustom)
-      : null;
-    const storedGross = expense ? -Math.abs(grossValue) : grossValue;
-    const optimistic: DeliveryDetail = {
-      ...delivery,
-      grossValue: storedGross,
-      originName: expense
-        ? expenseOrigin
-        : form.originName.trim() || null,
-      source: expense ? "OTHER" : form.source,
-      distanceKm: expense ? null : distanceKm,
-      occurredAt: isoFromDatetimeLocal(form.occurredAtLocal),
-    };
-    const optimisticPayload = toPayload(optimistic);
-    setDelivery(optimistic);
-    upsertDeliveryOptimistic(optimisticPayload, previousPayload);
-    publishDeliverySync(publishAppSync, "optimistic", {
-      delivery: optimisticPayload,
-      previousDelivery: previousPayload,
-    });
-    try {
-      const updated = await api<DeliveryDetail>(
-        `/me/deliveries/${id}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(
-            expense
-              ? {
-                  grossValue,
-                  originName: expenseOrigin ?? "Despesa",
-                  occurredAt: optimistic.occurredAt,
-                }
-              : {
-                  grossValue,
-                  originName: form.originName.trim() || null,
-                  source: form.source,
-                  distanceKm,
-                  occurredAt: optimistic.occurredAt,
-                },
-          ),
-        },
-        { skipSync: true },
+      const expenseOrigin = expense
+        ? expenseLabelFromTag(expenseTagId, expenseCustom)
+        : null;
+      const occurredAt = isoFromDatetimeLocal(form.occurredAtLocal);
+      const patchBody = buildPatchBody(
+        delivery,
+        form,
+        expense,
+        expenseOrigin,
+        grossValue,
+        distanceKm,
+        occurredAt,
       );
 
-      setDelivery(updated);
-      setForm(toForm(updated));
-      const serverPayload = toPayload(updated);
-      upsertDeliveryOptimistic(serverPayload, previousPayload);
-      publishDeliverySync(publishAppSync, "confirmed", {
-        delivery: serverPayload,
+      if (Object.keys(patchBody).length === 0) {
+        formDirtyRef.current = false;
+        setSaveHint("idle");
+        return true;
+      }
+
+      setSaving(true);
+      saveInFlightRef.current = true;
+      setError(null);
+      const previous = delivery;
+      const previousPayload = toPayload(previous);
+      const storedGross = expense ? -Math.abs(grossValue) : grossValue;
+      const optimistic: DeliveryDetail = {
+        ...delivery,
+        grossValue: storedGross,
+        originName: expense
+          ? expenseOrigin
+          : form.originName.trim() || null,
+        source: expense ? "OTHER" : form.source,
+        distanceKm: expense ? null : distanceKm,
+        occurredAt,
+      };
+      const optimisticPayload = toPayload(optimistic);
+      setDelivery(optimistic);
+      upsertDeliveryOptimistic(optimisticPayload, previousPayload);
+      publishDeliverySync(publishAppSync, "optimistic", {
+        delivery: optimisticPayload,
         previousDelivery: previousPayload,
       });
-    } catch (err) {
-      setDelivery(previous);
-      upsertDeliveryOptimistic(previousPayload, optimisticPayload);
-      publishDeliverySync(publishAppSync, "optimistic", {
-        delivery: previousPayload,
-        previousDelivery: optimisticPayload,
-      });
-      setError(
-        err instanceof Error ? err.message : "Não foi possível salvar.",
-      );
-    } finally {
-      setSaving(false);
+
+      try {
+        const updated = await api<DeliveryDetail>(
+          `/me/deliveries/${id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(patchBody),
+          },
+          { skipSync: true },
+        );
+
+        setDelivery(updated);
+        setForm(toForm(updated));
+        syncExpenseTagsFromDetail(updated);
+        formDirtyRef.current = false;
+        const serverPayload = toPayload(updated);
+        upsertDeliveryOptimistic(serverPayload, previousPayload);
+        publishDeliverySync(publishAppSync, "confirmed", {
+          delivery: serverPayload,
+          previousDelivery: previousPayload,
+        });
+        setSaveHint("saved");
+        window.setTimeout(() => setSaveHint("idle"), 2000);
+        return true;
+      } catch (err) {
+        setDelivery(previous);
+        upsertDeliveryOptimistic(previousPayload, optimisticPayload);
+        publishDeliverySync(publishAppSync, "optimistic", {
+          delivery: previousPayload,
+          previousDelivery: optimisticPayload,
+        });
+        setError(
+          err instanceof Error ? err.message : "Não foi possível salvar.",
+        );
+        setSaveHint("idle");
+        return false;
+      } finally {
+        setSaving(false);
+        saveInFlightRef.current = false;
+      }
+    },
+    [
+      api,
+      delivery,
+      expenseCustom,
+      expenseTagId,
+      form,
+      id,
+      publishAppSync,
+      upsertDeliveryOptimistic,
+    ],
+  );
+
+  useEffect(() => {
+    if (!delivery || !form || loadingExtra || !formDirtyRef.current) return;
+    setSaveHint("pending");
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void persistDelivery();
+    }, AUTO_SAVE_MS);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [delivery, form, expenseTagId, expenseCustom, loadingExtra, persistDelivery]);
+
+  function markFormDirty() {
+    formDirtyRef.current = true;
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
+    await persistDelivery({ fromSubmit: true });
   }
 
   function handleDelete() {
@@ -269,7 +369,8 @@ export default function EntregaDetailPage() {
             <Input
               inputMode="decimal"
               value={form.grossValue}
-              onChange={(e) =>
+              onChange={(e) => {
+                markFormDirty();
                 setForm((f) =>
                   f
                     ? {
@@ -277,8 +378,8 @@ export default function EntregaDetailPage() {
                         grossValue: sanitizeDecimalInput(e.target.value),
                       }
                     : f,
-                )
-              }
+                );
+              }}
               required
             />
           </Field>
@@ -287,18 +388,25 @@ export default function EntregaDetailPage() {
             <ExpenseTagPicker
               tagId={expenseTagId}
               custom={expenseCustom}
-              onTagId={setExpenseTagId}
-              onCustom={setExpenseCustom}
+              onTagId={(tag) => {
+                markFormDirty();
+                setExpenseTagId(tag);
+              }}
+              onCustom={(value) => {
+                markFormDirty();
+                setExpenseCustom(value);
+              }}
             />
           ) : (
             <Field label="Nome / local">
               <Input
                 value={form.originName}
-                onChange={(e) =>
+                onChange={(e) => {
+                  markFormDirty();
                   setForm((f) =>
                     f ? { ...f, originName: e.target.value } : f,
-                  )
-                }
+                  );
+                }}
                 placeholder="Farmácia, mercado..."
               />
             </Field>
@@ -311,7 +419,8 @@ export default function EntregaDetailPage() {
                   inputMode="decimal"
                   placeholder="3,5"
                   value={form.distanceKm}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    markFormDirty();
                     setForm((f) =>
                       f
                         ? {
@@ -319,17 +428,18 @@ export default function EntregaDetailPage() {
                             distanceKm: sanitizeDecimalInput(e.target.value),
                           }
                         : f,
-                    )
-                  }
+                    );
+                  }}
                 />
               </Field>
 
               <Field label="Origem (app)">
                 <select
                   value={form.source}
-                  onChange={(e) =>
-                    setForm((f) => (f ? { ...f, source: e.target.value } : f))
-                  }
+                  onChange={(e) => {
+                    markFormDirty();
+                    setForm((f) => (f ? { ...f, source: e.target.value } : f));
+                  }}
                   className="flex h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
                 >
                   {SOURCES.map((s) => (
@@ -349,11 +459,12 @@ export default function EntregaDetailPage() {
             <Input
               type="datetime-local"
               value={form.occurredAtLocal}
-              onChange={(e) =>
+              onChange={(e) => {
+                markFormDirty();
                 setForm((f) =>
                   f ? { ...f, occurredAtLocal: e.target.value } : f,
-                )
-              }
+                );
+              }}
               className="text-base"
             />
           </Field>
@@ -361,7 +472,13 @@ export default function EntregaDetailPage() {
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <Button type="submit" className="w-full" disabled={saving || deleting}>
-            {saving ? "Salvando..." : "Salvar alterações"}
+            {saving
+              ? "Salvando..."
+              : saveHint === "pending"
+                ? "Salvando em instantes..."
+                : saveHint === "saved"
+                  ? "Salvo"
+                  : "Salvar alterações"}
           </Button>
         </form>
 
