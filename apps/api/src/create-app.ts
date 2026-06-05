@@ -317,6 +317,7 @@ export async function createApp(
           messagesLast24h: d.database.messagesLast24h,
           messagesLast48h: d.database.messagesLast48h,
           webhookHitsLast24h: d.database.webhookHitsLast24h,
+          deliveriesLast48h: d.database.deliveriesLast48h,
         },
         webhookByEvents: d.webhook.webhookByEvents,
         recentInbound: d.database.recentMessages

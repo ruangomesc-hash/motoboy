@@ -49,6 +49,11 @@ function syncDeliveryDeletedFromSocket(payload: unknown): void {
   });
 }
 
+/** Socket off → força poll no AppDataProvider (fallback Zap → app). */
+function requestDeliveryPollSync(): void {
+  notifyAppSync([...DELIVERY_SYNC_TOPICS, "all"]);
+}
+
 export function useSocket(userId: string | undefined, enabled = true): void {
   const { data: session } = useSession();
   const token = session?.accessToken;
@@ -60,10 +65,23 @@ export function useSocket(userId: string | undefined, enabled = true): void {
       auth: { token },
       path: "/socket.io",
       transports: ["websocket", "polling"],
+      reconnectionAttempts: 8,
+      reconnectionDelay: 1500,
+    });
+
+    socket.on("connect", () => {
+      requestDeliveryPollSync();
     });
 
     socket.on("connect_error", (err) => {
       console.warn("[socket] connect_error", err.message);
+      requestDeliveryPollSync();
+    });
+
+    socket.on("disconnect", (reason) => {
+      if (reason === "io server disconnect") {
+        requestDeliveryPollSync();
+      }
     });
 
     socket.on("delivery:created", syncDeliveryFromSocket);

@@ -192,6 +192,13 @@ export function parseEvolutionInboundMessage(
   };
 }
 
+/** ID único da mensagem Evolution — deduplicação de webhook duplicado/retry. */
+export function extractEvolutionMessageId(body: unknown): string | null {
+  const parsed = parseEvolutionInboundMessage(body);
+  const id = parsed?.key?.id?.trim();
+  return id || null;
+}
+
 export function inferEvolutionMessageType(
   message: Record<string, unknown> | undefined,
   messageType?: string,

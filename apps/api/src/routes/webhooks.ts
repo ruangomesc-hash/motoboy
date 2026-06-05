@@ -32,6 +32,7 @@ import { processWhatsAppJobData } from "../workers/whatsapp-processor.js";
 import { logWhatsAppWebhookHit } from "../lib/whatsapp-inbound-log.js";
 import {
   extractReplyTargetFromWebhookBody,
+  extractWebhookAuditPhone,
   safeWhatsAppErrorReply,
   safeWhatsAppReply,
 } from "../lib/whatsapp-reply.js";
@@ -66,16 +67,28 @@ async function handleWhatsAppWebhook(
   try {
     if (!evolutionWebhookAuthorized(env, request)) {
       request.log.warn("Webhook WhatsApp rejeitado: assinatura inválida");
-      await logWhatsAppWebhookHit(body, "auth_rejected");
+      await logWhatsAppWebhookHit(
+        body,
+        "auth_rejected",
+        extractWebhookAuditPhone(body, contactOptions),
+      );
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    await logWhatsAppWebhookHit(body, "auth_ok");
+    await logWhatsAppWebhookHit(
+      body,
+      "auth_ok",
+      extractWebhookAuditPhone(body, contactOptions),
+    );
 
     const data = parseEvolutionInboundMessage(body);
     if (!data) {
       request.log.warn({ body }, "Webhook WhatsApp: parse_failed");
-      await logWhatsAppWebhookHit(body, "parse_failed");
+      await logWhatsAppWebhookHit(
+        body,
+        "parse_failed",
+        extractWebhookAuditPhone(body, contactOptions),
+      );
       await safeWhatsAppReply(
         app.evolution,
         replyTo,
@@ -86,7 +99,11 @@ async function handleWhatsAppWebhook(
     }
 
     if (!data.key || data.key.fromMe) {
-      await logWhatsAppWebhookHit(body, "skipped_from_me");
+      await logWhatsAppWebhookHit(
+        body,
+        "skipped_from_me",
+        extractWebhookAuditPhone(body, contactOptions),
+      );
       return reply.send({ ok: true, skipped: true, reason: "from_me" });
     }
 

@@ -4,6 +4,7 @@ import {
   extractEvolutionRootSender,
   resolveEvolutionContact,
   resolveEvolutionWebhookContact,
+  resolveStoredPhoneFromReplyTo,
   type EvolutionMessageKey,
   type EvolutionWebhookContactOptions,
 } from "./evolution-contact.js";
@@ -55,6 +56,20 @@ export function extractReplyTargetFromWebhookBody(
   }
 
   return null;
+}
+
+/** Telefone para auditoria do webhook (logs Admin / health). */
+export function extractWebhookAuditPhone(
+  body: unknown,
+  options?: EvolutionWebhookContactOptions,
+): string {
+  const replyTo = extractReplyTargetFromWebhookBody(body, options);
+  if (!replyTo?.trim()) return "unknown";
+  const stored = resolveStoredPhoneFromReplyTo(replyTo);
+  if (stored) return stored;
+  const digits = replyTo.replace(/\D/g, "");
+  if (digits.length >= 10) return digits.slice(0, 20);
+  return replyTo.slice(0, 32);
 }
 
 /** Nunca lança — falha de envio só vai pro log. */

@@ -144,7 +144,8 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 
 const SOCKET_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SOCKET !== "false";
 /** Atualização do app sem socket — poll com aba visível (todos os usuários). */
-const POLL_MS = 400;
+/** Fallback quando Socket.io (Railway) está off — alinha com sync Zap. */
+const POLL_MS = 250;
 /** Reconciliação após edição local no app (debounce curto). */
 const MUTATION_SETTLE_MS = 400;
 /** Após entrega via Zap/socket: busca servidor quase na hora. */
@@ -1046,16 +1047,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (topicsMatch(["today", "deliveries", "stats", "all"], incoming)) {
-        if (
-          detail.delivery ||
-          detail.removedDeliveryId ||
-          detail.excludedDailyCost ||
-          detail.restoredDailyCost
-        ) {
-          scheduleSyncReconcile();
-        } else {
-          scheduleDeliveryReconcile();
-        }
+        scheduleSyncReconcile();
       }
       if (topicsMatch(["profile", "all"], incoming)) {
         queueConfigRefresh();
@@ -1067,7 +1059,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       excludeDailyCostOptimistic,
       removeDeliveryOptimistic,
       restoreDailyCostOptimistic,
-      scheduleDeliveryReconcile,
       scheduleSyncReconcile,
       upsertDeliveryOptimistic,
       userId,

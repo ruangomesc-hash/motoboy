@@ -49,7 +49,10 @@ import {
   collectInboundPhoneCandidates,
 } from "../lib/evolution-contact.js";
 import { getEvolutionBotPhoneKeys } from "../lib/evolution-bot.js";
-import { parseEvolutionInboundMessage } from "../lib/evolution-webhook.js";
+import {
+  extractEvolutionMessageId,
+  parseEvolutionInboundMessage,
+} from "../lib/evolution-webhook.js";
 import { normalizePhone } from "../lib/phone.js";
 import { getBullMQConnection } from "../lib/bullmq-connection.js";
 import { recordClientErrorSafe } from "../services/client-error-log.js";
@@ -64,6 +67,30 @@ function dayBounds() {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start, end };
+}
+
+const WHATSAPP_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+/** Evolution pode reenviar o mesmo webhook — evita entrega duplicada. */
+async function isDuplicateWhatsAppInbound(
+  rawContent: unknown,
+): Promise<boolean> {
+  const msgId = extractEvolutionMessageId(rawContent);
+  if (!msgId) return false;
+  const since = new Date(Date.now() - WHATSAPP_DEDUPE_WINDOW_MS);
+  const recent = await prisma.whatsAppMessage.findMany({
+    where: {
+      receivedAt: { gte: since },
+      messageType: { not: "webhook" },
+      processedAs: { in: ["processed", "processing", "received"] },
+    },
+    orderBy: { receivedAt: "desc" },
+    take: 40,
+    select: { rawContent: true },
+  });
+  return recent.some(
+    (row) => extractEvolutionMessageId(row.rawContent) === msgId,
+  );
 }
 
 async function finalizeWhatsAppExpense(
@@ -108,6 +135,7 @@ async function finalizeWhatsAppExpense(
     },
     log,
   );
+  emitDeliveryCreated(user.id, expense);
   await evolution.sendText(
     replyTo,
     formatExpenseConfirmationMessage({
@@ -116,7 +144,6 @@ async function finalizeWhatsAppExpense(
     }),
     { fast: true },
   );
-  emitDeliveryCreated(user.id, expense);
 }
 
 async function tryFastParseWhatsAppMessage(
@@ -215,13 +242,13 @@ async function finalizeWhatsAppDelivery(
     },
     log,
   );
+  emitDeliveryCreated(user.id, delivery);
   const msg = formatDeliveryConfirmationMessage({
     grossValue: delivery.grossValue,
     source: delivery.source,
     originName: delivery.originName,
   });
   await evolution.sendText(replyTo, msg, { fast: true });
-  emitDeliveryCreated(user.id, delivery);
 }
 
 export interface WhatsAppJobData {
@@ -314,6 +341,14 @@ async function processWhatsAppJobInternal(
   let userId: string | undefined;
 
   try {
+        if (await isDuplicateWhatsAppInbound(rawContent)) {
+          log.info(
+            { messageId: extractEvolutionMessageId(rawContent) },
+            "WhatsApp duplicado (mesmo messageId) — ignorado",
+          );
+          return;
+        }
+
         const logFrom =
           phone ??
           (job.data.fromNumber.replace(/\D/g, "").slice(0, 20) || "unknown");

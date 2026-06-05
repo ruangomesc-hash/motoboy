@@ -461,12 +461,21 @@ export async function getWhatsAppPipelineDiagnostics(
     });
   }
 
-  const unmatched = recentMessages.filter((m) => !m.userId).length;
-  if (unmatched >= 3) {
+  const unmatchedInbound = recentMessages.filter(
+    (m) =>
+      m.messageType !== "webhook" &&
+      !m.userId &&
+      m.processedAs != null &&
+      (m.processedAs.startsWith("unknown_") ||
+        m.processedAs === "invalid_phone" ||
+        m.processedAs === "user_not_found"),
+  );
+  const unmatched = unmatchedInbound.length;
+  if (unmatched >= 2) {
     issues.push({
       severity: "warning",
       code: "PHONE_NOT_MATCHED",
-      message: `${unmatched} mensagens recentes sem usuário — número do Zap ≠ cadastro no app.`,
+      message: `${unmatched} mensagem(ns) inbound sem usuário — número do Zap ≠ cadastro no app.`,
       action:
         "Configurações → WhatsApp deve ser o mesmo celular (55 + DDD + 9 dígitos).",
     });
