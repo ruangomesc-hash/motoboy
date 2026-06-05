@@ -64,17 +64,12 @@ function AssinarPageContent() {
     !isActive &&
     (loadState === "loading" || refreshing || !subscription);
 
-  if (
-    (loadState === "loading" && !subscription) ||
-    manageAwaitingActive
-  ) {
+  if (manageAwaitingActive) {
     return (
       <AppPage className="p-6 flex flex-col flex-1 min-h-[50vh]">
-        {manageMode && (
-          <p className="text-center text-sm text-muted-foreground mb-2">
-            Carregando detalhes da sua assinatura…
-          </p>
-        )}
+        <p className="text-center text-sm text-muted-foreground mb-2">
+          Carregando detalhes da sua assinatura…
+        </p>
         <AppLoadingSplash variant="account" className="flex-1" />
       </AppPage>
     );

@@ -189,7 +189,12 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       hadSuccessfulLoad.current = false;
       return;
     }
-    refreshRef.current();
+    /** Checkout não espera health/retry — status completo vem em segundo plano. */
+    refreshRef.current({ fast: true, silent: true });
+    const enrichTimer = window.setTimeout(() => {
+      refreshRef.current({ silent: true });
+    }, 400);
+    return () => window.clearTimeout(enrichTimer);
   }, [sessionStatus]);
 
   return {

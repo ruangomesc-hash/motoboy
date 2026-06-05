@@ -8,6 +8,7 @@ import { Check, Loader2, Sparkles } from "lucide-react";
 import type {
   SubscribeResponse,
   SubscriptionPaymentMethod,
+  UserProfile,
 } from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
 import {
@@ -24,7 +25,6 @@ import {
   isCardFormValid,
   type CardCheckoutForm,
 } from "./card-checkout-fields";
-import { useCheckoutProfile } from "./use-checkout-profile";
 import {
   usePaymentActivationPoll,
   type PaymentActivatedHandler,
@@ -47,6 +47,8 @@ type Props = {
   asaasStatusUnknown?: boolean;
   subscriptionActive?: boolean;
   onActivated?: PaymentActivatedHandler;
+  /** Perfil pré-carregado no pai — formulário aparece sem esperar GET /me/profile. */
+  profile?: UserProfile | null;
 };
 
 export function CardSubscriptionCheckout({
@@ -54,10 +56,10 @@ export function CardSubscriptionCheckout({
   asaasStatusUnknown = false,
   subscriptionActive = false,
   onActivated,
+  profile = null,
 }: Props) {
   const api = useApi();
   const { status: sessionStatus } = useSession();
-  const profile = useCheckoutProfile();
   const [form, setForm] = useState<CardCheckoutForm>(buildDefaultCardForm(null));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

@@ -21,7 +21,6 @@ import {
   pixValidationHint,
   type PixCheckoutForm,
 } from "./pix-checkout-fields";
-import { useCheckoutProfile } from "./use-checkout-profile";
 import {
   usePaymentActivationPoll,
   type PaymentActivatedHandler,
@@ -37,6 +36,7 @@ type Props = {
   /** Oculta banner “ativa” quando o pai já exibe (ex.: gerenciar assinatura). */
   hideActiveBanner?: boolean;
   onActivated?: PaymentActivatedHandler;
+  profile?: UserProfile | null;
 };
 
 type PendingPixResponse = {
@@ -97,10 +97,10 @@ export function PixSubscriptionCheckout({
   subscriptionRefreshing = false,
   hideActiveBanner = false,
   onActivated,
+  profile = null,
 }: Props) {
   const api = useApi();
   const { status: sessionStatus } = useSession();
-  const profile = useCheckoutProfile();
   const [form, setForm] = useState<PixCheckoutForm>({ cpfCnpj: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

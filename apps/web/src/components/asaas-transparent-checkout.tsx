@@ -15,6 +15,7 @@ import { PixSubscriptionCheckout } from "@/components/subscription-checkout/pix-
 import { CardSubscriptionCheckout } from "@/components/subscription-checkout/card-subscription-checkout";
 import { ActiveSubscriptionManage } from "@/components/subscription-checkout/active-subscription-manage";
 import type { PaymentActivatedHandler } from "@/components/subscription-checkout/use-payment-activation-poll";
+import { useCheckoutProfile } from "@/components/subscription-checkout/use-checkout-profile";
 
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
@@ -42,6 +43,7 @@ export function AsaasTransparentCheckout({
   asaasNextDueDate,
 }: Props) {
   const api = useApi();
+  const checkoutProfile = useCheckoutProfile();
   const canChoose = canChooseSubscriptionPaymentMethod(subscriptionStatus);
   const userPickedMethod = useRef(false);
   const resolvedActiveMethod = normalizeSubscriptionPaymentMethod(
@@ -83,6 +85,13 @@ export function AsaasTransparentCheckout({
     userPickedMethod.current = true;
     setPaymentMethod(method);
     void persistPaymentPreference(method);
+    if (method === "CREDIT_CARD" && typeof document !== "undefined") {
+      requestAnimationFrame(() => {
+        document
+          .getElementById("card-cpf")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
   }
 
   if (subscriptionActive) {
@@ -105,6 +114,7 @@ export function AsaasTransparentCheckout({
     subscriptionActive,
     subscriptionRefreshing,
     onActivated,
+    profile: checkoutProfile,
   };
 
   return (
@@ -126,11 +136,13 @@ export function AsaasTransparentCheckout({
         disabled={false}
       />
 
-      {paymentMethod === "PIX" ? (
-        <PixSubscriptionCheckout key="checkout-pix" {...panelProps} />
-      ) : (
-        <CardSubscriptionCheckout key="checkout-card" {...panelProps} />
-      )}
+      {/* Ambos montados: ao tocar em Cartão o formulário já está na tela (sem remount). */}
+      <div className={paymentMethod === "PIX" ? undefined : "hidden"}>
+        <PixSubscriptionCheckout {...panelProps} />
+      </div>
+      <div className={paymentMethod === "CREDIT_CARD" ? undefined : "hidden"}>
+        <CardSubscriptionCheckout {...panelProps} />
+      </div>
 
       {subscriptionStatus === "CANCELED" && !subscriptionActive && (
         <p className="text-xs text-center text-muted-foreground">
