@@ -2,9 +2,7 @@ import type { Env } from "@motoboy/types";
 import { prisma } from "@motoboy/db";
 import type { FastifyBaseLogger } from "fastify";
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
-import { ensureRecurringSubscription } from "./asaas-recurring.js";
-import { isPaymentSettledAfterDueDate } from "../lib/billing-calendar.js";
-import { scheduleNextSubscriptionBilling } from "./asaas-subscription-schedule.js";
+import { applyPaidSubscriptionBilling } from "./asaas-subscription-schedule.js";
 
 export type AsaasWebhookOptions = {
   log?: FastifyBaseLogger;
@@ -22,6 +20,7 @@ export type AsaasWebhookPayload = {
     value?: number;
     customer?: string;
     dueDate?: string;
+    billingType?: string;
   };
   subscription?: {
     id?: string;
@@ -199,57 +198,41 @@ async function handlePaymentWebhook(
 
   if (isPaid) {
     const paidAt = new Date();
+    const existingPayment = await prisma.payment.findFirst({
+      where: { asaasChargeId: chargeId },
+      select: { chargeKind: true },
+    });
     await upsertPaymentForCharge(user.id, chargeId, amount, "PAID", paidAt);
-    const linkedSubscriptionId = pay?.subscription?.trim() || null;
-    const isFirstPayment = !user.subscribedAt;
-    const wasOverdue =
-      user.status === "PAUSED" ||
-      isPaymentSettledAfterDueDate(paidAt, pay?.dueDate);
-    const subscribedAtAfter = user.subscribedAt ?? paidAt;
 
-    if (linkedSubscriptionId) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          status: "ACTIVE",
-          subscribedAt: subscribedAtAfter,
-          trialEndsAt: null,
-          asaasSubscriptionId: linkedSubscriptionId,
-          subscriptionPaymentMethod: "PIX",
-        },
-      });
-      if (options?.env) {
-        try {
-          await scheduleNextSubscriptionBilling(
-            options.env,
-            {
-              subscriptionId: linkedSubscriptionId,
-              paidAt,
-              subscribedAt: subscribedAtAfter,
-              wasOverdue,
-              isFirstPayment,
+    if (options?.env) {
+      try {
+        await applyPaidSubscriptionBilling(
+          options.env,
+          {
+            userId: user.id,
+            chargeId,
+            paidAt,
+            user: {
+              status: user.status,
+              subscribedAt: user.subscribedAt,
+              asaasSubscriptionId: user.asaasSubscriptionId,
+              subscriptionPaymentMethod: user.subscriptionPaymentMethod,
             },
-            log,
-          );
-        } catch (err) {
-          log?.warn(
-            { err, userId: user.id, chargeId, subscriptionId: linkedSubscriptionId },
-            "Webhook: falha ao gravar próximo vencimento no Asaas",
-          );
-        }
+            linkedSubscriptionId: pay?.subscription?.trim() || null,
+            paymentDueDate: pay?.dueDate,
+            chargeKind: existingPayment?.chargeKind ?? null,
+            billingType: pay?.billingType,
+          },
+          log,
+        );
+      } catch (err) {
+        log?.error(
+          { err, userId: user.id, chargeId },
+          "Webhook: falha ao aplicar ciclo de cobrança",
+        );
       }
     } else {
       await activateUser(user.id);
-      if (options?.env) {
-        try {
-          await ensureRecurringSubscription(options.env, user.id, log);
-        } catch (err) {
-          log?.error(
-            { err, userId: user.id, chargeId },
-            "Pagamento confirmado, mas falha ao garantir assinatura recorrente",
-          );
-        }
-      }
     }
     return;
   }

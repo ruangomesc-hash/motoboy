@@ -58,12 +58,14 @@ export async function ensureRecurringSubscription(
         existing.status === "INACTIVE" ||
         existing.status === "EXPIRED";
       if (existing.id && !inactive) {
-        void reconcileAsaasSubscriptionBilling(env, userId, log).catch((err) => {
+        try {
+          await reconcileAsaasSubscriptionBilling(env, userId, log);
+        } catch (err) {
           log?.warn(
             { err, userId, subscriptionId: existing.id },
             "Falha ao reconciliar vencimento da assinatura existente",
           );
-        });
+        }
         return existing.id;
       }
     } catch (err) {

@@ -29,7 +29,189 @@ export type ScheduleSubscriptionBillingInput = {
   subscribedAt: Date | null;
   wasOverdue: boolean;
   isFirstPayment: boolean;
+  /** Pagamento pelo app sobrescreve data definida antes no admin. */
+  forceOverwrite?: boolean;
 };
+
+export type PaidSubscriptionBillingInput = {
+  userId: string;
+  chargeId: string;
+  paidAt: Date;
+  user: {
+    status: string;
+    subscribedAt: Date | null;
+    asaasSubscriptionId: string | null;
+    subscriptionPaymentMethod?: string | null;
+  };
+  linkedSubscriptionId: string | null;
+  paymentDueDate?: string | null;
+  chargeKind?: string | null;
+  billingType?: string | null;
+};
+
+/** Pagamento de assinatura pelo app (não cobrança avulsa de suporte/admin). */
+export function isAppSubscriptionPayment(input: {
+  chargeKind?: string | null;
+  linkedSubscriptionId?: string | null;
+}): boolean {
+  if (input.chargeKind === "SUPPORT") return false;
+  if (input.chargeKind === "SUBSCRIPTION") return true;
+  if (input.linkedSubscriptionId) return true;
+  return false;
+}
+
+export function resolvePaidSubscriptionBilling(input: PaidSubscriptionBillingInput): {
+  subscribedAtAfter: Date;
+  wasOverdue: boolean;
+  isFirstPayment: boolean;
+  forceOverwrite: boolean;
+  fromApp: boolean;
+} {
+  const fromApp = isAppSubscriptionPayment({
+    chargeKind: input.chargeKind,
+    linkedSubscriptionId: input.linkedSubscriptionId,
+  });
+
+  const wasOverdue =
+    input.user.status === "PAUSED" ||
+    isPaymentSettledAfterDueDate(input.paidAt, input.paymentDueDate);
+
+  const paidDay = formatAsaasDueDate(input.paidAt);
+  const subscribedDay = input.user.subscribedAt
+    ? formatAsaasDueDate(input.user.subscribedAt)
+    : null;
+
+  const resetAnchorFromApp =
+    fromApp && (!subscribedDay || paidDay !== subscribedDay);
+
+  const subscribedAtAfter =
+    resetAnchorFromApp || !input.user.subscribedAt
+      ? input.paidAt
+      : input.user.subscribedAt;
+
+  return {
+    subscribedAtAfter,
+    wasOverdue,
+    isFirstPayment: resetAnchorFromApp || !input.user.subscribedAt,
+    forceOverwrite: resetAnchorFromApp || wasOverdue,
+    fromApp,
+  };
+}
+
+async function inactivateStaleAsaasSubscription(
+  env: Env,
+  subscriptionId: string,
+  ctx: AsaasRequestContext,
+): Promise<void> {
+  try {
+    await asaasRequest(
+      env,
+      `/subscriptions/${subscriptionId}`,
+      { method: "DELETE" },
+      { ...ctx, operation: "inactivateStaleSubscription" },
+    );
+  } catch (err) {
+    if (err instanceof AsaasApiError && err.statusCode === 404) return;
+    throw err;
+  }
+}
+
+/**
+ * Após pagamento confirmado: atualiza âncora no banco e grava próximo vencimento no Asaas.
+ * Pagamento pelo app sempre sobrepõe configuração anterior do admin.
+ */
+export async function applyPaidSubscriptionBilling(
+  env: Env,
+  input: PaidSubscriptionBillingInput,
+  log?: FastifyBaseLogger,
+): Promise<{
+  subscribedAtAfter: Date;
+  subscriptionId: string | null;
+}> {
+  const ctx: AsaasRequestContext = {
+    log,
+    operation: "applyPaidSubscriptionBilling",
+  };
+
+  const billing = resolvePaidSubscriptionBilling(input);
+  const subscriptionId =
+    input.linkedSubscriptionId?.trim() ||
+    input.user.asaasSubscriptionId?.trim() ||
+    null;
+
+  const paymentMethod =
+    input.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX";
+
+  await prisma.user.update({
+    where: { id: input.userId },
+    data: {
+      status: "ACTIVE",
+      subscribedAt: billing.subscribedAtAfter,
+      trialEndsAt: null,
+      subscriptionPaymentMethod: paymentMethod,
+      ...(subscriptionId ? { asaasSubscriptionId: subscriptionId } : {}),
+    },
+  });
+
+  if (
+    subscriptionId &&
+    input.user.asaasSubscriptionId &&
+    input.user.asaasSubscriptionId !== subscriptionId
+  ) {
+    log?.info(
+      {
+        userId: input.userId,
+        from: input.user.asaasSubscriptionId,
+        to: subscriptionId,
+      },
+      "Assinatura Asaas do app substitui vínculo anterior (admin)",
+    );
+    void inactivateStaleAsaasSubscription(
+      env,
+      input.user.asaasSubscriptionId,
+      ctx,
+    ).catch((err) => {
+      log?.warn(
+        { err, userId: input.userId, oldSubscriptionId: input.user.asaasSubscriptionId },
+        "Falha ao inativar assinatura Asaas antiga",
+      );
+    });
+  }
+
+  if (subscriptionId && isAsaasConfigured(env)) {
+    await scheduleNextSubscriptionBilling(
+      env,
+      {
+        subscriptionId,
+        paidAt: input.paidAt,
+        subscribedAt: billing.subscribedAtAfter,
+        wasOverdue: billing.wasOverdue,
+        isFirstPayment: billing.isFirstPayment,
+        forceOverwrite: billing.forceOverwrite,
+      },
+      log,
+    );
+  } else if (billing.fromApp && isAsaasConfigured(env)) {
+    const { ensureRecurringSubscription } = await import("./asaas-recurring.js");
+    await ensureRecurringSubscription(env, input.userId, log);
+    await reconcileAsaasSubscriptionBilling(env, input.userId, log);
+  }
+
+  if (billing.fromApp) {
+    log?.info(
+      {
+        userId: input.userId,
+        chargeId: input.chargeId,
+        subscribedAt: billing.subscribedAtAfter,
+        subscriptionId,
+        forceOverwrite: billing.forceOverwrite,
+      },
+      "Ciclo de cobrança do app aplicado (sobrepõe admin)",
+    );
+  }
+
+  return { subscribedAtAfter: billing.subscribedAtAfter, subscriptionId };
+}
 
 export type BillingScheduleContext = {
   subscribedAt: Date;
@@ -123,11 +305,12 @@ export async function scheduleNextSubscriptionBilling(
   };
 
   let nextDueDate: string;
-  let updatePendingPayments = false;
+  let updatePendingPayments = Boolean(
+    input.wasOverdue || input.forceOverwrite,
+  );
 
   if (input.wasOverdue) {
     nextDueDate = nextDueDateAfterPayment(input.paidAt);
-    updatePendingPayments = true;
   } else if (input.isFirstPayment) {
     const anchor = input.subscribedAt ?? input.paidAt;
     nextDueDate = nextDueDateAfterPayment(anchor);
@@ -204,10 +387,40 @@ export async function reconcileAsaasSubscriptionBilling(
   };
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user?.subscribedAt) return null;
-  if (user.status !== "ACTIVE") return null;
+  if (user?.status !== "ACTIVE") return null;
 
-  let subscriptionId = user.asaasSubscriptionId;
+  const lastAppPayment = await prisma.payment.findFirst({
+    where: {
+      userId,
+      status: "PAID",
+      chargeKind: "SUBSCRIPTION",
+      paidAt: { not: null },
+    },
+    orderBy: { paidAt: "desc" },
+  });
+
+  let billingAnchor = user?.subscribedAt ?? null;
+  if (lastAppPayment?.paidAt) {
+    billingAnchor = lastAppPayment.paidAt;
+    if (
+      user?.subscribedAt &&
+      formatAsaasDueDate(user.subscribedAt) !==
+        formatAsaasDueDate(lastAppPayment.paidAt)
+    ) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { subscribedAt: lastAppPayment.paidAt },
+      });
+      log?.info(
+        { userId, subscribedAt: lastAppPayment.paidAt },
+        "subscribedAt alinhado ao último pagamento pelo app",
+      );
+    }
+  }
+
+  if (!billingAnchor) return null;
+
+  let subscriptionId = user?.asaasSubscriptionId ?? null;
   if (!subscriptionId) {
     const { ensureRecurringSubscription } = await import("./asaas-recurring.js");
     subscriptionId = await ensureRecurringSubscription(env, userId, log);
@@ -232,11 +445,11 @@ export async function reconcileAsaasSubscriptionBilling(
 
   const isFirstPayment =
     lastPaidAt != null &&
-    formatAsaasDueDate(lastPaidAt) === formatAsaasDueDate(user.subscribedAt);
+    formatAsaasDueDate(lastPaidAt) === formatAsaasDueDate(billingAnchor);
 
   const expected = computeExpectedNextDueDate({
-    subscribedAt: user.subscribedAt,
-    status: user.status,
+    subscribedAt: billingAnchor,
+    status: user!.status,
     lastPaidAt,
     lastPaidWasOverdue,
     isFirstPayment,
@@ -256,12 +469,14 @@ export async function reconcileAsaasSubscriptionBilling(
     return expected;
   }
 
+  const mustForceUpdate = current != null && current !== expected;
+
   try {
     await pushNextDueDateToAsaas(
       env,
       subscriptionId,
       expected,
-      false,
+      mustForceUpdate,
       ctx,
     );
     log?.info(

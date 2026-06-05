@@ -15,14 +15,10 @@ import {
   type AsaasWebhookPayload,
 } from "./asaas-webhook.js";
 import { ensureRecurringSubscription } from "./asaas-recurring.js";
+import { dueDatePlusDays, dueDateToday } from "../lib/billing-calendar.js";
 import {
-  dueDatePlusDays,
-  dueDateToday,
-  isPaymentSettledAfterDueDate,
-} from "../lib/billing-calendar.js";
-import {
+  applyPaidSubscriptionBilling,
   reconcileAsaasSubscriptionBilling,
-  scheduleNextSubscriptionBilling,
 } from "./asaas-subscription-schedule.js";
 import {
   ensurePrismaConnection,
@@ -1363,6 +1359,7 @@ export class AsaasService {
       status: string;
       subscribedAt: Date | null;
       asaasSubscriptionId: string | null;
+      subscriptionPaymentMethod?: string | null;
     },
     chargeId: string,
     remote: AsaasPayment,
@@ -1373,11 +1370,10 @@ export class AsaasService {
     }
 
     const paidAt = new Date();
-    const isFirstPayment = !user.subscribedAt;
-    const wasOverdue =
-      user.status === "PAUSED" ||
-      isPaymentSettledAfterDueDate(paidAt, remote.dueDate);
-    const subscribedAtAfter = user.subscribedAt ?? paidAt;
+    const paymentRow = await prisma.payment.findFirst({
+      where: { userId, asaasChargeId: chargeId },
+      select: { chargeKind: true },
+    });
 
     await withPrismaRetry(() =>
       prisma.payment.updateMany({
@@ -1385,54 +1381,27 @@ export class AsaasService {
         data: { status: "PAID", paidAt },
       }),
     );
-    const linkedSubscriptionId =
-      remote.subscription?.trim() || user.asaasSubscriptionId || null;
 
-    await withPrismaRetry(() =>
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          status: "ACTIVE",
-          subscribedAt: subscribedAtAfter,
-          trialEndsAt: null,
-          subscriptionPaymentMethod:
-            remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
-          ...(linkedSubscriptionId
-            ? { asaasSubscriptionId: linkedSubscriptionId }
-            : {}),
+    try {
+      await applyPaidSubscriptionBilling(
+        this.env,
+        {
+          userId,
+          chargeId,
+          paidAt,
+          user,
+          linkedSubscriptionId:
+            remote.subscription?.trim() || user.asaasSubscriptionId || null,
+          paymentDueDate: remote.dueDate,
+          chargeKind: paymentRow?.chargeKind ?? null,
+          billingType: remote.billingType,
         },
-      }),
-    );
-
-    if (!linkedSubscriptionId) {
-      void ensureRecurringSubscription(this.env, userId, log).catch((err) => {
-        log?.error(
-          { err, userId, chargeId },
-          "Pagamento confirmado via sync, mas falha ao garantir recorrência",
-        );
-      });
-    } else {
-      try {
-        await scheduleNextSubscriptionBilling(
-          this.env,
-          {
-            subscriptionId: linkedSubscriptionId,
-            paidAt,
-            subscribedAt: subscribedAtAfter,
-            wasOverdue,
-            isFirstPayment,
-          },
-          log,
-        );
-      } catch (err) {
-        log?.warn(
-          { err, userId, chargeId, subscriptionId: linkedSubscriptionId },
-          "Pagamento confirmado, mas falha ao gravar próximo vencimento no Asaas",
-        );
-      }
-      log?.info(
-        { userId, chargeId, subscriptionId: linkedSubscriptionId },
-        "Assinatura Asaas vinculada ao pagamento confirmado",
+        log,
+      );
+    } catch (err) {
+      log?.warn(
+        { err, userId, chargeId },
+        "Pagamento confirmado, mas falha ao aplicar ciclo de cobrança",
       );
     }
 
