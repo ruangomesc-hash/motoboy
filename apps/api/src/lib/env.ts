@@ -1,28 +1,12 @@
-import { config } from "dotenv";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import "./load-dotenv.js";
+import { ensureDirectUrlEnv } from "@motoboy/db";
 import { envSchema, type Env } from "@motoboy/types";
 import {
   assertProductionSecurity,
   isProductionRuntime,
 } from "./runtime-env.js";
 
-const envCandidates = [
-  resolve(process.cwd(), ".env"),
-  resolve(process.cwd(), ".env.local"),
-  resolve(process.cwd(), "../../.env"),
-  resolve(process.cwd(), "../../../.env"),
-];
-
-for (const file of envCandidates) {
-  if (existsSync(file)) {
-    config({ path: file });
-  }
-}
-
-if (!process.env.DIRECT_URL?.trim() && process.env.DATABASE_URL?.trim()) {
-  process.env.DIRECT_URL = process.env.DATABASE_URL;
-}
+ensureDirectUrlEnv();
 
 export function loadEnv(): Env {
   const isProd = isProductionRuntime();

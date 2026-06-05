@@ -40,7 +40,24 @@ ensureEnv(
   "DATABASE_URL",
   "postgresql://build:build@127.0.0.1:5432/postgres?schema=public",
 );
-ensureEnv("DIRECT_URL", process.env.DATABASE_URL);
+if (!process.env.DIRECT_URL?.trim() && process.env.DATABASE_URL?.trim()) {
+  try {
+    const u = new URL(process.env.DATABASE_URL);
+    if (u.port === "6543" || u.searchParams.get("pgbouncer") === "true") {
+      u.port = "5432";
+      u.searchParams.delete("pgbouncer");
+      u.searchParams.delete("connection_limit");
+      u.searchParams.delete("connect_timeout");
+      process.env.DIRECT_URL = u.toString();
+    } else {
+      process.env.DIRECT_URL = process.env.DATABASE_URL;
+    }
+  } catch {
+    process.env.DIRECT_URL = process.env.DATABASE_URL;
+  }
+} else if (!process.env.DIRECT_URL?.trim()) {
+  ensureEnv("DIRECT_URL", process.env.DATABASE_URL);
+}
 ensureEnv("NEXTAUTH_URL", appOrigin);
 ensureEnv("APP_URL", appOrigin);
 ensureEnv("NEXT_PUBLIC_APP_URL", appOrigin);

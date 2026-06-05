@@ -916,10 +916,10 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     });
 
     try {
-      const { assertBillingSchemaReady } = await import(
-        "../lib/billing-schema.js"
+      const { ensureBillingSchemaColumns } = await import(
+        "../lib/billing-schema.js",
       );
-      await assertBillingSchemaReady();
+      await ensureBillingSchemaColumns();
 
       const result = await asaas.createSubscription(
         userId,

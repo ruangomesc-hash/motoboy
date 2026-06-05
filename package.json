@@ -10,7 +10,7 @@
     "db:generate": "pnpm --filter @motoboy/db generate",
     "db:migrate": "pnpm --filter @motoboy/db migrate",
     "db:push": "pnpm --filter @motoboy/db push",
-    "db:deploy": "pnpm --filter @motoboy/db exec prisma migrate deploy",
+    "db:deploy": "node scripts/db-deploy.mjs",
     "vercel-build": "node scripts/vercel-build.mjs",
     "prepare:deploy": "pnpm db:generate && pnpm --filter @motoboy/api... build",
     "build:worker": "pnpm db:generate && pnpm --filter @motoboy/api... build",
