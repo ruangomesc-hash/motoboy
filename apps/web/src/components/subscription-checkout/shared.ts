@@ -20,29 +20,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function pollPixQrUntilReady(
-  api: ApiFn,
-  chargeId: string,
-  opts?: { maxMs?: number; intervalMs?: number },
-): Promise<{
+type PixQrPayload = {
   pixCopyPaste: string | null;
   pixQrCodeImage: string | null;
-} | null> {
-  const maxMs = opts?.maxMs ?? 90_000;
-  const intervalMs = opts?.intervalMs ?? 2_500;
-  const started = Date.now();
+};
 
-  while (Date.now() - started < maxMs) {
+/**
+ * Uma (ou no máximo duas) requisições ao servidor, que faz o poll no Asaas internamente.
+ * Substitui o loop de dezenas de chamadas que causava lentidão e timeout.
+ */
+export async function fetchPixQrWithServerWait(
+  api: ApiFn,
+  chargeId: string,
+): Promise<PixQrPayload | null> {
+  const path = `/me/subscribe/charges/${encodeURIComponent(chargeId)}/pix-qr?wait=1`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await api<{
         ready: boolean;
         pixCopyPaste?: string | null;
         pixQrCodeImage?: string | null;
-      }>(
-        `/me/subscribe/charges/${encodeURIComponent(chargeId)}/pix-qr`,
-        {},
-        { skipSync: true },
-      );
+      }>(path, {}, { skipSync: true });
+
       if (res.ready && (res.pixCopyPaste || res.pixQrCodeImage)) {
         return {
           pixCopyPaste: res.pixCopyPaste ?? null,
@@ -51,15 +51,9 @@ export async function pollPixQrUntilReady(
       }
     } catch (e) {
       const status = (e as { status?: number }).status;
-      const retryable =
-        status === 404 ||
-        status === 502 ||
-        status === 503 ||
-        status === 504 ||
-        status === undefined;
-      if (!retryable) throw e;
+      if (status === 404) return null;
     }
-    await sleep(intervalMs);
+    if (attempt < 1) await sleep(2500);
   }
 
   return null;

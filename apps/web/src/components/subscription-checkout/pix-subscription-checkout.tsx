@@ -13,8 +13,8 @@ import {
   writePixCheckoutSession,
 } from "@/lib/pix-checkout-session";
 import {
+  fetchPixQrWithServerWait,
   pixQrSrc,
-  pollPixQrUntilReady,
   requestSubscribeWithRetry,
 } from "./shared";
 import {
@@ -50,10 +50,6 @@ function hasPixQr(data: {
   pixQrCodeImage?: string | null;
 }): boolean {
   return Boolean(data.pixCopyPaste?.trim() || data.pixQrCodeImage?.trim());
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function checkoutFromPending(pending: PendingPixResponse): SubscribeResponse {
@@ -152,43 +148,17 @@ export function PixSubscriptionCheckout({
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
 
-  const fetchQrForCharge = useCallback(
-    async (
-      apiClient: ReturnType<typeof useApi>,
-      chargeId: string,
-      base: SubscribeResponse,
-      opts?: { maxMs?: number },
-    ): Promise<SubscribeResponse | null> => {
-      const qr = await pollPixQrUntilReady(apiClient, chargeId, {
-        maxMs: opts?.maxMs ?? 60_000,
-      });
-      if (!qr) return null;
-      return {
-        ...base,
-        chargeId,
-        paymentMethod: "PIX",
-        pixCopyPaste: qr.pixCopyPaste,
-        pixQrCodeImage: qr.pixQrCodeImage,
-        pixPending: false,
-      };
-    },
-    [],
-  );
-
-  const fetchPendingWithRetries = useCallback(
+  const fetchPendingFast = useCallback(
     async (apiClient: ReturnType<typeof useApi>): Promise<PendingPixResponse | null> => {
-      for (let attempt = 0; attempt < 4; attempt++) {
-        try {
-          const pending = await apiClient<PendingPixResponse>(
-            "/me/subscribe/pix/pending",
-            {},
-            { skipSync: true },
-          );
-          if (pending.pending && pending.chargeId) return pending;
-        } catch {
-          /* tenta de novo */
-        }
-        if (attempt < 3) await sleep(700 * (attempt + 1));
+      try {
+        const pending = await apiClient<PendingPixResponse>(
+          "/me/subscribe/pix/pending",
+          {},
+          { skipSync: true },
+        );
+        if (pending.pending && pending.chargeId) return pending;
+      } catch {
+        /* fallback session */
       }
 
       const saved = readPixCheckoutSession();
@@ -200,6 +170,26 @@ export function PixSubscriptionCheckout({
         pixCopyPaste: saved.pixCopyPaste,
         pixQrCodeImage: saved.pixQrCodeImage,
         pixPending: !hasPixQr(saved),
+      };
+    },
+    [],
+  );
+
+  const fetchQrForCharge = useCallback(
+    async (
+      apiClient: ReturnType<typeof useApi>,
+      chargeId: string,
+      base: SubscribeResponse,
+    ): Promise<SubscribeResponse | null> => {
+      const qr = await fetchPixQrWithServerWait(apiClient, chargeId);
+      if (!qr) return null;
+      return {
+        ...base,
+        chargeId,
+        paymentMethod: "PIX",
+        pixCopyPaste: qr.pixCopyPaste,
+        pixQrCodeImage: qr.pixQrCodeImage,
+        pixPending: false,
       };
     },
     [],
@@ -245,11 +235,11 @@ export function PixSubscriptionCheckout({
   );
 
   const resumePixCheckout = useCallback(async () => {
-    const pending = await fetchPendingWithRetries(api);
+    const pending = await fetchPendingFast(api);
     if (!pending?.chargeId) return false;
     await openPendingPixCheckout(pending);
     return true;
-  }, [api, fetchPendingWithRetries, openPendingPixCheckout]);
+  }, [api, fetchPendingFast, openPendingPixCheckout]);
 
   useEffect(() => {
     if (
@@ -275,17 +265,6 @@ export function PixSubscriptionCheckout({
     subscriptionActive,
   ]);
 
-  useEffect(() => {
-    if (!checkout?.chargeId || hasPixQr(checkout) || qrFetching) return;
-    if (loading && loadingPhase === "create") return;
-
-    const timer = window.setTimeout(() => {
-      void loadQrForCheckout(checkout.chargeId, checkout);
-    }, 3000);
-
-    return () => window.clearTimeout(timer);
-  }, [checkout, qrFetching, loadQrForCheckout, loading, loadingPhase]);
-
   const activeCheckout =
     checkout ??
     (readPixCheckoutSession()?.chargeId ? checkoutFromSession() : null);
@@ -309,12 +288,6 @@ export function PixSubscriptionCheckout({
     stopPolling();
 
     try {
-      const existing = await fetchPendingWithRetries(api);
-      if (existing?.pending && existing.chargeId) {
-        await openPendingPixCheckout(existing);
-        return;
-      }
-
       setLoadingPhase("create");
 
       const data = await requestSubscribeWithRetry(api, {

@@ -881,8 +881,13 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
+    const query = request.query as { wait?: string };
+    const waitForQr = query.wait === "1" || query.wait === "true";
+
     try {
-      const qr = await asaas.fetchPixQrForUserCharge(userId, chargeId);
+      const qr = await asaas.fetchPixQrForUserCharge(userId, chargeId, {
+        wait: waitForQr,
+      });
       if (!qr) {
         return reply.status(202).send({ ready: false });
       }

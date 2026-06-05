@@ -25,12 +25,17 @@ export async function apiFetch<T>(
   }
 
   const method = (options.method ?? "GET").toUpperCase();
+  const isPixQrWait = path.includes("/pix-qr") && path.includes("wait=1");
   const timeoutMs =
     method === "POST" && path.includes("/me/subscribe")
-      ? 28_000
-      : path === "/me/subscription"
-        ? 20_000
-        : 14_000;
+      ? 45_000
+      : isPixQrWait
+        ? 38_000
+        : path === "/me/subscription"
+          ? 20_000
+          : path.includes("/pix/pending")
+            ? 10_000
+            : 14_000;
 
   let res: Response;
   try {

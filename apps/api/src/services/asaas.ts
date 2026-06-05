@@ -28,11 +28,13 @@ import {
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
 const FIRST_PAYMENT_POLL_MS = 1000;
-const PIX_QR_POLL_MS = 350;
-/** Poll curto no POST /subscribe (evita 504 no serverless). */
+const PIX_QR_POLL_MS = 300;
+/** QR no POST /subscribe — espera no servidor (~4–10s típico). */
+const PIX_QR_POST_ATTEMPTS = 12;
+/** QR com ?wait=1 — uma requisição do app, poll no servidor (~8–15s típico). */
+const PIX_QR_WAIT_ATTEMPTS = 20;
+/** Poll rápido sem espera (health / diagnóstico). */
 const PIX_QR_QUICK_ATTEMPTS = 3;
-/** Uma tentativa por request — o app faz o loop (evita 504 no serverless). */
-const PIX_QR_POLL_SINGLE_ATTEMPT = 1;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -176,14 +178,15 @@ export class AsaasService {
   /**
    * Checkout Pix rápido: no máximo 1–2 chamadas ao Asaas no POST; QR via GET /pix-qr.
    */
+  /** Só localiza cobrança pendente — sem buscar QR (resposta rápida). */
   async getPendingPixCheckout(
     userId: string,
   ): Promise<SubscribeCheckoutResult | null> {
     const fromDb = await this.resumePendingPixFromDb(userId);
-    if (fromDb) return this.attachPixQrIfReady(fromDb);
+    if (fromDb) return fromDb;
 
     const fromRef = await this.resumePendingPixByUserReference(userId);
-    if (fromRef) return this.attachPixQrIfReady(fromRef);
+    if (fromRef) return fromRef;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -191,12 +194,7 @@ export class AsaasService {
     });
     if (!user?.asaasCustomerId) return null;
 
-    const fromAsaas = await this.resumePendingPixFromAsaas(
-      userId,
-      user.asaasCustomerId,
-    );
-    if (!fromAsaas) return null;
-    return this.attachPixQrIfReady(fromAsaas);
+    return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
   }
 
   async createPixCheckout(
@@ -233,7 +231,16 @@ export class AsaasService {
     const resumed = await this.resumePendingPixFromDb(userId);
     if (resumed) {
       routeLog?.info({ userId, chargeId: resumed.chargeId }, "Pix pendente (DB)");
-      return this.attachPixQrIfReady(resumed);
+      return this.attachPixQrIfReady(resumed, PIX_QR_POST_ATTEMPTS);
+    }
+
+    const resumedRef = await this.resumePendingPixByUserReference(userId);
+    if (resumedRef) {
+      routeLog?.info(
+        { userId, chargeId: resumedRef.chargeId },
+        "Pix pendente (Asaas externalReference)",
+      );
+      return this.attachPixQrIfReady(resumedRef, PIX_QR_POST_ATTEMPTS);
     }
 
     const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
@@ -244,16 +251,7 @@ export class AsaasService {
         { userId, chargeId: resumedAsaas.chargeId },
         "Pix pendente (Asaas API)",
       );
-      return this.attachPixQrIfReady(resumedAsaas);
-    }
-
-    const resumedRef = await this.resumePendingPixByUserReference(userId);
-    if (resumedRef) {
-      routeLog?.info(
-        { userId, chargeId: resumedRef.chargeId },
-        "Pix pendente (Asaas externalReference)",
-      );
-      return this.attachPixQrIfReady(resumedRef);
+      return this.attachPixQrIfReady(resumedAsaas, PIX_QR_POST_ATTEMPTS);
     }
 
     await this.markStalePixPaymentsFailed(userId);
@@ -294,26 +292,27 @@ export class AsaasService {
 
     await this.ensurePendingPaymentRecord(userId, payment.id);
 
-    return this.attachPixQrIfReady({
-      checkoutUrl: "",
-      chargeId: payment.id,
-      invoiceUrl: "",
-      pixCopyPaste: null,
-      pixQrCodeImage: null,
-      amount: SUBSCRIPTION_PRICE,
-      subscriptionId: payment.id,
-      pixPending: true,
-    });
+    return this.attachPixQrIfReady(
+      {
+        checkoutUrl: "",
+        chargeId: payment.id,
+        invoiceUrl: "",
+        pixCopyPaste: null,
+        pixQrCodeImage: null,
+        amount: SUBSCRIPTION_PRICE,
+        subscriptionId: payment.id,
+        pixPending: true,
+      },
+      PIX_QR_POST_ATTEMPTS,
+    );
   }
 
   private async attachPixQrIfReady(
     result: SubscribeCheckoutResult,
+    maxAttempts = PIX_QR_POST_ATTEMPTS,
   ): Promise<SubscribeCheckoutResult> {
     if (!this.configured) return result;
-    const pix = await this.fetchPixQrWithAttempts(
-      result.chargeId,
-      PIX_QR_QUICK_ATTEMPTS,
-    );
+    const pix = await this.fetchPixQrWithAttempts(result.chargeId, maxAttempts);
     const hasQr = Boolean(pix.payload || pix.encodedImage);
     return {
       ...result,
@@ -435,7 +434,7 @@ export class AsaasService {
       if (!(await this.isAsaasPaymentPending(pending.asaasChargeId))) {
         return null;
       }
-      await withPrismaRetry(() =>
+      void withPrismaRetry(() =>
         prisma.payment.update({
           where: { id: pending.id },
           data: { status: "PENDING" },
@@ -753,7 +752,7 @@ export class AsaasService {
 
     const pix = await this.fetchPixQrWithAttempts(
       payment.id,
-      PIX_QR_POLL_SINGLE_ATTEMPT,
+      PIX_QR_QUICK_ATTEMPTS,
     );
     if (!pix.payload && !pix.encodedImage) {
       throw Object.assign(
@@ -1387,10 +1386,11 @@ export class AsaasService {
     };
   }
 
-  /** Busca QR Pix de cobrança pendente do usuário (poll curto — chamado pelo app). */
+  /** Busca QR Pix de cobrança pendente do usuário. Com `wait`, faz poll no servidor. */
   async fetchPixQrForUserCharge(
     userId: string,
     chargeId: string,
+    opts?: { wait?: boolean },
   ): Promise<{ pixCopyPaste: string | null; pixQrCodeImage: string | null } | null> {
     const pending = await prisma.payment.findFirst({
       where: {
@@ -1419,10 +1419,8 @@ export class AsaasService {
       }
     }
 
-    const pix = await this.fetchPixQrWithAttempts(
-      chargeId,
-      PIX_QR_QUICK_ATTEMPTS,
-    );
+    const attempts = opts?.wait ? PIX_QR_WAIT_ATTEMPTS : 1;
+    const pix = await this.fetchPixQrWithAttempts(chargeId, attempts);
     if (!pix.payload && !pix.encodedImage) {
       return null;
     }

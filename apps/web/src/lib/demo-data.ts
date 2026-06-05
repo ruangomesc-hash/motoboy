@@ -704,7 +704,7 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (
     path.startsWith("/me/subscribe/charges/") &&
-    path.endsWith("/pix-qr") &&
+    path.includes("/pix-qr") &&
     method === "GET"
   ) {
     return Promise.resolve({
