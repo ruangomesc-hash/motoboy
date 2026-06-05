@@ -36,7 +36,7 @@ export async function apiFetch<T>(
         ? 35_000
         : isPixQrFast
           ? 8_000
-          : path === "/me/subscription"
+          : path === "/me/subscription" || path.includes("/subscription/refresh")
             ? 20_000
             : path.includes("/pix/pending")
               ? 8_000

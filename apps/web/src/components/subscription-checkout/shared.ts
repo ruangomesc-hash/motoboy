@@ -1,6 +1,8 @@
 import type { SubscribeResponse } from "@motoboy/types";
 
-export const PAYMENT_POLL_MS = 5000;
+/** Confirmação de pagamento Pix — consulta Asaas a cada 2s. */
+export const PAYMENT_POLL_FAST_MS = 2000;
+export const PAYMENT_POLL_MS = PAYMENT_POLL_FAST_MS;
 export const PAYMENT_POLL_MAX_MS = 20 * 60 * 1000;
 
 export function pixQrSrc(encodedImage: string | null | undefined): string | null {

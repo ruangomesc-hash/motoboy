@@ -133,7 +133,7 @@ export function PixSubscriptionCheckout({
   const showPixCheckout = useCallback(
     (base: SubscribeResponse) => {
       commitCheckout(base);
-      if (hasPixQr(base)) {
+      if (base.chargeId) {
         startPolling();
       }
     },

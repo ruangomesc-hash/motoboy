@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SubscribeResponse, SubscriptionStatus } from "@motoboy/types";
 import { useApi } from "@/hooks/use-api";
-import { PAYMENT_POLL_MAX_MS, PAYMENT_POLL_MS } from "./shared";
+import { PAYMENT_POLL_FAST_MS, PAYMENT_POLL_MAX_MS } from "./shared";
 
 export function usePaymentActivationPoll(
   checkout: SubscribeResponse | null,
@@ -14,40 +14,48 @@ export function usePaymentActivationPoll(
   const [pollHint, setPollHint] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const pollStartedAt = useRef<number | null>(null);
-  const pollTick = useRef(0);
+  const onActivatedRef = useRef(onActivated);
+  onActivatedRef.current = onActivated;
 
-  const checkActivation = useCallback(
-    async (forceSync = false) => {
-      try {
-        if (forceSync) {
-          await api<{ status: string; activated: boolean }>(
-            "/me/subscription/refresh",
-            { method: "POST" },
-            { skipSync: true },
-          );
-        }
-        const sub = await api<SubscriptionStatus>("/me/subscription", {}, {
-          skipSync: true,
-        });
-        if (sub.status === "ACTIVE") {
-          setPolling(false);
-          setPollHint("");
-          onActivated?.();
-          return true;
-        }
-      } catch {
-        /* ignora falha transitória — não derruba o checkout Pix */
+  const checkActivation = useCallback(async (): Promise<boolean> => {
+    try {
+      const refreshed = await api<{
+        status: string;
+        activated: boolean;
+      }>(
+        "/me/subscription/refresh",
+        { method: "POST" },
+        { skipSync: true },
+      );
+
+      if (refreshed.activated || refreshed.status === "ACTIVE") {
+        setPolling(false);
+        setPollHint("");
+        onActivatedRef.current?.();
+        return true;
       }
-      return false;
-    },
-    [api, onActivated],
-  );
+
+      const sub = await api<SubscriptionStatus>("/me/subscription", {}, {
+        skipSync: true,
+      });
+      if (sub.status === "ACTIVE") {
+        setPolling(false);
+        setPollHint("");
+        onActivatedRef.current?.();
+        return true;
+      }
+    } catch {
+      /* falha transitória — próximo poll tenta de novo */
+    }
+    return false;
+  }, [api]);
 
   useEffect(() => {
-    if (!checkout || !polling) return;
+    if (!checkout?.chargeId || !polling) return;
+
     pollStartedAt.current ??= Date.now();
-    const id = window.setInterval(() => {
-      pollTick.current += 1;
+
+    const run = () => {
       const elapsed = Date.now() - (pollStartedAt.current ?? Date.now());
       if (elapsed > PAYMENT_POLL_MAX_MS) {
         setPolling(false);
@@ -56,31 +64,45 @@ export function usePaymentActivationPoll(
         );
         return;
       }
-      void checkActivation(pollTick.current % 4 === 0);
-    }, PAYMENT_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [checkout, polling, checkActivation]);
+      void checkActivation();
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void checkActivation();
+    };
+
+    void checkActivation();
+    const id = window.setInterval(run, PAYMENT_POLL_FAST_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [checkout?.chargeId, polling, checkActivation]);
 
   function startPolling() {
     setPolling(true);
     pollStartedAt.current = Date.now();
-    pollTick.current = 0;
-    void checkActivation(false);
+    setPollHint("");
   }
 
   function stopPolling() {
     setPolling(false);
     setPollHint("");
     pollStartedAt.current = null;
-    pollTick.current = 0;
   }
 
   async function verifyPayment() {
     setRefreshing(true);
     try {
-      const ok = await checkActivation(true);
+      const ok = await checkActivation();
       if (!ok) {
-        setPollHint("Pagamento ainda não confirmado. Tente novamente em instantes.");
+        setPollHint(
+          "Pagamento ainda não confirmado. Aguarde alguns segundos e tente de novo.",
+        );
         if (!polling) setPolling(true);
       }
     } finally {

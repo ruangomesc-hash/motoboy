@@ -110,6 +110,10 @@ type AsaasPayment = {
   billingType?: string;
   subscription?: string;
 };
+
+function isAsaasPaymentPaid(status: string | undefined): boolean {
+  return PAID_ASAAS_STATUSES.has((status ?? "").toUpperCase());
+}
 type AsaasPixQr = { payload?: string; encodedImage?: string };
 type AsaasSubscription = {
   id: string;
@@ -1184,8 +1188,71 @@ export class AsaasService {
     };
   }
 
+  private async activateUserFromPaidCharge(
+    userId: string,
+    user: {
+      subscribedAt: Date | null;
+    },
+    chargeId: string,
+    remote: AsaasPayment,
+    log?: FastifyBaseLogger,
+  ): Promise<boolean> {
+    if (!isAsaasPaymentPaid(remote.status)) {
+      return false;
+    }
+
+    await withPrismaRetry(() =>
+      prisma.payment.updateMany({
+        where: { userId, asaasChargeId: chargeId },
+        data: { status: "PAID", paidAt: new Date() },
+      }),
+    );
+    await withPrismaRetry(() =>
+      prisma.user.update({
+        where: { id: userId },
+        data: {
+          status: "ACTIVE",
+          subscribedAt: user.subscribedAt ?? new Date(),
+          trialEndsAt: null,
+          subscriptionPaymentMethod:
+            remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
+        },
+      }),
+    );
+
+    void ensureRecurringSubscription(this.env, userId, log).catch((err) => {
+      log?.error(
+        { err, userId, chargeId },
+        "Pagamento confirmado via sync, mas falha ao garantir recorrência",
+      );
+    });
+
+    log?.info({ userId, chargeId }, "Assinatura ativada via sync (Asaas)");
+    return true;
+  }
+
+  private async findPaidPixChargeOnAsaas(
+    userId: string,
+  ): Promise<AsaasPayment | null> {
+    if (!this.configured) return null;
+    try {
+      const listed = await this.api<{ data?: AsaasPayment[] }>(
+        `/payments?externalReference=${encodeURIComponent(userId)}&limit=15`,
+        {},
+        "listPaymentsByUserRef",
+      );
+      return (
+        (listed.data ?? []).find(
+          (p) => p.id && isAsaasPaymentPaid(p.status),
+        ) ?? null
+      );
+    } catch {
+      return null;
+    }
+  }
+
   /**
-   * Consulta cobrança pendente no Asaas (fallback se o webhook atrasar).
+   * Consulta cobrança no Asaas (fallback se o webhook atrasar).
    */
   async syncSubscriptionPaymentStatus(
     userId: string,
@@ -1206,55 +1273,58 @@ export class AsaasService {
       return { status: user.status, activated: false };
     }
 
-    const pending = await prisma.payment.findFirst({
+    const since = new Date(Date.now() - PENDING_CHECKOUT_MAX_AGE_MS);
+    const candidates = await prisma.payment.findMany({
       where: {
         userId,
         chargeKind: "SUBSCRIPTION",
-        status: "PENDING",
         asaasChargeId: { not: null },
+        createdAt: { gte: since },
+        status: { in: ["PENDING", "FAILED"] },
       },
       orderBy: { createdAt: "desc" },
+      take: 5,
     });
 
-    if (!pending?.asaasChargeId) {
-      return { status: user.status, activated: false };
+    for (const row of candidates) {
+      if (!row.asaasChargeId) continue;
+      try {
+        const remote = await this.getPaymentById(row.asaasChargeId);
+        const activated = await this.activateUserFromPaidCharge(
+          userId,
+          user,
+          row.asaasChargeId,
+          remote,
+          log,
+        );
+        if (activated) {
+          return { status: "ACTIVE", activated: true };
+        }
+      } catch (err) {
+        log?.warn(
+          { err, userId, chargeId: row.asaasChargeId },
+          "Sync cobrança local",
+        );
+      }
     }
 
-    try {
-      const remote = await this.getPaymentById(pending.asaasChargeId);
-      const paid = PAID_ASAAS_STATUSES.has(remote.status ?? "");
-
-      if (paid) {
-        await prisma.payment.update({
-          where: { id: pending.id },
-          data: { status: "PAID", paidAt: new Date() },
-        });
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            status: "ACTIVE",
-            subscribedAt: user.subscribedAt ?? new Date(),
-            trialEndsAt: null,
-            subscriptionPaymentMethod:
-              remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
-          },
-        });
-        try {
-          await ensureRecurringSubscription(this.env, userId, log);
-        } catch (err) {
-          log?.error(
-            { err, userId, chargeId: pending.asaasChargeId },
-            "Pagamento confirmado via sync, mas falha ao garantir recorrência",
-          );
-        }
-        log?.info(
-          { userId, chargeId: pending.asaasChargeId },
-          "Assinatura ativada via sync manual (Asaas)",
-        );
+    const paidRemote = await this.findPaidPixChargeOnAsaas(userId);
+    if (paidRemote?.id) {
+      await this.ensurePendingPaymentRecord(userId, paidRemote.id).catch(
+        () => {
+          /* registro auxiliar */
+        },
+      );
+      const activated = await this.activateUserFromPaidCharge(
+        userId,
+        user,
+        paidRemote.id,
+        paidRemote,
+        log,
+      );
+      if (activated) {
         return { status: "ACTIVE", activated: true };
       }
-    } catch (err) {
-      log?.warn({ err, userId }, "Falha ao sincronizar pagamento no Asaas");
     }
 
     const refreshed = await prisma.user.findUnique({ where: { id: userId } });
