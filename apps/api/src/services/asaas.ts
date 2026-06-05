@@ -14,6 +14,10 @@ import {
 } from "./asaas-webhook.js";
 import { ensureRecurringSubscription } from "./asaas-recurring.js";
 import {
+  ensurePrismaConnection,
+  withPrismaRetry,
+} from "../lib/prisma-retry.js";
+import {
   formatCpfCnpjError,
   isValidCpfCnpj,
   normalizeCpfCnpjDigits,
@@ -22,8 +26,8 @@ import {
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
 const FIRST_PAYMENT_POLL_MS = 1000;
-const PIX_QR_POLL_ATTEMPTS = 12;
-const PIX_QR_POLL_MS = 500;
+const PIX_QR_POLL_ATTEMPTS = 10;
+const PIX_QR_POLL_MS = 400;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,10 +167,12 @@ export class AsaasService {
     const customerId = await this.getOrCreateCustomer(user, cpfCnpj);
 
     if (user.cpfCnpj !== cpfCnpj) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { cpfCnpj },
-      });
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { cpfCnpj },
+        }),
+      );
     }
 
     if (this.configured) {
@@ -222,10 +228,12 @@ export class AsaasService {
     );
     const found = listed.data?.[0];
     if (found?.id) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { asaasCustomerId: found.id },
-      });
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: user.id },
+          data: { asaasCustomerId: found.id },
+        }),
+      );
       return found.id;
     }
 
@@ -255,10 +263,12 @@ export class AsaasService {
       throw new Error("Asaas não retornou ID do cliente");
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { asaasCustomerId: created.id },
-    });
+    await withPrismaRetry(() =>
+      prisma.user.update({
+        where: { id: user.id },
+        data: { asaasCustomerId: created.id },
+      }),
+    );
 
     return created.id;
   }
@@ -407,6 +417,7 @@ export class AsaasService {
     }
 
     await this.syncCustomerCpf(user, cpfRaw);
+    await ensurePrismaConnection();
 
     const userFresh = await prisma.user.findUnique({ where: { id: userId } });
     if (!userFresh) {
@@ -444,6 +455,7 @@ export class AsaasService {
     );
 
     if (billingType === "PIX") {
+      await ensurePrismaConnection();
       await this.resetPixCheckoutState(userId, routeLog);
       const resolved = await this.createPixSubscriptionDirectCheckout(
         userId,
@@ -931,6 +943,7 @@ export class AsaasService {
       });
     }
 
+    await ensurePrismaConnection();
     await this.ensurePendingPaymentRecord(userId, payment.id);
     const pix = await this.fetchPixQrRequired(payment.id);
     const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, payment.id);
@@ -951,14 +964,16 @@ export class AsaasService {
     userId: string,
     log?: FastifyBaseLogger,
   ): Promise<void> {
-    await prisma.payment.updateMany({
-      where: {
-        userId,
-        chargeKind: "SUBSCRIPTION",
-        status: "PENDING",
-      },
-      data: { status: "FAILED" },
-    });
+    await withPrismaRetry(() =>
+      prisma.payment.updateMany({
+        where: {
+          userId,
+          chargeKind: "SUBSCRIPTION",
+          status: "PENDING",
+        },
+        data: { status: "FAILED" },
+      }),
+    );
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.asaasSubscriptionId) {
@@ -1276,15 +1291,17 @@ export class AsaasService {
     asaasChargeId: string,
   ): Promise<void> {
     try {
-      await prisma.payment.create({
-        data: {
-          userId,
-          asaasChargeId,
-          status: "PENDING",
-          amount: SUBSCRIPTION_PRICE,
-          chargeKind: "SUBSCRIPTION",
-        },
-      });
+      await withPrismaRetry(() =>
+        prisma.payment.create({
+          data: {
+            userId,
+            asaasChargeId,
+            status: "PENDING",
+            amount: SUBSCRIPTION_PRICE,
+            chargeKind: "SUBSCRIPTION",
+          },
+        }),
+      );
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code !== "P2002") throw err;

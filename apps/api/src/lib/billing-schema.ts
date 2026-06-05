@@ -14,6 +14,7 @@ export const BILLING_MIGRATIONS_MESSAGE =
 
 let cached: BillingSchemaReady | null = null;
 let directPrisma: PrismaClient | null = null;
+let billingColumnsVerified = false;
 
 async function columnExists(
   tableName: string,
@@ -88,8 +89,16 @@ function isDdlBlockedError(err: unknown): boolean {
  * Garante colunas do checkout Pix/cartão. Usa DIRECT_URL quando existir (DDL no Supabase).
  */
 export async function ensureBillingSchemaColumns(): Promise<void> {
-  const before = await getBillingSchemaReady({ refresh: true });
-  if (billingSchemaOk(before)) return;
+  if (billingColumnsVerified) return;
+
+  let before = await getBillingSchemaReady();
+  if (!billingSchemaOk(before)) {
+    before = await getBillingSchemaReady({ refresh: true });
+  }
+  if (billingSchemaOk(before)) {
+    billingColumnsVerified = true;
+    return;
+  }
 
   const db = getDirectPrisma();
   try {
@@ -119,6 +128,8 @@ export async function ensureBillingSchemaColumns(): Promise<void> {
       { statusCode: 503, code: "BILLING_MIGRATIONS_REQUIRED" },
     );
   }
+
+  billingColumnsVerified = true;
 }
 
 /** @deprecated Use ensureBillingSchemaColumns */
@@ -129,6 +140,7 @@ export async function assertBillingSchemaReady(): Promise<void> {
 /** Só para testes. */
 export function resetBillingSchemaCache(): void {
   cached = null;
+  billingColumnsVerified = false;
 }
 
 export async function disconnectBillingDirectPrisma(): Promise<void> {

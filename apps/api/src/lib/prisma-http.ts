@@ -102,6 +102,17 @@ export function mapPrismaHttpError(err: unknown): {
     };
   }
 
+  if (code === "P2024" || code === "P1001" || code === "P1017") {
+    return {
+      status: 503,
+      body: {
+        error:
+          "Conexão com o banco expirou. Aguarde 2 segundos e toque em Gerar Pix de novo.",
+        code: "DATABASE_POOL_TIMEOUT",
+      },
+    };
+  }
+
   if (code?.startsWith("P10") || code?.startsWith("P20")) {
     return {
       status: 503,

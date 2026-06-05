@@ -13,6 +13,15 @@ export function formatBillingCheckoutError(
   if (code === "ASAAS_AUTH_ERROR") {
     return message;
   }
+  if (code === "DATABASE_POOL_TIMEOUT" || code === "DATABASE_UNAVAILABLE") {
+    return message;
+  }
+  if (code === "DATABASE_ERROR") {
+    return (
+      message ||
+      "Falha temporária no banco. Aguarde 2 segundos e toque em Gerar Pix novamente."
+    );
+  }
   if (code === "ASAAS_UNAVAILABLE" || code === "ASAAS_ERROR") {
     return message || "Gateway de pagamento indisponível. Tente novamente em instantes.";
   }

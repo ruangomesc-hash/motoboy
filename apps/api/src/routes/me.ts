@@ -910,12 +910,15 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { subscriptionPaymentMethod: paymentMethod },
-    });
-
     try {
+      const { withPrismaRetry } = await import("../lib/prisma-retry.js");
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: userId },
+          data: { subscriptionPaymentMethod: paymentMethod },
+        }),
+      );
+
       const { ensureBillingSchemaColumns } = await import(
         "../lib/billing-schema.js",
       );

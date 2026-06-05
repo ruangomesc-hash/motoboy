@@ -224,6 +224,30 @@ export function AsaasTransparentCheckout({
     return "Preencha todos os dados do titular e do cartão.";
   }
 
+  async function requestSubscribe(
+    payload: Record<string, unknown>,
+    attempt = 0,
+  ): Promise<SubscribeResponse> {
+    try {
+      return await api<SubscribeResponse>("/me/subscribe", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      const err = e as Error & { status?: number; code?: string };
+      const retryable =
+        err.status === 503 &&
+        (err.code === "DATABASE_ERROR" ||
+          err.code === "DATABASE_POOL_TIMEOUT" ||
+          err.code === "DATABASE_UNAVAILABLE");
+      if (retryable && attempt < 1) {
+        await new Promise((r) => window.setTimeout(r, 1200));
+        return requestSubscribe(payload, attempt + 1);
+      }
+      throw e;
+    }
+  }
+
   async function startCheckout() {
     if (subscriptionActive) {
       setError("Você já tem assinatura ativa.");
@@ -252,27 +276,23 @@ export function AsaasTransparentCheckout({
       : { paymentMethod, ...cardFormToPayload(cardForm) };
 
     try {
-      if (isPix) {
-        await api("/me/profile", {
-          method: "PUT",
-          body: JSON.stringify({ cpfCnpj: pixFormToPayload(pixForm).cpfCnpj }),
-        });
-      } else {
+      if (!isPix) {
         const card = cardFormToPayload(cardForm);
-        await api("/me/profile", {
-          method: "PUT",
-          body: JSON.stringify({
-            cpfCnpj: card.cpfCnpj,
-            name: card.creditCardHolderInfo.name,
-            email: card.creditCardHolderInfo.email,
-          }),
-        });
+        await api(
+          "/me/profile",
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              cpfCnpj: card.cpfCnpj,
+              name: card.creditCardHolderInfo.name,
+              email: card.creditCardHolderInfo.email,
+            }),
+          },
+          { skipSync: true },
+        );
       }
 
-      const data = await api<SubscribeResponse>("/me/subscribe", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const data = await requestSubscribe(payload);
 
       if (data.activated) {
         onActivated?.();
