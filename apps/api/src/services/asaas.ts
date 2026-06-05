@@ -20,6 +20,7 @@ import {
   applyPaidSubscriptionBilling,
   reconcileAsaasSubscriptionBilling,
 } from "./asaas-subscription-schedule.js";
+import { queueDisableAsaasCustomerNotifications } from "./asaas-customer-notifications.js";
 import {
   ensurePrismaConnection,
   withPrismaRetry,
@@ -1084,6 +1085,7 @@ export class AsaasService {
         log,
         "updateCustomerCpfOnPixLink",
       );
+      queueDisableAsaasCustomerNotifications(this.env, found.id, log);
       return found.id;
     }
 
@@ -1107,7 +1109,7 @@ export class AsaasService {
           mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
           cpfCnpj,
           externalReference: user.id,
-          notificationDisabled: false,
+          notificationDisabled: true,
         }),
       },
       "createCustomerPix",
@@ -1123,6 +1125,8 @@ export class AsaasService {
         data: { asaasCustomerId: created.id, cpfCnpj },
       }),
     );
+
+    queueDisableAsaasCustomerNotifications(this.env, created.id, log);
 
     log?.info(
       { userId: user.id, asaasCustomerId: created.id },
@@ -1265,6 +1269,7 @@ export class AsaasService {
           "updateCustomerCpfOnReferenceLink",
         );
       }
+      queueDisableAsaasCustomerNotifications(this.env, found.id, this.log);
       return found.id;
     }
 
@@ -1287,7 +1292,7 @@ export class AsaasService {
           email: user.email ?? undefined,
           mobilePhone: formatPhoneForAsaas(user.whatsappNumber),
           externalReference: user.id,
-          notificationDisabled: false,
+          notificationDisabled: true,
           ...(cpfDigits ? { cpfCnpj: cpfDigits } : {}),
         }),
       },
@@ -1297,6 +1302,8 @@ export class AsaasService {
     if (!created.id) {
       throw new Error("Asaas não retornou ID do cliente");
     }
+
+    queueDisableAsaasCustomerNotifications(this.env, created.id, this.log);
 
     await withPrismaRetry(() =>
       prisma.user.update({

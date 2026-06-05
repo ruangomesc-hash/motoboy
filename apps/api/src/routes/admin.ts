@@ -27,6 +27,7 @@ import {
   activateAdminUser,
   createAdminPaymentLink,
 } from "../services/admin-billing.js";
+import { disableAsaasNotificationsForAllAppCustomers } from "../services/asaas-customer-notifications.js";
 import {
   createAdminAffiliate,
   getAdminAffiliateReferrals,
@@ -351,6 +352,21 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/whatsapp/pipeline", async () => {
     return getWhatsAppPipelineDiagnostics(env);
+  });
+
+  app.post("/admin/asaas/disable-customer-notifications", async (request, reply) => {
+    const body = (request.body ?? {}) as { allAsaas?: boolean };
+    try {
+      const result = await disableAsaasNotificationsForAllAppCustomers(
+        env,
+        request.log,
+        { includeAllAsaas: body.allAsaas === true },
+      );
+      return reply.send({ ok: true, ...result });
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.status(e.statusCode ?? 500).send({ error: e.message });
+    }
   });
 
   app.post("/admin/users/normalize-phones", async (_request, reply) => {

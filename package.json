@@ -22,6 +22,7 @@
     "vercel:sync-env": "bash scripts/sync-vercel-env.sh railway.env",
     "railway:push": "bash scripts/sync-railway-env.sh railway.env",
     "railway:check": "bash scripts/check-railway-env.sh railway.env",
+    "asaas:disable-notifications": "node scripts/asaas-disable-notifications.mjs",
     "stop:local": "bash scripts/stop-local-stack.sh",
     "check:node": "node scripts/ensure-node20.mjs"
   },
