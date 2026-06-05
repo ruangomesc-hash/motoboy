@@ -94,6 +94,13 @@ export async function ensureRecurringSubscription(
   }
 
   const billingType = toAsaasBillingType(user.subscriptionPaymentMethod ?? "PIX");
+  if (billingType === "CREDIT_CARD") {
+    log?.warn(
+      { userId },
+      "Assinatura cartão exige dados do cartão — não criar recorrência vazia",
+    );
+    return user.asaasSubscriptionId;
+  }
   const billingAnchor = user.subscribedAt ?? new Date();
   const nextDueDate = nextDueDateOnBillingDay(billingAnchor, new Date());
 

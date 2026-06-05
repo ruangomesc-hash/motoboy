@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import type { SubscribeResponse } from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
+import {
+  clearCardCheckoutSession,
+  readCardCheckoutSession,
+  writeCardCheckoutSession,
+} from "@/lib/card-checkout-session";
 import { requestSubscribeWithRetry } from "./shared";
 import {
   CardCheckoutFields,
@@ -22,6 +27,16 @@ import {
   type PaymentActivatedHandler,
 } from "./use-payment-activation-poll";
 import { VerifyPaymentButton } from "./verify-payment-button";
+
+type PendingCardResponse =
+  | { pending: false }
+  | {
+      pending: true;
+      chargeId: string;
+      amount?: number;
+      subscriptionId?: string;
+      cardAuthorized: true;
+    };
 
 type Props = {
   asaasConfigured: boolean;
@@ -44,6 +59,15 @@ export function CardSubscriptionCheckout({
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
   const formHydrated = useRef(false);
+  const autoResumeDone = useRef(false);
+
+  const handleActivated = useCallback(
+    (subscribedAt?: string | null) => {
+      clearCardCheckoutSession();
+      onActivated?.(subscribedAt);
+    },
+    [onActivated],
+  );
 
   const {
     polling,
@@ -52,7 +76,13 @@ export function CardSubscriptionCheckout({
     startPolling,
     stopPolling,
     verifyPayment,
-  } = usePaymentActivationPoll(checkout, onActivated);
+  } = usePaymentActivationPoll(checkout, handleActivated);
+
+  useEffect(() => {
+    if (!subscriptionActive) return;
+    clearCardCheckoutSession();
+    stopPolling();
+  }, [subscriptionActive, stopPolling]);
 
   useEffect(() => {
     if (!profile || formHydrated.current) return;
@@ -62,6 +92,73 @@ export function CardSubscriptionCheckout({
 
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isCardFormValid(form);
+
+  const showCardCheckout = useCallback(
+    (data: SubscribeResponse) => {
+      setCheckout(data);
+      if (data.chargeId) {
+        writeCardCheckoutSession({
+          chargeId: data.chargeId,
+          amount: data.amount,
+          subscriptionId: data.subscriptionId,
+          updatedAt: Date.now(),
+        });
+      }
+      startPolling();
+    },
+    [startPolling],
+  );
+
+  const fetchPendingCard = useCallback(async (): Promise<PendingCardResponse | null> => {
+    try {
+      const pending = await api<PendingCardResponse>(
+        "/me/subscribe/card/pending",
+        {},
+        { skipSync: true },
+      );
+      if (pending.pending && pending.chargeId) return pending;
+    } catch {
+      /* sessão */
+    }
+    const saved = readCardCheckoutSession();
+    if (!saved?.chargeId) return null;
+    return {
+      pending: true,
+      chargeId: saved.chargeId,
+      amount: saved.amount,
+      subscriptionId: saved.subscriptionId,
+      cardAuthorized: true,
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (
+      autoResumeDone.current ||
+      subscriptionActive ||
+      sessionStatus !== "authenticated"
+    ) {
+      return;
+    }
+    autoResumeDone.current = true;
+
+    void (async () => {
+      const pending = await fetchPendingCard();
+      if (!pending?.pending || !pending.chargeId) return;
+      showCardCheckout({
+        amount: pending.amount ?? 0,
+        chargeId: pending.chargeId,
+        paymentMethod: "CREDIT_CARD",
+        subscriptionId: pending.subscriptionId,
+        cardAuthorized: true,
+        activated: false,
+      });
+    })();
+  }, [
+    fetchPendingCard,
+    sessionStatus,
+    showCardCheckout,
+    subscriptionActive,
+  ]);
 
   async function subscribeWithCard() {
     if (subscriptionActive) {
@@ -104,7 +201,7 @@ export function CardSubscriptionCheckout({
       });
 
       if (data.activated) {
-        onActivated?.(new Date().toISOString());
+        handleActivated(new Date().toISOString());
         return;
       }
 
@@ -114,8 +211,7 @@ export function CardSubscriptionCheckout({
       }
 
       if (data.cardAuthorized) {
-        setCheckout(data);
-        startPolling();
+        showCardCheckout(data);
         return;
       }
 
@@ -168,6 +264,7 @@ export function CardSubscriptionCheckout({
           className="w-full text-sm"
           onClick={() => {
             setCheckout(null);
+            clearCardCheckoutSession();
             stopPolling();
           }}
         >

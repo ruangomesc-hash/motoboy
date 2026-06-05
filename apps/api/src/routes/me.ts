@@ -940,6 +940,30 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.get("/me/subscribe/card/pending", async (request) => {
+    const userId = request.sessionUser!.id;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    if (user?.status === "ACTIVE") {
+      return { pending: false as const };
+    }
+
+    const asaas = new AsaasService(env, request.log);
+    const pending = await asaas.getPendingCardCheckout(userId);
+    if (!pending) {
+      return { pending: false as const };
+    }
+    return {
+      pending: true as const,
+      chargeId: pending.chargeId,
+      amount: pending.amount,
+      subscriptionId: pending.subscriptionId,
+      cardAuthorized: true as const,
+    };
+  });
+
   app.get("/me/subscribe/pix/pending", async (request) => {
     const userId = request.sessionUser!.id;
     const user = await prisma.user.findUnique({

@@ -116,6 +116,18 @@ type AsaasPayment = {
 function isAsaasPaymentPaid(status: string | undefined): boolean {
   return PAID_ASAAS_STATUSES.has((status ?? "").toUpperCase());
 }
+
+/** Cobrança de assinatura com cartão inline (sem fatura hospedada). */
+function isInlineCardChargeReady(status: string | undefined): boolean {
+  const s = (status ?? "").toUpperCase();
+  return (
+    !s ||
+    s === "PENDING" ||
+    s === "OVERDUE" ||
+    s === "AWAITING_RISK_ANALYSIS" ||
+    isAsaasPaymentPaid(s)
+  );
+}
 type AsaasPixQr = { payload?: string; encodedImage?: string };
 type AsaasSubscription = {
   id: string;
@@ -260,6 +272,37 @@ export class AsaasService {
     return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
   }
 
+  /** Retoma checkout de cartão pendente (cartão validado, aguardando 1ª cobrança). */
+  async getPendingCardCheckout(
+    userId: string,
+  ): Promise<SubscribeCheckoutResult | null> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        status: true,
+        asaasSubscriptionId: true,
+        subscriptionPaymentMethod: true,
+      },
+    });
+
+    if (user?.status === "ACTIVE" || !user) {
+      return null;
+    }
+
+    const resumed = await this.resumePendingCheckout(user, "CREDIT_CARD");
+    if (!resumed) {
+      return null;
+    }
+
+    return {
+      ...resumed,
+      checkoutUrl: "",
+      invoiceUrl: "",
+      cardAuthorized: true,
+    };
+  }
+
   /** Pré-aquece cliente Asaas enquanto o usuário preenche o CPF (POST fica mais rápido). */
   async preparePixCustomer(
     userId: string,
@@ -373,7 +416,7 @@ export class AsaasService {
       return { ...resumedAsaas, pixPending: true };
     }
 
-    await this.markStalePixPaymentsFailed(userId);
+    await this.markStalePendingPaymentsFailed(userId);
 
     const billingType = "PIX";
     const nextDueDate = dueDateToday();
@@ -762,7 +805,7 @@ export class AsaasService {
     );
   }
 
-  private async markStalePixPaymentsFailed(userId: string): Promise<void> {
+  private async markStalePendingPaymentsFailed(userId: string): Promise<void> {
     await withPrismaRetry(() =>
       prisma.payment.updateMany({
         where: {
@@ -1104,6 +1147,7 @@ export class AsaasService {
     );
 
     if (inlineCard) {
+      await this.markStalePendingPaymentsFailed(userId);
       if (subId) {
         await this.clearAsaasSubscription(userId, subId, routeLog);
         subId = null;
@@ -1328,21 +1372,26 @@ export class AsaasService {
 
     log?.info({ userId, subId: sub.id }, "Assinatura criada com cartão (inline)");
 
-    const sync = await this.syncSubscriptionPaymentStatus(userId, log);
-
     const first = await this.waitForFirstSubscriptionPayment(
       sub.id,
       "CREDIT_CARD",
       log,
-      4,
+      FIRST_PAYMENT_POLL_ATTEMPTS,
     );
-    if (first?.id) {
-      await this.ensurePendingPaymentRecord(userId, first.id);
+    const chargeId = first?.id ?? null;
+    if (chargeId) {
+      await this.ensurePendingPaymentRecord(userId, chargeId);
     }
+
+    const sync = await this.syncSubscriptionPaymentStatus(
+      userId,
+      log,
+      chargeId ?? undefined,
+    );
 
     return {
       checkoutUrl: "",
-      chargeId: first?.id ?? sub.id,
+      chargeId: chargeId ?? sub.id,
       invoiceUrl: "",
       pixCopyPaste: null,
       pixQrCodeImage: null,
@@ -1526,6 +1575,40 @@ export class AsaasService {
         log?.warn({ err, userId, chargeId: focusId }, "Sync cobrança focada");
       }
 
+      const subId =
+        user.asaasSubscriptionId?.trim() === focusId
+          ? focusId
+          : user.asaasSubscriptionId?.trim() ?? null;
+      if (subId) {
+        try {
+          const listed = await this.api<{ data?: AsaasPayment[] }>(
+            `/subscriptions/${subId}/payments?limit=5`,
+            {},
+            "listSubscriptionPaymentsSync",
+          );
+          for (const row of listed.data ?? []) {
+            if (!row.id) continue;
+            try {
+              const remote = await this.getPaymentById(row.id);
+              const activated = await this.activateUserFromPaidCharge(
+                userId,
+                user,
+                row.id,
+                remote,
+                log,
+              );
+              if (activated) {
+                return { status: "ACTIVE", activated: true };
+              }
+            } catch {
+              /* próxima cobrança */
+            }
+          }
+        } catch (err) {
+          log?.warn({ err, userId, subId }, "Sync cobranças da assinatura");
+        }
+      }
+
       const fresh = await prisma.user.findUnique({
         where: { id: userId },
         select: { status: true },
@@ -1684,13 +1767,8 @@ export class AsaasService {
           const pix = await this.fetchPixQr(first.id, billingType, false);
           if (pix.payload || pix.encodedImage) return first;
         } else if (billingType === "CREDIT_CARD") {
-          try {
-            const full = await this.getPaymentById(first.id);
-            if (isAsaasHostedInvoiceUrl(full.invoiceUrl ?? full.bankSlipUrl)) {
-              return full;
-            }
-          } catch {
-            /* retry */
+          if (isInlineCardChargeReady(first.status)) {
+            return first;
           }
         } else {
           return first;
@@ -1894,6 +1972,8 @@ export class AsaasService {
       pixQrCodeImage: pix.encodedImage,
       amount: SUBSCRIPTION_PRICE,
       subscriptionId,
+      cardAuthorized:
+        billingType === "CREDIT_CARD" && Boolean(payment?.id),
     };
   }
 
@@ -2018,7 +2098,11 @@ export class AsaasService {
           user.asaasSubscriptionId ?? remote.subscription ?? pending.asaasChargeId,
         );
         try {
-          this.assertCheckoutReady(checkout, billingType, false);
+          this.assertCheckoutReady(
+            checkout,
+            billingType,
+            billingType === "CREDIT_CARD",
+          );
           return checkout;
         } catch {
           return null;
@@ -2056,7 +2140,11 @@ export class AsaasService {
           user.asaasSubscriptionId,
         );
         try {
-          this.assertCheckoutReady(checkout, billingType, false);
+          this.assertCheckoutReady(
+            checkout,
+            billingType,
+            billingType === "CREDIT_CARD",
+          );
           return checkout;
         } catch {
           return null;

@@ -29,7 +29,7 @@ export async function apiFetch<T>(
   const isPixQrFast = path.includes("/pix-qr") && !isPixQrWait;
   const timeoutMs =
     method === "POST" && path.includes("/me/subscribe") && !path.includes("/prepare")
-      ? 22_000
+      ? 45_000
       : method === "POST" && path.includes("/pix/prepare")
         ? 18_000
       : isPixQrWait
@@ -38,7 +38,7 @@ export async function apiFetch<T>(
           ? 8_000
           : path === "/me/subscription" || path.includes("/subscription/refresh")
             ? 20_000
-            : path.includes("/pix/pending")
+            : path.includes("/pix/pending") || path.includes("/card/pending")
               ? 8_000
               : 14_000;
 
