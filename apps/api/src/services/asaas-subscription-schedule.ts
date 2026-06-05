@@ -54,10 +54,14 @@ export type PaidSubscriptionBillingInput = {
 export function isAppSubscriptionPayment(input: {
   chargeKind?: string | null;
   linkedSubscriptionId?: string | null;
+  billingType?: string | null;
 }): boolean {
   if (input.chargeKind === "SUPPORT") return false;
   if (input.chargeKind === "SUBSCRIPTION") return true;
   if (input.linkedSubscriptionId) return true;
+  if (input.billingType === "CREDIT_CARD" || input.billingType === "PIX") {
+    return true;
+  }
   return false;
 }
 
@@ -71,6 +75,7 @@ export function resolvePaidSubscriptionBilling(input: PaidSubscriptionBillingInp
   const fromApp = isAppSubscriptionPayment({
     chargeKind: input.chargeKind,
     linkedSubscriptionId: input.linkedSubscriptionId,
+    billingType: input.billingType,
   });
 
   const wasOverdue =
@@ -186,7 +191,7 @@ export async function applyPaidSubscriptionBilling(
   }
 
   if (subscriptionId && isAsaasConfigured(env)) {
-    await scheduleNextSubscriptionBilling(
+    void scheduleNextSubscriptionBilling(
       env,
       {
         subscriptionId,
@@ -197,11 +202,23 @@ export async function applyPaidSubscriptionBilling(
         forceOverwrite: billing.forceOverwrite,
       },
       log,
-    );
+    ).catch((err) => {
+      log?.warn(
+        { err, userId: input.userId, subscriptionId },
+        "Falha ao gravar próximo vencimento (async)",
+      );
+    });
   } else if (billing.fromApp && isAsaasConfigured(env)) {
-    const { ensureRecurringSubscription } = await import("./asaas-recurring.js");
-    await ensureRecurringSubscription(env, input.userId, log);
-    await reconcileAsaasSubscriptionBilling(env, input.userId, log);
+    void (async () => {
+      const { ensureRecurringSubscription } = await import("./asaas-recurring.js");
+      await ensureRecurringSubscription(env, input.userId, log);
+      await reconcileAsaasSubscriptionBilling(env, input.userId, log);
+    })().catch((err) => {
+      log?.warn(
+        { err, userId: input.userId },
+        "Falha ao reconciliar assinatura recorrente (async)",
+      );
+    });
   }
 
   if (billing.fromApp) {

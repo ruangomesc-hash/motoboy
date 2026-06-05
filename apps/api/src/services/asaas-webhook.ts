@@ -219,7 +219,8 @@ async function handlePaymentWebhook(
               asaasSubscriptionId: user.asaasSubscriptionId,
               subscriptionPaymentMethod: user.subscriptionPaymentMethod,
             },
-            linkedSubscriptionId: pay?.subscription?.trim() || null,
+            linkedSubscriptionId:
+              pay?.subscription?.trim() || user.asaasSubscriptionId || null,
             paymentDueDate: pay?.dueDate,
             chargeKind: existingPayment?.chargeKind ?? null,
             billingType: pay?.billingType,

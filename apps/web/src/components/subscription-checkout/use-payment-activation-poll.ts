@@ -26,6 +26,11 @@ type CardCheckoutStatusResponse = {
   } | null;
 };
 
+type LiteSubscriptionStatus = {
+  status: string;
+  subscribedAt: string | null;
+};
+
 type PollOptions = {
   onCheckoutResolved?: (data: SubscribeResponse) => void;
 };
@@ -53,19 +58,30 @@ export function usePaymentActivationPoll(
     setCheckInFlight(true);
     try {
       if (paymentMethod === "CREDIT_CARD") {
-        const status = await api<CardCheckoutStatusResponse>(
-          "/me/subscribe/card/status",
-          {},
-          { skipSync: true },
-        );
+        const [lite, status] = await Promise.all([
+          api<LiteSubscriptionStatus>(
+            "/me/subscription?lite=1",
+            {},
+            { skipSync: true },
+          ).catch(() => null),
+          api<CardCheckoutStatusResponse>(
+            "/me/subscribe/card/status",
+            {},
+            { skipSync: true },
+          ),
+        ]);
 
-        if (status.activated || status.status === "ACTIVE") {
+        const subscribedAt =
+          status.subscribedAt ?? lite?.subscribedAt ?? null;
+        const isActive =
+          status.activated ||
+          status.status === "ACTIVE" ||
+          lite?.status === "ACTIVE";
+
+        if (isActive) {
           setPolling(false);
           setPollHint("");
-          onActivatedRef.current?.(
-            status.subscribedAt ?? null,
-            "CREDIT_CARD",
-          );
+          onActivatedRef.current?.(subscribedAt, "CREDIT_CARD");
           return true;
         }
 

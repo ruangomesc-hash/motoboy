@@ -1,7 +1,7 @@
 import type { SubscribeResponse } from "@motoboy/types";
 
 /** Confirmação de pagamento Pix — consulta Asaas em tempo quase real. */
-export const PAYMENT_POLL_FAST_MS = 1000;
+export const PAYMENT_POLL_FAST_MS = 500;
 
 /** Placeholder enquanto POST /me/subscribe (cartão) ainda não retornou. */
 export const CARD_AUTHORIZE_PENDING_CHARGE = "__card_authorizing__";

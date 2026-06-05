@@ -100,7 +100,6 @@ function AssinarPageContent() {
     paymentMethod?: SubscriptionPaymentMethod,
   ) {
     applyActiveStatus(subscribedAt, paymentMethod);
-    refresh({ silent: true, fast: true });
   }
 
   return (

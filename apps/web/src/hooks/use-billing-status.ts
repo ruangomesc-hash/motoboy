@@ -138,7 +138,19 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
                 {},
                 { skipSync: true },
               );
-              setSubscription(data);
+              setSubscription((prev) => {
+                if (prev?.status === "ACTIVE" && data.status !== "ACTIVE") {
+                  return {
+                    ...data,
+                    status: "ACTIVE",
+                    subscribedAt: prev.subscribedAt ?? data.subscribedAt,
+                    subscriptionPaymentMethod:
+                      prev.subscriptionPaymentMethod ??
+                      data.subscriptionPaymentMethod,
+                  };
+                }
+                return data;
+              });
               setLoadState("ready");
               hadSuccessfulLoad.current = true;
               if (data.asaas?.configured === true) {

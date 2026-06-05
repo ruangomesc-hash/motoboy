@@ -276,8 +276,63 @@ export class AsaasService {
     return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
   }
 
+  /** Lista do Asaas pode vir com status atrasado; consulta cobrança por id quando necessário. */
+  private async resolveFreshPaymentStatus(
+    row: AsaasPayment,
+  ): Promise<AsaasPayment> {
+    if (isAsaasPaymentPaid(row.status) || !row.id) return row;
+    try {
+      return await this.api<AsaasPayment>(
+        `/payments/${row.id}`,
+        { signal: AbortSignal.timeout(5_000) },
+        "getPaymentFreshStatus",
+      );
+    } catch {
+      return row;
+    }
+  }
+
+  private async activateFromSubscriptionPayments(
+    userId: string,
+    user: {
+      status: string;
+      subscribedAt: Date | null;
+      asaasSubscriptionId: string | null;
+      subscriptionPaymentMethod?: string | null;
+    },
+    subId: string,
+    log?: FastifyBaseLogger,
+    limit = 5,
+  ): Promise<{ activated: boolean; payments: AsaasPayment[] }> {
+    const listed = await this.api<{ data?: AsaasPayment[] }>(
+      `/subscriptions/${subId}/payments?limit=${limit}`,
+      { signal: AbortSignal.timeout(CARD_STATUS_ASAAS_TIMEOUT_MS) },
+      "cardStatusListPayments",
+    );
+    const payments = listed.data ?? [];
+
+    for (const row of payments) {
+      if (!row.id) continue;
+      const remote = await this.resolveFreshPaymentStatus(row);
+      if (!isAsaasPaymentPaid(remote.status)) continue;
+      await this.ensurePendingPaymentRecord(userId, remote.id);
+      if (
+        await this.activateUserFromPaidCharge(
+          userId,
+          user,
+          remote.id,
+          remote,
+          log,
+        )
+      ) {
+        return { activated: true, payments };
+      }
+    }
+    return { activated: false, payments };
+  }
+
   /**
-   * Poll leve do cartão (1 query DB + 1 lista no Asaas) — usado pelo app em tempo real.
+   * Poll leve do cartão (1 query DB + lista + consulta pontual no Asaas) — tempo real.
    */
   async getCardCheckoutStatusFast(
     userId: string,
@@ -299,6 +354,7 @@ export class AsaasService {
         status: true,
         subscribedAt: true,
         asaasSubscriptionId: true,
+        subscriptionPaymentMethod: true,
       },
     });
     if (!user) {
@@ -341,46 +397,26 @@ export class AsaasService {
     }
 
     try {
-      const listed = await this.api<{ data?: AsaasPayment[] }>(
-        `/subscriptions/${subId}/payments?limit=5`,
-        { signal: AbortSignal.timeout(CARD_STATUS_ASAAS_TIMEOUT_MS) },
-        "cardStatusListPayments",
+      const { activated, payments } = await this.activateFromSubscriptionPayments(
+        userId,
+        user,
+        subId,
+        log,
       );
-
-      const fullUser = await prisma.user.findUnique({ where: { id: userId } });
-      if (!fullUser) {
+      if (activated) {
+        const fresh = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { status: true, subscribedAt: true },
+        });
         return {
-          status: user.status,
-          activated: false,
-          subscribedAt: null,
+          status: fresh?.status ?? "ACTIVE",
+          activated: true,
+          subscribedAt: fresh?.subscribedAt?.toISOString() ?? null,
           pending: null,
         };
       }
 
-      for (const row of listed.data ?? []) {
-        if (!row.id || !isAsaasPaymentPaid(row.status)) continue;
-        const activated = await this.activateUserFromPaidCharge(
-          userId,
-          fullUser,
-          row.id,
-          row,
-          log,
-        );
-        if (activated) {
-          const fresh = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { status: true, subscribedAt: true },
-          });
-          return {
-            status: fresh?.status ?? "ACTIVE",
-            activated: true,
-            subscribedAt: fresh?.subscribedAt?.toISOString() ?? null,
-            pending: null,
-          };
-        }
-      }
-
-      const first = listed.data?.[0];
+      const first = payments[0];
       const chargeId = first?.id ?? subId;
       return {
         status: user.status,
@@ -1638,18 +1674,89 @@ export class AsaasService {
 
     log?.info({ userId, subId: sub.id }, "Assinatura criada com cartão (inline)");
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        status: true,
+        subscribedAt: true,
+        asaasSubscriptionId: true,
+        subscriptionPaymentMethod: true,
+      },
+    });
+
+    let chargeId = sub.id;
+    let activated = false;
+
+    if (user && user.status !== "ACTIVE") {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const attemptResult = await this.activateFromSubscriptionPayments(
+            userId,
+            user,
+            sub.id,
+            log,
+            3,
+          );
+          if (attemptResult.activated) {
+            activated = true;
+            break;
+          }
+        } catch (err) {
+          log?.warn(
+            { err, userId, subId: sub.id, attempt },
+            "Ativação imediata pós-cartão",
+          );
+        }
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+
+      if (activated) {
+        const fresh = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { status: true, subscribedAt: true },
+        });
+        if (fresh?.status === "ACTIVE") {
+          try {
+            const listed = await this.api<{ data?: AsaasPayment[] }>(
+              `/subscriptions/${sub.id}/payments?limit=1`,
+              { signal: AbortSignal.timeout(5_000) },
+              "cardFirstPaymentId",
+            );
+            if (listed.data?.[0]?.id) chargeId = listed.data[0].id;
+          } catch {
+            /* chargeId = sub.id */
+          }
+          void this.ensureFirstCardPaymentRecordAsync(userId, sub.id, log);
+          return {
+            checkoutUrl: "",
+            chargeId,
+            invoiceUrl: "",
+            pixCopyPaste: null,
+            pixQrCodeImage: null,
+            amount: SUBSCRIPTION_PRICE,
+            subscriptionId: sub.id,
+            cardAuthorized: true,
+            activated: true,
+          };
+        }
+        activated = false;
+      }
+    }
+
     void this.ensureFirstCardPaymentRecordAsync(userId, sub.id, log);
 
     return {
       checkoutUrl: "",
-      chargeId: sub.id,
+      chargeId,
       invoiceUrl: "",
       pixCopyPaste: null,
       pixQrCodeImage: null,
       amount: SUBSCRIPTION_PRICE,
       subscriptionId: sub.id,
       cardAuthorized: true,
-      activated: false,
+      activated,
     };
   }
 
@@ -1665,9 +1772,15 @@ export class AsaasService {
     remote: AsaasPayment,
     log?: FastifyBaseLogger,
   ): Promise<boolean> {
+    if (user.status === "ACTIVE") {
+      return true;
+    }
+
     if (!isAsaasPaymentPaid(remote.status)) {
       return false;
     }
+
+    await this.ensurePendingPaymentRecord(userId, chargeId);
 
     const paidAt = new Date();
     const paymentRow = await prisma.payment.findFirst({
@@ -1675,10 +1788,16 @@ export class AsaasService {
       select: { chargeKind: true },
     });
 
+    const chargeKind =
+      paymentRow?.chargeKind ??
+      (remote.billingType === "CREDIT_CARD" || remote.billingType === "PIX"
+        ? "SUBSCRIPTION"
+        : null);
+
     await withPrismaRetry(() =>
       prisma.payment.updateMany({
         where: { userId, asaasChargeId: chargeId },
-        data: { status: "PAID", paidAt },
+        data: { status: "PAID", paidAt, chargeKind: chargeKind ?? undefined },
       }),
     );
 
@@ -1693,7 +1812,7 @@ export class AsaasService {
           linkedSubscriptionId:
             remote.subscription?.trim() || user.asaasSubscriptionId || null,
           paymentDueDate: remote.dueDate,
-          chargeKind: paymentRow?.chargeKind ?? null,
+          chargeKind,
           billingType: remote.billingType,
         },
         log,
@@ -1705,8 +1824,15 @@ export class AsaasService {
       );
     }
 
-    log?.info({ userId, chargeId }, "Assinatura ativada via sync (Asaas)");
-    return true;
+    const fresh = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    if (fresh?.status === "ACTIVE") {
+      log?.info({ userId, chargeId }, "Assinatura ativada via sync (Asaas)");
+      return true;
+    }
+    return false;
   }
 
   private async findPaidPixChargeOnAsaas(
@@ -1841,27 +1967,15 @@ export class AsaasService {
 
     if (focusSubId) {
       try {
-        const listed = await this.api<{ data?: AsaasPayment[] }>(
-          `/subscriptions/${focusSubId}/payments?limit=10`,
-          {},
-          "listSubscriptionPaymentsSync",
+        const subSync = await this.activateFromSubscriptionPayments(
+          userId,
+          user,
+          focusSubId,
+          log,
+          10,
         );
-        for (const row of listed.data ?? []) {
-          if (!row.id) continue;
-          try {
-            const activated = await this.activateUserFromPaidCharge(
-              userId,
-              user,
-              row.id,
-              row,
-              log,
-            );
-            if (activated) {
-              return { status: "ACTIVE", activated: true };
-            }
-          } catch {
-            /* próxima cobrança */
-          }
+        if (subSync.activated) {
+          return { status: "ACTIVE", activated: true };
         }
       } catch (err) {
         log?.warn(

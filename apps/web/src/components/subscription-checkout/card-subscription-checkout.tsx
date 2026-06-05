@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
-import { Check, Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import type {
   SubscribeResponse,
   SubscriptionPaymentMethod,
@@ -68,7 +68,6 @@ export function CardSubscriptionCheckout({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
-  const [justActivated, setJustActivated] = useState(false);
   const formHydrated = useRef(false);
   const autoResumeDone = useRef(false);
   const stopPollingRef = useRef<() => void>(() => {});
@@ -80,7 +79,6 @@ export function CardSubscriptionCheckout({
     ) => {
       clearCardCheckoutSession();
       setCheckout(null);
-      setJustActivated(true);
       stopPollingRef.current();
       onActivated?.(subscribedAt, paymentMethod ?? "CREDIT_CARD");
     },
@@ -108,7 +106,6 @@ export function CardSubscriptionCheckout({
 
   useEffect(() => {
     if (!subscriptionActive) return;
-    setJustActivated(false);
     clearCardCheckoutSession();
     stopPolling();
   }, [subscriptionActive, stopPolling]);
@@ -305,28 +302,6 @@ export function CardSubscriptionCheckout({
     } catch {
       /* local já limpo */
     }
-  }
-
-  if (justActivated) {
-    return (
-      <div className="rounded-2xl border-2 border-emerald-500/50 bg-gradient-to-b from-emerald-500/20 to-emerald-500/5 p-5 space-y-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 border border-emerald-500/40">
-            <Check className="h-6 w-6 text-emerald-400" strokeWidth={2.5} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-bold text-emerald-300">Assinatura ativa</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Cobrança via cartão confirmada. Carregando detalhes…
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center justify-center gap-2 text-sm text-emerald-100">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Liberando seu acesso Pro…
-        </div>
-      </div>
-    );
   }
 
   const authorizingCard =
