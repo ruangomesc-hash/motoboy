@@ -837,22 +837,48 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
+    const query = request.query as { sync?: string };
+    const syncBilling = query.sync === "1";
+
     let asaasNextDueDate: string | null = null;
-    if (user?.status === "ACTIVE") {
-      const asaas = new AsaasService(env, request.log);
-      if (asaas.configured) {
-        try {
-          asaasNextDueDate = await reconcileAsaasSubscriptionBilling(
-            env,
-            userId,
-            request.log,
-          );
-        } catch (err) {
-          request.log.warn(
-            { err, userId },
-            "Falha ao sincronizar próximo vencimento com o Asaas",
-          );
+    if (user?.status === "ACTIVE" && user.subscribedAt) {
+      const { nextDueDateOnBillingDay } = await import(
+        "../lib/billing-calendar.js"
+      );
+      asaasNextDueDate = nextDueDateOnBillingDay(user.subscribedAt, new Date());
+
+      if (syncBilling) {
+        const asaas = new AsaasService(env, request.log);
+        if (asaas.configured) {
+          try {
+            const synced = await reconcileAsaasSubscriptionBilling(
+              env,
+              userId,
+              request.log,
+            );
+            if (synced) asaasNextDueDate = synced;
+          } catch (err) {
+            request.log.warn(
+              { err, userId },
+              "Falha ao sincronizar próximo vencimento com o Asaas",
+            );
+          }
         }
+      }
+    }
+
+    let subscriptionPaymentMethod = user?.subscriptionPaymentMethod ?? "PIX";
+    let subscribedAt = user?.subscribedAt ?? null;
+    if (syncBilling && user?.status === "ACTIVE") {
+      const refreshed = await withPrismaRetry(() =>
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { subscriptionPaymentMethod: true, subscribedAt: true },
+        }),
+      );
+      if (refreshed) {
+        subscriptionPaymentMethod = refreshed.subscriptionPaymentMethod ?? "PIX";
+        subscribedAt = refreshed.subscribedAt ?? subscribedAt;
       }
     }
 
@@ -860,8 +886,8 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       status: user?.status ?? "TRIAL",
       trialEndsAt: trialEndsAt?.toISOString() ?? null,
       trialDays: TRIAL_DAYS,
-      subscribedAt: user?.subscribedAt?.toISOString() ?? null,
-      subscriptionPaymentMethod: user?.subscriptionPaymentMethod ?? "PIX",
+      subscribedAt: subscribedAt?.toISOString() ?? null,
+      subscriptionPaymentMethod,
       asaasNextDueDate,
       lastPayment: lastPayment
         ? {

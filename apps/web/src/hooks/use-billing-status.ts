@@ -12,6 +12,8 @@ export type BillingRefreshOptions = {
   silent?: boolean;
   /** Pula health check e retries — uso após confirmação de pagamento. */
   fast?: boolean;
+  /** Sincroniza e grava próximo vencimento no Asaas (mais lento). */
+  syncBilling?: boolean;
 };
 
 export type BillingStatusSnapshot = {
@@ -93,10 +95,12 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       if (!enabled || sessionStatus !== "authenticated") return;
       const silent = opts?.silent === true;
       const fast = opts?.fast === true;
+      const syncBilling = opts?.syncBilling === true;
 
       if (!hadSuccessfulLoad.current) {
         setLoadState("loading");
-      } else if (!silent) {
+      }
+      if (!silent || syncBilling) {
         setRefreshing(true);
       }
 
@@ -113,8 +117,11 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
         try {
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
+              const subPath = syncBilling
+                ? "/me/subscription?sync=1"
+                : "/me/subscription";
               const data = await api<SubscriptionStatus>(
-                "/me/subscription",
+                subPath,
                 {},
                 { skipSync: true },
               );

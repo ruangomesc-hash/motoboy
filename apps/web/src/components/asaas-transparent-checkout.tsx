@@ -7,11 +7,13 @@ import { PaymentMethodCards } from "@/components/payment-method-cards";
 import {
   canChooseSubscriptionPaymentMethod,
   normalizeSubscriptionPaymentMethod,
+  SUBSCRIPTION_PAYMENT_OPTIONS,
   type SubscriptionBillingStatus,
 } from "@/lib/profile-options";
 import { useApi } from "@/hooks/use-api";
 import { PixSubscriptionCheckout } from "@/components/subscription-checkout/pix-subscription-checkout";
 import { CardSubscriptionCheckout } from "@/components/subscription-checkout/card-subscription-checkout";
+import { ActiveSubscriptionManage } from "@/components/subscription-checkout/active-subscription-manage";
 import type { PaymentActivatedHandler } from "@/components/subscription-checkout/use-payment-activation-poll";
 
 type Props = {
@@ -24,6 +26,7 @@ type Props = {
   subscriptionStatus?: SubscriptionBillingStatus | string | null;
   activePaymentMethod?: SubscriptionPaymentMethod | null;
   subscribedAt?: string | null;
+  asaasNextDueDate?: string | null;
 };
 
 export function AsaasTransparentCheckout({
@@ -36,18 +39,30 @@ export function AsaasTransparentCheckout({
   subscriptionStatus = "TRIAL",
   activePaymentMethod,
   subscribedAt,
+  asaasNextDueDate,
 }: Props) {
   const api = useApi();
   const canChoose = canChooseSubscriptionPaymentMethod(subscriptionStatus);
   const userPickedMethod = useRef(false);
+  const resolvedActiveMethod = normalizeSubscriptionPaymentMethod(
+    activePaymentMethod ?? initialMethod,
+  );
+
   const [paymentMethod, setPaymentMethod] = useState<SubscriptionPaymentMethod>(
-    () => normalizeSubscriptionPaymentMethod(initialMethod),
+    () =>
+      subscriptionActive
+        ? resolvedActiveMethod
+        : normalizeSubscriptionPaymentMethod(initialMethod),
   );
 
   useEffect(() => {
+    if (subscriptionActive) {
+      setPaymentMethod(resolvedActiveMethod);
+      return;
+    }
     if (userPickedMethod.current) return;
     setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
-  }, [initialMethod]);
+  }, [initialMethod, resolvedActiveMethod, subscriptionActive]);
 
   async function persistPaymentPreference(method: SubscriptionPaymentMethod) {
     try {
@@ -68,6 +83,20 @@ export function AsaasTransparentCheckout({
     userPickedMethod.current = true;
     setPaymentMethod(method);
     void persistPaymentPreference(method);
+  }
+
+  if (subscriptionActive) {
+    return (
+      <ActiveSubscriptionManage
+        paymentMethod={resolvedActiveMethod}
+        subscribedAt={subscribedAt}
+        asaasNextDueDate={asaasNextDueDate}
+        subscriptionRefreshing={subscriptionRefreshing}
+        asaasConfigured={asaasConfigured}
+        asaasStatusUnknown={asaasStatusUnknown}
+        onActivated={onActivated}
+      />
+    );
   }
 
   const panelProps = {

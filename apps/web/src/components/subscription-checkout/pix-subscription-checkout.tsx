@@ -34,6 +34,8 @@ type Props = {
   asaasStatusUnknown?: boolean;
   subscriptionActive?: boolean;
   subscriptionRefreshing?: boolean;
+  /** Oculta banner “ativa” quando o pai já exibe (ex.: gerenciar assinatura). */
+  hideActiveBanner?: boolean;
   onActivated?: PaymentActivatedHandler;
 };
 
@@ -93,6 +95,7 @@ export function PixSubscriptionCheckout({
   asaasStatusUnknown = false,
   subscriptionActive = false,
   subscriptionRefreshing = false,
+  hideActiveBanner = false,
   onActivated,
 }: Props) {
   const api = useApi();
@@ -497,7 +500,7 @@ export function PixSubscriptionCheckout({
 
   return (
     <div className="space-y-4">
-      {subscriptionActive && (
+      {subscriptionActive && !hideActiveBanner && (
         <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-2">
           <p className="text-sm font-medium text-emerald-300 flex items-center gap-2">
             {subscriptionRefreshing ? (

@@ -177,6 +177,10 @@ export function CardSubscriptionCheckout({
     );
   }
 
+  if (subscriptionActive) {
+    return null;
+  }
+
   return (
     <div className="space-y-4">
       <CardCheckoutFields

@@ -17,6 +17,7 @@ import type { AsaasRequestContext } from "../lib/asaas-request-log.js";
 type AsaasSubscriptionDetail = {
   id: string;
   nextDueDate?: string;
+  billingType?: string;
   status?: string;
   deleted?: boolean;
 };
@@ -458,6 +459,21 @@ export async function reconcileAsaasSubscriptionBilling(
   const remote = await fetchAsaasSubscription(env, subscriptionId, ctx);
   if (!remote?.id) {
     return null;
+  }
+
+  if (remote.billingType === "CREDIT_CARD" || remote.billingType === "PIX") {
+    const paymentMethod =
+      remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX";
+    if (user!.subscriptionPaymentMethod !== paymentMethod) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { subscriptionPaymentMethod: paymentMethod },
+      });
+      log?.info(
+        { userId, subscriptionId, paymentMethod },
+        "Forma de cobrança alinhada à assinatura Asaas",
+      );
+    }
   }
 
   const current = normalizeDueDay(remote.nextDueDate);

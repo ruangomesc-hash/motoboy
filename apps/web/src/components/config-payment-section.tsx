@@ -173,7 +173,7 @@ export function ConfigPaymentSection({
         {subscriptionActive ? (
           <>
             <Button size="lg" className="w-full" asChild>
-              <Link href="/assinar">Gerenciar próximo pagamento</Link>
+              <Link href="/assinar?gerenciar=1">Gerenciar próximo pagamento</Link>
             </Button>
             <p className="text-xs text-center text-muted-foreground">
               Veja Pix, histórico da cobrança e detalhes da renovação mensal.
