@@ -38,7 +38,8 @@ const PIX_SUB_PAYMENT_FAST_ATTEMPTS = 6;
 /** Poll da 1ª cobrança de cartão inline (Asaas gera de forma assíncrona). */
 const CARD_FIRST_PAYMENT_POLL_ATTEMPTS = 12;
 const CARD_SUBSCRIBE_ASAAS_TIMEOUT_MS = 55_000;
-const CARD_STATUS_ASAAS_TIMEOUT_MS = 9_000;
+const CARD_STATUS_ASAAS_TIMEOUT_MS = 5_000;
+const CARD_PAYMENT_FETCH_TIMEOUT_MS = 4_000;
 const PIX_QR_POLL_MS = 250;
 /** Poll longo só em ?wait=1 (fallback). */
 const PIX_QR_WAIT_ATTEMPTS = 24;
@@ -176,6 +177,13 @@ export type SubscribeCheckoutOptions = {
   remoteIp?: string;
 };
 
+type CardCheckoutUser = {
+  status: string;
+  subscribedAt: Date | null;
+  asaasSubscriptionId: string | null;
+  subscriptionPaymentMethod?: string | null;
+};
+
 export class AsaasService {
   constructor(
     private env: Env,
@@ -284,7 +292,7 @@ export class AsaasService {
     try {
       return await this.api<AsaasPayment>(
         `/payments/${row.id}`,
-        { signal: AbortSignal.timeout(5_000) },
+        { signal: AbortSignal.timeout(CARD_PAYMENT_FETCH_TIMEOUT_MS) },
         "getPaymentFreshStatus",
       );
     } catch {
@@ -292,51 +300,160 @@ export class AsaasService {
     }
   }
 
-  private async activateFromSubscriptionPayments(
+  /** Webhook marcou PAID no banco mas status do usuário ainda não virou ACTIVE. */
+  private async repairActivationFromDbPayment(
     userId: string,
-    user: {
-      status: string;
-      subscribedAt: Date | null;
-      asaasSubscriptionId: string | null;
-      subscriptionPaymentMethod?: string | null;
-    },
+    user: CardCheckoutUser,
+    log?: FastifyBaseLogger,
+  ): Promise<boolean> {
+    const paid = await prisma.payment.findFirst({
+      where: {
+        userId,
+        status: "PAID",
+        chargeKind: "SUBSCRIPTION",
+        paidAt: { not: null },
+      },
+      orderBy: { paidAt: "desc" },
+      select: { asaasChargeId: true, paidAt: true },
+    });
+    if (!paid?.paidAt || !paid.asaasChargeId) return false;
+
+    try {
+      await applyPaidSubscriptionBilling(
+        this.env,
+        {
+          userId,
+          chargeId: paid.asaasChargeId,
+          paidAt: paid.paidAt,
+          user,
+          linkedSubscriptionId: user.asaasSubscriptionId,
+          chargeKind: "SUBSCRIPTION",
+          billingType: "CREDIT_CARD",
+        },
+        log,
+      );
+    } catch (err) {
+      log?.warn({ err, userId }, "repairActivationFromDbPayment");
+      return false;
+    }
+
+    const fresh = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    return fresh?.status === "ACTIVE";
+  }
+
+  /** Uma cobrança por vez no Asaas (máx. 2 chamadas: GET payment ou list+GET). */
+  private async tryActivateCardPaymentFast(
+    userId: string,
+    user: CardCheckoutUser,
     subId: string,
     log?: FastifyBaseLogger,
-    limit = 5,
-  ): Promise<{ activated: boolean; payments: AsaasPayment[] }> {
-    const listed = await this.api<{ data?: AsaasPayment[] }>(
-      `/subscriptions/${subId}/payments?limit=${limit}`,
-      { signal: AbortSignal.timeout(CARD_STATUS_ASAAS_TIMEOUT_MS) },
-      "cardStatusListPayments",
-    );
-    const payments = listed.data ?? [];
+    focusChargeId?: string,
+  ): Promise<{ activated: boolean; chargeId: string }> {
+    const chargeCandidates: string[] = [];
+    const pushCandidate = (id: string | null | undefined) => {
+      const trimmed = id?.trim();
+      if (!trimmed || trimmed === subId || chargeCandidates.includes(trimmed)) {
+        return;
+      }
+      chargeCandidates.push(trimmed);
+    };
 
-    for (const row of payments) {
-      if (!row.id) continue;
-      const remote = await this.resolveFreshPaymentStatus(row);
-      if (!isAsaasPaymentPaid(remote.status)) continue;
-      await this.ensurePendingPaymentRecord(userId, remote.id);
-      if (
-        await this.activateUserFromPaidCharge(
-          userId,
-          user,
-          remote.id,
-          remote,
-          log,
-        )
-      ) {
-        return { activated: true, payments };
+    pushCandidate(focusChargeId);
+
+    const pendingRow = await prisma.payment.findFirst({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: { in: ["PENDING", "FAILED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { asaasChargeId: true },
+    });
+    pushCandidate(pendingRow?.asaasChargeId);
+
+    for (const chargeId of chargeCandidates) {
+      try {
+        const remote = await this.api<AsaasPayment>(
+          `/payments/${chargeId}`,
+          { signal: AbortSignal.timeout(CARD_PAYMENT_FETCH_TIMEOUT_MS) },
+          "getPaymentForCardActivation",
+        );
+        if (!isAsaasPaymentPaid(remote.status)) continue;
+        await this.ensurePendingPaymentRecord(userId, chargeId);
+        if (
+          await this.activateUserFromPaidCharge(
+            userId,
+            user,
+            chargeId,
+            remote,
+            log,
+          )
+        ) {
+          return { activated: true, chargeId };
+        }
+      } catch {
+        /* próximo candidato */
       }
     }
-    return { activated: false, payments };
+
+    try {
+      const listed = await this.api<{ data?: AsaasPayment[] }>(
+        `/subscriptions/${subId}/payments?limit=1`,
+        { signal: AbortSignal.timeout(CARD_STATUS_ASAAS_TIMEOUT_MS) },
+        "cardStatusListOnePayment",
+      );
+      const first = listed.data?.[0];
+      if (!first?.id) {
+        return { activated: false, chargeId: subId };
+      }
+      const remote = await this.resolveFreshPaymentStatus(first);
+      if (isAsaasPaymentPaid(remote.status)) {
+        await this.ensurePendingPaymentRecord(userId, remote.id);
+        if (
+          await this.activateUserFromPaidCharge(
+            userId,
+            user,
+            remote.id,
+            remote,
+            log,
+          )
+        ) {
+          return { activated: true, chargeId: remote.id };
+        }
+      }
+      return { activated: false, chargeId: first.id };
+    } catch (err) {
+      log?.warn({ err, userId, subId }, "tryActivateCardPaymentFast");
+      return { activated: false, chargeId: focusChargeId ?? subId };
+    }
+  }
+
+  private async activateFromSubscriptionPayments(
+    userId: string,
+    user: CardCheckoutUser,
+    subId: string,
+    log?: FastifyBaseLogger,
+    focusChargeId?: string,
+  ): Promise<{ activated: boolean; chargeId: string }> {
+    return this.tryActivateCardPaymentFast(
+      userId,
+      user,
+      subId,
+      log,
+      focusChargeId,
+    );
   }
 
   /**
-   * Poll leve do cartão (1 query DB + lista + consulta pontual no Asaas) — tempo real.
+   * Poll do cartão: padrão só banco (webhook → ACTIVE em ms). syncAsaas=1 consulta 1 cobrança no Asaas.
    */
   async getCardCheckoutStatusFast(
     userId: string,
     log?: FastifyBaseLogger,
+    opts?: { syncAsaas?: boolean; focusChargeId?: string },
   ): Promise<{
     status: string;
     activated: boolean;
@@ -372,7 +489,21 @@ export class AsaasService {
       };
     }
 
+    if (await this.repairActivationFromDbPayment(userId, user, log)) {
+      const fresh = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { status: true, subscribedAt: true },
+      });
+      return {
+        status: fresh?.status ?? "ACTIVE",
+        activated: true,
+        subscribedAt: fresh?.subscribedAt?.toISOString() ?? null,
+        pending: null,
+      };
+    }
+
     const subId = user.asaasSubscriptionId?.trim();
+    const focusChargeId = opts?.focusChargeId?.trim();
     if (!subId) {
       return {
         status: user.status,
@@ -382,13 +513,25 @@ export class AsaasService {
       };
     }
 
-    if (!this.configured) {
+    const pendingRow = await prisma.payment.findFirst({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: { in: ["PENDING", "FAILED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { asaasChargeId: true },
+    });
+    const pendingChargeId =
+      pendingRow?.asaasChargeId ?? focusChargeId ?? subId;
+
+    if (!opts?.syncAsaas || !this.configured) {
       return {
         status: user.status,
         activated: false,
         subscribedAt: null,
         pending: {
-          chargeId: subId,
+          chargeId: pendingChargeId,
           subscriptionId: subId,
           amount: SUBSCRIPTION_PRICE,
           cardAuthorized: true,
@@ -397,11 +540,12 @@ export class AsaasService {
     }
 
     try {
-      const { activated, payments } = await this.activateFromSubscriptionPayments(
+      const { activated, chargeId } = await this.tryActivateCardPaymentFast(
         userId,
         user,
         subId,
         log,
+        focusChargeId ?? pendingChargeId,
       );
       if (activated) {
         const fresh = await prisma.user.findUnique({
@@ -416,8 +560,6 @@ export class AsaasService {
         };
       }
 
-      const first = payments[0];
-      const chargeId = first?.id ?? subId;
       return {
         status: user.status,
         activated: false,
@@ -430,13 +572,13 @@ export class AsaasService {
         },
       };
     } catch (err) {
-      log?.warn({ err, userId, subId }, "card/status: falha ao listar cobranças");
+      log?.warn({ err, userId, subId }, "card/status: falha ao sincronizar Asaas");
       return {
         status: user.status,
         activated: false,
         subscribedAt: null,
         pending: {
-          chargeId: subId,
+          chargeId: pendingChargeId,
           subscriptionId: subId,
           amount: SUBSCRIPTION_PRICE,
           cardAuthorized: true,
@@ -450,7 +592,9 @@ export class AsaasService {
     userId: string,
     log?: FastifyBaseLogger,
   ): Promise<SubscribeCheckoutResult | null> {
-    const status = await this.getCardCheckoutStatusFast(userId, log);
+    const status = await this.getCardCheckoutStatusFast(userId, log, {
+      syncAsaas: true,
+    });
     if (status.activated || !status.pending) {
       return null;
     }
@@ -1084,29 +1228,17 @@ export class AsaasService {
         ? normalizeCpfCnpjDigits(user.cpfCnpj)
         : null;
 
-    if (user.asaasCustomerId) {
-      try {
-        const existing = await this.api<AsaasCustomer>(
-          `/customers/${user.asaasCustomerId}`,
-          {},
-          "getCustomer",
+    const storedCustomerId = user.asaasCustomerId?.trim();
+    if (storedCustomerId) {
+      if (cpfDigits) {
+        this.queueCustomerCpfSync(
+          storedCustomerId,
+          cpfDigits,
+          this.log,
+          "updateCustomerCpfOnGet",
         );
-        if (existing.id && !existing.deleted) {
-          if (cpfDigits) {
-            this.queueCustomerCpfSync(
-              existing.id,
-              cpfDigits,
-              this.log,
-              "updateCustomerCpfOnGet",
-            );
-          }
-          return existing.id;
-        }
-      } catch (err) {
-        if (!(err instanceof AsaasApiError) || err.statusCode !== 404) {
-          throw err;
-        }
       }
+      return storedCustomerId;
     }
 
     const listed = await this.api<AsaasCustomerList>(
@@ -1604,14 +1736,22 @@ export class AsaasService {
     subId: string,
     log?: FastifyBaseLogger,
   ): void {
-    void (async () => {
-      const first = await this.findFirstOpenSubscriptionPayment(subId, 4);
-      if (first?.id) {
-        await this.ensurePendingPaymentRecord(userId, first.id);
-      }
-    })().catch((err) => {
+    void this.ensureFirstCardPaymentRecord(userId, subId, log).catch((err) => {
       log?.warn({ err, userId, subId }, "Registro cobrança cartão (async)");
     });
+  }
+
+  private async ensureFirstCardPaymentRecord(
+    userId: string,
+    subId: string,
+    log?: FastifyBaseLogger,
+  ): Promise<string | null> {
+    const first = await this.findFirstOpenSubscriptionPayment(subId, 4);
+    if (first?.id) {
+      await this.ensurePendingPaymentRecord(userId, first.id);
+      return first.id;
+    }
+    return null;
   }
 
   private async createSubscriptionWithCreditCard(
@@ -1684,22 +1824,27 @@ export class AsaasService {
       },
     });
 
-    let chargeId = sub.id;
+    let chargeId =
+      (await this.ensureFirstCardPaymentRecord(userId, sub.id, log)) ?? sub.id;
     let activated = false;
 
     if (user && user.status !== "ACTIVE") {
-      for (let attempt = 0; attempt < 4; attempt++) {
+      for (let attempt = 0; attempt < 16; attempt++) {
         try {
-          const attemptResult = await this.activateFromSubscriptionPayments(
+          const attemptResult = await this.tryActivateCardPaymentFast(
             userId,
             user,
             sub.id,
             log,
-            3,
+            chargeId !== sub.id ? chargeId : undefined,
           );
           if (attemptResult.activated) {
+            chargeId = attemptResult.chargeId;
             activated = true;
             break;
+          }
+          if (attemptResult.chargeId !== sub.id) {
+            chargeId = attemptResult.chargeId;
           }
         } catch (err) {
           log?.warn(
@@ -1707,28 +1852,25 @@ export class AsaasService {
             "Ativação imediata pós-cartão",
           );
         }
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 300));
+        if (attempt < 15) {
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        if (attempt % 4 === 3) {
+          const refreshed = await this.ensureFirstCardPaymentRecord(
+            userId,
+            sub.id,
+            log,
+          );
+          if (refreshed) chargeId = refreshed;
         }
       }
 
       if (activated) {
         const fresh = await prisma.user.findUnique({
           where: { id: userId },
-          select: { status: true, subscribedAt: true },
+          select: { status: true },
         });
         if (fresh?.status === "ACTIVE") {
-          try {
-            const listed = await this.api<{ data?: AsaasPayment[] }>(
-              `/subscriptions/${sub.id}/payments?limit=1`,
-              { signal: AbortSignal.timeout(5_000) },
-              "cardFirstPaymentId",
-            );
-            if (listed.data?.[0]?.id) chargeId = listed.data[0].id;
-          } catch {
-            /* chargeId = sub.id */
-          }
-          void this.ensureFirstCardPaymentRecordAsync(userId, sub.id, log);
           return {
             checkoutUrl: "",
             chargeId,
@@ -1972,7 +2114,7 @@ export class AsaasService {
           user,
           focusSubId,
           log,
-          10,
+          focusId && focusId !== focusSubId ? focusId : undefined,
         );
         if (subSync.activated) {
           return { status: "ACTIVE", activated: true };

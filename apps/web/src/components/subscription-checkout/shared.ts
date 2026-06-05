@@ -1,7 +1,7 @@
 import type { SubscribeResponse } from "@motoboy/types";
 
 /** Confirmação de pagamento Pix — consulta Asaas em tempo quase real. */
-export const PAYMENT_POLL_FAST_MS = 500;
+export const PAYMENT_POLL_FAST_MS = 300;
 
 /** Placeholder enquanto POST /me/subscribe (cartão) ainda não retornou. */
 export const CARD_AUTHORIZE_PENDING_CHARGE = "__card_authorizing__";
@@ -94,10 +94,14 @@ export async function requestSubscribeWithRetry(
   attempt = 0,
 ): Promise<SubscribeResponse> {
   try {
-    return await api<SubscribeResponse>("/me/subscribe", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    return await api<SubscribeResponse>(
+      "/me/subscribe",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      { skipSync: true },
+    );
   } catch (e) {
     const err = e as Error & { status?: number; code?: string };
     const retryable =

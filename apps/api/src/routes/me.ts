@@ -973,8 +973,13 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/me/subscribe/card/status", async (request) => {
     const userId = request.sessionUser!.id;
+    const query = request.query as { sync?: string; chargeId?: string };
     const asaas = new AsaasService(env, request.log);
-    return asaas.getCardCheckoutStatusFast(userId, request.log);
+    return asaas.getCardCheckoutStatusFast(userId, request.log, {
+      syncAsaas: query.sync === "1",
+      focusChargeId:
+        typeof query.chargeId === "string" ? query.chargeId : undefined,
+    });
   });
 
   app.get("/me/subscribe/card/pending", async (request) => {

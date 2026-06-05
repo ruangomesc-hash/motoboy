@@ -30,15 +30,20 @@ export async function apiFetch<T>(
   const isDeliveryMutation =
     path.startsWith("/me/deliveries") &&
     (method === "PATCH" || method === "POST" || method === "DELETE");
-  const isCardStatusPoll = path.includes("/me/subscribe/card/status");
+  const isCardStatusPoll =
+    path.includes("/me/subscribe/card/status") && path.includes("sync=1");
+  const isCardStatusDbOnly =
+    path.includes("/me/subscribe/card/status") && !path.includes("sync=1");
   const isLiteSubscription = path.includes("/me/subscription?lite=1");
   const timeoutMs =
     method === "POST" && path.includes("/me/subscribe") && !path.includes("/prepare")
       ? 90_000
       : isLiteSubscription
-        ? 5_000
+        ? 4_000
+      : isCardStatusDbOnly
+        ? 4_000
       : isCardStatusPoll
-        ? 12_000
+        ? 8_000
       : method === "POST" && path.includes("/me/subscription/refresh")
         ? 25_000
       : method === "POST" && path.includes("/pix/prepare")
