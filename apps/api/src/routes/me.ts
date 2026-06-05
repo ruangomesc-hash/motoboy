@@ -851,6 +851,36 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.post("/me/subscribe/pix/prepare", async (request, reply) => {
+    const parsed = subscribeRequestSchema
+      .pick({ cpfCnpj: true })
+      .safeParse(request.body ?? {});
+    if (!parsed.success || !parsed.data.cpfCnpj) {
+      return reply.status(400).send({ error: "Informe um CPF válido." });
+    }
+
+    const asaas = new AsaasService(env, request.log);
+    if (!asaas.configured && isProductionRuntime()) {
+      return reply.status(503).send({
+        error: "Pagamento indisponível no momento.",
+      });
+    }
+
+    try {
+      const result = await asaas.preparePixCustomer(
+        request.sessionUser!.id,
+        parsed.data.cpfCnpj,
+        request.log,
+      );
+      return result;
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+      const message =
+        err instanceof Error ? err.message : "Erro ao preparar checkout Pix";
+      return reply.status(statusCode).send({ error: message });
+    }
+  });
+
   app.get("/me/subscribe/pix/pending", async (request) => {
     const asaas = new AsaasService(env, request.log);
     const pending = await asaas.getPendingPixCheckout(request.sessionUser!.id);

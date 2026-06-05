@@ -28,13 +28,42 @@ import {
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
 const FIRST_PAYMENT_POLL_MS = 1000;
-const PIX_QR_POLL_MS = 300;
-/** QR no POST /subscribe — espera no servidor (~4–10s típico). */
-const PIX_QR_POST_ATTEMPTS = 12;
-/** QR com ?wait=1 — uma requisição do app, poll no servidor (~8–15s típico). */
-const PIX_QR_WAIT_ATTEMPTS = 20;
-/** Poll rápido sem espera (health / diagnóstico). */
+const PIX_QR_POLL_MS = 250;
+/** Poll longo só em ?wait=1 (fallback). */
+const PIX_QR_WAIT_ATTEMPTS = 24;
+/** Poll rápido (health / diagnóstico). */
 const PIX_QR_QUICK_ATTEMPTS = 3;
+
+const PIX_QR_CACHE_MS = 30 * 60 * 1000;
+const pixQrCache = new Map<
+  string,
+  { payload: string | null; encodedImage: string | null; expires: number }
+>();
+
+function getCachedPixQr(chargeId: string): {
+  payload: string | null;
+  encodedImage: string | null;
+} | null {
+  const hit = pixQrCache.get(chargeId);
+  if (!hit || hit.expires < Date.now()) {
+    pixQrCache.delete(chargeId);
+    return null;
+  }
+  return { payload: hit.payload, encodedImage: hit.encodedImage };
+}
+
+function setCachedPixQr(
+  chargeId: string,
+  payload: string | null,
+  encodedImage: string | null,
+): void {
+  if (!payload && !encodedImage) return;
+  pixQrCache.set(chargeId, {
+    payload,
+    encodedImage,
+    expires: Date.now() + PIX_QR_CACHE_MS,
+  });
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -197,6 +226,29 @@ export class AsaasService {
     return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
   }
 
+  /** Pré-aquece cliente Asaas enquanto o usuário preenche o CPF (POST fica mais rápido). */
+  async preparePixCustomer(
+    userId: string,
+    cpfCnpjRaw: string,
+    log?: FastifyBaseLogger,
+  ): Promise<{ ok: true; customerReady: boolean }> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw Object.assign(new Error("Usuário não encontrado"), {
+        statusCode: 404,
+      });
+    }
+    const cpfCnpj = normalizeCpfCnpjDigits(cpfCnpjRaw);
+    if (!isValidCpfCnpj(cpfCnpj)) {
+      throw Object.assign(new Error(formatCpfCnpjError()), { statusCode: 400 });
+    }
+    if (!this.configured) {
+      return { ok: true, customerReady: true };
+    }
+    const customerId = await this.ensurePixCustomer(user, cpfCnpj, log);
+    return { ok: true, customerReady: Boolean(customerId) };
+  }
+
   async createPixCheckout(
     userId: string,
     cpfCnpjRaw: string,
@@ -231,7 +283,7 @@ export class AsaasService {
     const resumed = await this.resumePendingPixFromDb(userId);
     if (resumed) {
       routeLog?.info({ userId, chargeId: resumed.chargeId }, "Pix pendente (DB)");
-      return this.attachPixQrIfReady(resumed, PIX_QR_POST_ATTEMPTS);
+      return { ...resumed, pixPending: true };
     }
 
     const resumedRef = await this.resumePendingPixByUserReference(userId);
@@ -240,7 +292,7 @@ export class AsaasService {
         { userId, chargeId: resumedRef.chargeId },
         "Pix pendente (Asaas externalReference)",
       );
-      return this.attachPixQrIfReady(resumedRef, PIX_QR_POST_ATTEMPTS);
+      return { ...resumedRef, pixPending: true };
     }
 
     const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
@@ -251,7 +303,7 @@ export class AsaasService {
         { userId, chargeId: resumedAsaas.chargeId },
         "Pix pendente (Asaas API)",
       );
-      return this.attachPixQrIfReady(resumedAsaas, PIX_QR_POST_ATTEMPTS);
+      return { ...resumedAsaas, pixPending: true };
     }
 
     await this.markStalePixPaymentsFailed(userId);
@@ -290,35 +342,19 @@ export class AsaasService {
       });
     }
 
-    await this.ensurePendingPaymentRecord(userId, payment.id);
+    void this.ensurePendingPaymentRecord(userId, payment.id).catch((err) => {
+      routeLog?.warn({ err, userId, chargeId: payment.id }, "Registro Pix (async)");
+    });
 
-    return this.attachPixQrIfReady(
-      {
-        checkoutUrl: "",
-        chargeId: payment.id,
-        invoiceUrl: "",
-        pixCopyPaste: null,
-        pixQrCodeImage: null,
-        amount: SUBSCRIPTION_PRICE,
-        subscriptionId: payment.id,
-        pixPending: true,
-      },
-      PIX_QR_POST_ATTEMPTS,
-    );
-  }
-
-  private async attachPixQrIfReady(
-    result: SubscribeCheckoutResult,
-    maxAttempts = PIX_QR_POST_ATTEMPTS,
-  ): Promise<SubscribeCheckoutResult> {
-    if (!this.configured) return result;
-    const pix = await this.fetchPixQrWithAttempts(result.chargeId, maxAttempts);
-    const hasQr = Boolean(pix.payload || pix.encodedImage);
     return {
-      ...result,
-      pixCopyPaste: pix.payload,
-      pixQrCodeImage: pix.encodedImage,
-      pixPending: !hasQr,
+      checkoutUrl: "",
+      chargeId: payment.id,
+      invoiceUrl: "",
+      pixCopyPaste: null,
+      pixQrCodeImage: null,
+      amount: SUBSCRIPTION_PRICE,
+      subscriptionId: payment.id,
+      pixPending: true,
     };
   }
 
@@ -1419,11 +1455,20 @@ export class AsaasService {
       }
     }
 
+    const cached = getCachedPixQr(chargeId);
+    if (cached && (cached.payload || cached.encodedImage)) {
+      return {
+        pixCopyPaste: cached.payload,
+        pixQrCodeImage: cached.encodedImage,
+      };
+    }
+
     const attempts = opts?.wait ? PIX_QR_WAIT_ATTEMPTS : 1;
     const pix = await this.fetchPixQrWithAttempts(chargeId, attempts);
     if (!pix.payload && !pix.encodedImage) {
       return null;
     }
+    setCachedPixQr(chargeId, pix.payload, pix.encodedImage);
     return {
       pixCopyPaste: pix.payload,
       pixQrCodeImage: pix.encodedImage,
@@ -1728,6 +1773,7 @@ export class AsaasService {
       const payload = pix.payload?.trim() || null;
       const encodedImage = pix.encodedImage?.trim() || null;
       if (payload || encodedImage) {
+        setCachedPixQr(paymentId, payload, encodedImage);
         return { payload, encodedImage };
       }
       if (attempt < maxAttempts - 1) {

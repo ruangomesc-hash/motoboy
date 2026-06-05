@@ -12,11 +12,7 @@ import {
   readPixCheckoutSession,
   writePixCheckoutSession,
 } from "@/lib/pix-checkout-session";
-import {
-  fetchPixQrWithServerWait,
-  pixQrSrc,
-  requestSubscribeWithRetry,
-} from "./shared";
+import { pixQrSrc, requestSubscribeWithRetry } from "./shared";
 import {
   PixCheckoutFields,
   buildDefaultPixForm,
@@ -27,6 +23,7 @@ import {
 } from "./pix-checkout-fields";
 import { useCheckoutProfile } from "./use-checkout-profile";
 import { usePaymentActivationPoll } from "./use-payment-activation-poll";
+import { useRealtimePixQr } from "./use-realtime-pix-qr";
 import { VerifyPaymentButton } from "./verify-payment-button";
 
 type Props = {
@@ -98,8 +95,6 @@ export function PixSubscriptionCheckout({
   const profile = useCheckoutProfile();
   const [form, setForm] = useState<PixCheckoutForm>({ cpfCnpj: "" });
   const [loading, setLoading] = useState(false);
-  const [loadingPhase, setLoadingPhase] = useState<"create" | "qr">("create");
-  const [qrFetching, setQrFetching] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(() =>
     checkoutFromSession(),
@@ -108,7 +103,7 @@ export function PixSubscriptionCheckout({
   const formHydrated = useRef(false);
   const formDirty = useRef(false);
   const autoResumeDone = useRef(false);
-  const qrLoadInFlight = useRef(false);
+  const prepareSent = useRef<string | null>(null);
 
   const commitCheckout = useCallback((next: SubscribeResponse | null) => {
     setCheckout(next);
@@ -135,6 +130,48 @@ export function PixSubscriptionCheckout({
     stopPolling();
   }, [stopPolling]);
 
+  const showPixCheckout = useCallback(
+    (base: SubscribeResponse) => {
+      commitCheckout(base);
+      if (hasPixQr(base)) {
+        startPolling();
+      }
+    },
+    [commitCheckout, startPolling],
+  );
+
+  const handleQrReady = useCallback(
+    (qr: { pixCopyPaste: string | null; pixQrCodeImage: string | null }) => {
+      setCheckout((prev) => {
+        if (!prev?.chargeId) return prev;
+        const next: SubscribeResponse = {
+          ...prev,
+          pixCopyPaste: qr.pixCopyPaste,
+          pixQrCodeImage: qr.pixQrCodeImage,
+          pixPending: false,
+        };
+        persistCheckoutState(next);
+        return next;
+      });
+      startPolling();
+    },
+    [startPolling],
+  );
+
+  const activeCheckout =
+    checkout ??
+    (readPixCheckoutSession()?.chargeId ? checkoutFromSession() : null);
+
+  const needsRealtimeQr =
+    Boolean(activeCheckout?.chargeId) && !hasPixQr(activeCheckout ?? {});
+
+  useRealtimePixQr(
+    activeCheckout?.chargeId,
+    api,
+    handleQrReady,
+    needsRealtimeQr && sessionStatus === "authenticated",
+  );
+
   useEffect(() => {
     if (!profile || formHydrated.current) return;
     setForm((prev) =>
@@ -148,98 +185,50 @@ export function PixSubscriptionCheckout({
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
 
-  const fetchPendingFast = useCallback(
-    async (apiClient: ReturnType<typeof useApi>): Promise<PendingPixResponse | null> => {
-      try {
-        const pending = await apiClient<PendingPixResponse>(
-          "/me/subscribe/pix/pending",
-          {},
-          { skipSync: true },
-        );
-        if (pending.pending && pending.chargeId) return pending;
-      } catch {
-        /* fallback session */
-      }
+  useEffect(() => {
+    if (!formReady || sessionStatus !== "authenticated") return;
+    const cpf = form.cpfCnpj.replace(/\D/g, "");
+    if (prepareSent.current === cpf) return;
 
-      const saved = readPixCheckoutSession();
-      if (!saved?.chargeId) return null;
-      return {
-        pending: true,
-        chargeId: saved.chargeId,
-        amount: saved.amount,
-        pixCopyPaste: saved.pixCopyPaste,
-        pixQrCodeImage: saved.pixQrCodeImage,
-        pixPending: !hasPixQr(saved),
-      };
-    },
-    [],
-  );
+    const timer = window.setTimeout(() => {
+      prepareSent.current = cpf;
+      void api(
+        "/me/subscribe/pix/prepare",
+        {
+          method: "POST",
+          body: JSON.stringify({ cpfCnpj: cpf }),
+        },
+        { skipSync: true },
+      ).catch(() => {
+        prepareSent.current = null;
+      });
+    }, 450);
 
-  const fetchQrForCharge = useCallback(
-    async (
-      apiClient: ReturnType<typeof useApi>,
-      chargeId: string,
-      base: SubscribeResponse,
-    ): Promise<SubscribeResponse | null> => {
-      const qr = await fetchPixQrWithServerWait(apiClient, chargeId);
-      if (!qr) return null;
-      return {
-        ...base,
-        chargeId,
-        paymentMethod: "PIX",
-        pixCopyPaste: qr.pixCopyPaste,
-        pixQrCodeImage: qr.pixQrCodeImage,
-        pixPending: false,
-      };
-    },
-    [],
-  );
+    return () => window.clearTimeout(timer);
+  }, [api, form.cpfCnpj, formReady, sessionStatus]);
 
-  const loadQrForCheckout = useCallback(
-    async (chargeId: string, base: SubscribeResponse): Promise<boolean> => {
-      if (qrLoadInFlight.current) return Boolean(hasPixQr(base));
-      qrLoadInFlight.current = true;
-      setQrFetching(true);
-      setError("");
-      try {
-        const withQr = await fetchQrForCharge(api, chargeId, base);
-        if (!withQr) {
-          commitCheckout({ ...base, chargeId, pixPending: true });
-          return false;
-        }
-        commitCheckout(withQr);
-        startPolling();
-        return true;
-      } finally {
-        setQrFetching(false);
-        qrLoadInFlight.current = false;
-      }
-    },
-    [api, commitCheckout, fetchQrForCharge, startPolling],
-  );
-
-  const openPendingPixCheckout = useCallback(
-    async (pending: PendingPixResponse): Promise<boolean> => {
-      if (!pending.chargeId) return false;
-      setLoadingPhase("qr");
-      const base = checkoutFromPending(pending);
-      if (hasPixQr(pending)) {
-        commitCheckout({ ...base, pixPending: false });
-        startPolling();
-        return true;
-      }
-      commitCheckout(base);
-      return loadQrForCheckout(pending.chargeId, base);
-    },
-    [commitCheckout, loadQrForCheckout, startPolling],
-  );
-
-  const resumePixCheckout = useCallback(async () => {
-    const pending = await fetchPendingFast(api);
-    if (!pending?.chargeId) return false;
-    await openPendingPixCheckout(pending);
-    return true;
-  }, [api, fetchPendingFast, openPendingPixCheckout]);
+  const fetchPendingFast = useCallback(async (): Promise<PendingPixResponse | null> => {
+    try {
+      const pending = await api<PendingPixResponse>(
+        "/me/subscribe/pix/pending",
+        {},
+        { skipSync: true },
+      );
+      if (pending.pending && pending.chargeId) return pending;
+    } catch {
+      /* session */
+    }
+    const saved = readPixCheckoutSession();
+    if (!saved?.chargeId) return null;
+    return {
+      pending: true,
+      chargeId: saved.chargeId,
+      amount: saved.amount,
+      pixCopyPaste: saved.pixCopyPaste,
+      pixQrCodeImage: saved.pixQrCodeImage,
+      pixPending: !hasPixQr(saved),
+    };
+  }, [api]);
 
   useEffect(() => {
     if (
@@ -251,23 +240,23 @@ export function PixSubscriptionCheckout({
     }
     autoResumeDone.current = true;
 
-    if (!checkout?.chargeId) {
-      const fromSession = checkoutFromSession();
-      if (fromSession) commitCheckout(fromSession);
-    }
-
-    void resumePixCheckout();
+    void (async () => {
+      if (!checkout?.chargeId) {
+        const fromSession = checkoutFromSession();
+        if (fromSession) showPixCheckout(fromSession);
+      }
+      const pending = await fetchPendingFast();
+      if (pending?.chargeId) {
+        showPixCheckout(checkoutFromPending(pending));
+      }
+    })();
   }, [
     checkout?.chargeId,
-    commitCheckout,
-    resumePixCheckout,
+    fetchPendingFast,
     sessionStatus,
+    showPixCheckout,
     subscriptionActive,
   ]);
-
-  const activeCheckout =
-    checkout ??
-    (readPixCheckoutSession()?.chargeId ? checkoutFromSession() : null);
 
   async function generatePix() {
     if (subscriptionActive) {
@@ -288,8 +277,6 @@ export function PixSubscriptionCheckout({
     stopPolling();
 
     try {
-      setLoadingPhase("create");
-
       const data = await requestSubscribeWithRetry(api, {
         paymentMethod: "PIX",
         ...pixFormToPayload(form),
@@ -306,25 +293,19 @@ export function PixSubscriptionCheckout({
         return;
       }
 
-      if (hasPixQr(data)) {
-        commitCheckout({ ...data, pixPending: false });
-        startPolling();
+      if (!data.chargeId) {
+        setError("Não foi possível gerar o Pix. Tente novamente.");
         return;
       }
 
-      if (data.chargeId) {
-        await openPendingPixCheckout({
-          pending: true,
-          chargeId: data.chargeId,
-          amount: data.amount,
-          pixPending: data.pixPending ?? true,
-          pixCopyPaste: data.pixCopyPaste,
-          pixQrCodeImage: data.pixQrCodeImage,
-        });
-        return;
-      }
-
-      setError("Não foi possível gerar o Pix. Tente novamente.");
+      showPixCheckout({
+        amount: data.amount,
+        chargeId: data.chargeId,
+        paymentMethod: "PIX",
+        pixCopyPaste: data.pixCopyPaste ?? null,
+        pixQrCodeImage: data.pixQrCodeImage ?? null,
+        pixPending: !hasPixQr(data),
+      });
     } catch (e) {
       const err = e as Error & { status?: number; code?: string };
       let msg = formatBillingCheckoutError(
@@ -337,24 +318,21 @@ export function PixSubscriptionCheckout({
           "Há um Pix anterior em processamento. Aguarde 1 minuto e tente de novo.";
       }
 
-      const resumed = await resumePixCheckout();
-      if (resumed) return;
+      const pending = await fetchPendingFast();
+      if (pending?.chargeId) {
+        showPixCheckout(checkoutFromPending(pending));
+        return;
+      }
 
-      if (checkout?.chargeId || readPixCheckoutSession()?.chargeId) {
-        const saved = checkout ?? checkoutFromSession();
-        if (saved?.chargeId) {
-          commitCheckout(saved);
-          void loadQrForCheckout(saved.chargeId, saved);
-          return;
-        }
+      const saved = checkout ?? checkoutFromSession();
+      if (saved?.chargeId) {
+        showPixCheckout(saved);
+        return;
       }
 
       setError(msg);
     } finally {
       setLoading(false);
-      if (!readPixCheckoutSession()?.chargeId) {
-        setLoadingPhase("create");
-      }
     }
   }
 
@@ -378,9 +356,9 @@ export function PixSubscriptionCheckout({
       return (
         <div className="space-y-4 text-center py-6">
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-sm font-medium">Carregando código Pix</p>
+          <p className="text-sm font-medium">Pix gerado</p>
           <p className="text-xs text-muted-foreground">
-            A cobrança já foi gerada. Buscando QR Code e copia e cola no checkout…
+            O QR Code aparece aqui em instantes…
           </p>
         </div>
       );
@@ -467,9 +445,7 @@ export function PixSubscriptionCheckout({
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {loadingPhase === "qr"
-                  ? "Preparando QR Code Pix…"
-                  : "Criando cobrança Pix…"}
+                Criando cobrança Pix…
               </>
             ) : (
               "Gerar Pix"
