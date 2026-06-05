@@ -12,7 +12,6 @@ export type SystemHealthResponse = {
     paymentChargeKind: boolean;
   };
   billingReady?: boolean;
-  migrationsHint?: string | null;
   asaas?: {
     configured: boolean;
     webhookPath: string;
