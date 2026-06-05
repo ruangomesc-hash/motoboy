@@ -1126,11 +1126,15 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/me/subscription/refresh", async (request, reply) => {
     const userId = request.sessionUser!.id;
+    const body = (request.body ?? {}) as { chargeId?: string };
+    const focusChargeId =
+      typeof body.chargeId === "string" ? body.chargeId.trim() : undefined;
     const asaas = new AsaasService(env, request.log);
     try {
       const result = await asaas.syncSubscriptionPaymentStatus(
         userId,
         request.log,
+        focusChargeId,
       );
       const user = await prisma.user.findUnique({
         where: { id: userId },

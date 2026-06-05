@@ -22,7 +22,10 @@ import {
   type PixCheckoutForm,
 } from "./pix-checkout-fields";
 import { useCheckoutProfile } from "./use-checkout-profile";
-import { usePaymentActivationPoll } from "./use-payment-activation-poll";
+import {
+  usePaymentActivationPoll,
+  type PaymentActivatedHandler,
+} from "./use-payment-activation-poll";
 import { useRealtimePixQr } from "./use-realtime-pix-qr";
 import { VerifyPaymentButton } from "./verify-payment-button";
 
@@ -30,7 +33,8 @@ type Props = {
   asaasConfigured: boolean;
   asaasStatusUnknown?: boolean;
   subscriptionActive?: boolean;
-  onActivated?: () => void;
+  subscriptionRefreshing?: boolean;
+  onActivated?: PaymentActivatedHandler;
 };
 
 type PendingPixResponse = {
@@ -88,6 +92,7 @@ export function PixSubscriptionCheckout({
   asaasConfigured,
   asaasStatusUnknown = false,
   subscriptionActive = false,
+  subscriptionRefreshing = false,
   onActivated,
 }: Props) {
   const api = useApi();
@@ -117,12 +122,13 @@ export function PixSubscriptionCheckout({
     polling,
     pollHint,
     refreshing,
+    checkInFlight,
     startPolling,
     stopPolling,
     verifyPayment,
-  } = usePaymentActivationPoll(checkout, () => {
+  } = usePaymentActivationPoll(checkout, (subscribedAt) => {
     clearPixCheckoutSession();
-    onActivated?.();
+    onActivated?.(subscribedAt);
   });
 
   const clearPixCheckout = useCallback(() => {
@@ -337,7 +343,7 @@ export function PixSubscriptionCheckout({
 
       if (data.activated) {
         clearPixCheckoutSession();
-        onActivated?.();
+        onActivated?.(new Date().toISOString());
         return;
       }
 
@@ -457,10 +463,17 @@ export function PixSubscriptionCheckout({
             </Button>
           </div>
         )}
-        {polling && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Aguardando confirmação do Pix…
+        {(polling || checkInFlight) && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center space-y-2">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto text-emerald-400" />
+            <p className="text-sm font-medium text-emerald-100">
+              {checkInFlight
+                ? "Confirmando sua assinatura…"
+                : "Verificando pagamento em tempo real…"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Assim que o Pix for confirmado, seu acesso libera na hora.
+            </p>
           </div>
         )}
         {pollHint && (
@@ -485,14 +498,19 @@ export function PixSubscriptionCheckout({
   return (
     <div className="space-y-4">
       {subscriptionActive && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-1">
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-2">
           <p className="text-sm font-medium text-emerald-300 flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
+            {subscriptionRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             Assinatura Pix ativa
           </p>
           <p className="text-xs text-muted-foreground">
-            Suas cobranças mensais são geradas automaticamente. Não é necessário
-            gerar um novo Pix.
+            {subscriptionRefreshing
+              ? "Sincronizando detalhes da assinatura…"
+              : "Suas cobranças mensais são geradas automaticamente. Não é necessário gerar um novo Pix."}
           </p>
         </div>
       )}

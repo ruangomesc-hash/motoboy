@@ -17,14 +17,17 @@ import {
   type CardCheckoutForm,
 } from "./card-checkout-fields";
 import { useCheckoutProfile } from "./use-checkout-profile";
-import { usePaymentActivationPoll } from "./use-payment-activation-poll";
+import {
+  usePaymentActivationPoll,
+  type PaymentActivatedHandler,
+} from "./use-payment-activation-poll";
 import { VerifyPaymentButton } from "./verify-payment-button";
 
 type Props = {
   asaasConfigured: boolean;
   asaasStatusUnknown?: boolean;
   subscriptionActive?: boolean;
-  onActivated?: () => void;
+  onActivated?: PaymentActivatedHandler;
 };
 
 export function CardSubscriptionCheckout({
@@ -101,7 +104,7 @@ export function CardSubscriptionCheckout({
       });
 
       if (data.activated) {
-        onActivated?.();
+        onActivated?.(new Date().toISOString());
         return;
       }
 

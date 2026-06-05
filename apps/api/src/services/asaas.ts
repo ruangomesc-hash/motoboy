@@ -1431,9 +1431,57 @@ export class AsaasService {
   /**
    * Consulta cobrança no Asaas (fallback se o webhook atrasar).
    */
+  private deferActiveUserAsaasSync(
+    userId: string,
+    user: {
+      asaasSubscriptionId: string | null;
+      cpfCnpj: string | null;
+      asaasCustomerId: string | null;
+    },
+    log?: FastifyBaseLogger,
+  ): void {
+    if (!this.configured) return;
+
+    void (async () => {
+      if (!user.asaasSubscriptionId) {
+        try {
+          await ensureRecurringSubscription(this.env, userId, log);
+        } catch (err) {
+          log?.warn(
+            { err, userId },
+            "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
+          );
+        }
+      }
+      if (!user.cpfCnpj && user.asaasCustomerId) {
+        try {
+          const customer = await this.api<AsaasCustomer>(
+            `/customers/${user.asaasCustomerId}`,
+            {},
+            "syncCustomerCpfFromAsaas",
+          );
+          const cpf = customer.cpfCnpj
+            ? normalizeCpfCnpjDigits(customer.cpfCnpj)
+            : "";
+          if (cpf && isValidCpfCnpj(cpf)) {
+            await withPrismaRetry(() =>
+              prisma.user.update({
+                where: { id: userId },
+                data: { cpfCnpj: cpf },
+              }),
+            );
+          }
+        } catch (err) {
+          log?.warn({ err, userId }, "Falha ao sincronizar CPF do Asaas");
+        }
+      }
+    })();
+  }
+
   async syncSubscriptionPaymentStatus(
     userId: string,
     log?: FastifyBaseLogger,
+    focusChargeId?: string,
   ): Promise<{ status: string; activated: boolean }> {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
@@ -1443,44 +1491,39 @@ export class AsaasService {
     }
 
     if (user.status === "ACTIVE") {
-      if (this.configured) {
-        if (!user.asaasSubscriptionId) {
-          try {
-            await ensureRecurringSubscription(this.env, userId, log);
-          } catch (err) {
-            log?.warn(
-              { err, userId },
-              "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
-            );
-          }
-        }
-        if (!user.cpfCnpj && user.asaasCustomerId) {
-          try {
-            const customer = await this.api<AsaasCustomer>(
-              `/customers/${user.asaasCustomerId}`,
-              {},
-              "syncCustomerCpfFromAsaas",
-            );
-            const cpf = customer.cpfCnpj
-              ? normalizeCpfCnpjDigits(customer.cpfCnpj)
-              : "";
-            if (cpf && isValidCpfCnpj(cpf)) {
-              await withPrismaRetry(() =>
-                prisma.user.update({
-                  where: { id: userId },
-                  data: { cpfCnpj: cpf },
-                }),
-              );
-            }
-          } catch (err) {
-            log?.warn({ err, userId }, "Falha ao sincronizar CPF do Asaas");
-          }
-        }
-      }
+      this.deferActiveUserAsaasSync(userId, user, log);
       return { status: user.status, activated: false };
     }
 
     if (!this.configured) {
+      return { status: user.status, activated: false };
+    }
+
+    const focusId = focusChargeId?.trim();
+    if (focusId) {
+      try {
+        const remote = await this.getPaymentById(focusId);
+        const activated = await this.activateUserFromPaidCharge(
+          userId,
+          user,
+          focusId,
+          remote,
+          log,
+        );
+        if (activated) {
+          return { status: "ACTIVE", activated: true };
+        }
+      } catch (err) {
+        log?.warn({ err, userId, chargeId: focusId }, "Sync cobrança focada");
+      }
+
+      const fresh = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { status: true },
+      });
+      if (fresh?.status === "ACTIVE") {
+        return { status: "ACTIVE", activated: true };
+      }
       return { status: user.status, activated: false };
     }
 
@@ -1494,7 +1537,7 @@ export class AsaasService {
         status: { in: ["PENDING", "FAILED"] },
       },
       orderBy: { createdAt: "desc" },
-      take: 5,
+      take: 2,
     });
 
     for (const row of candidates) {

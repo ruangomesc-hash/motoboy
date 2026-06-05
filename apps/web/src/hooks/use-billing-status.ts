@@ -8,12 +8,21 @@ import { fetchSystemHealth } from "@/lib/system-health";
 
 export type BillingStatusLoadState = "idle" | "loading" | "ready" | "error";
 
+export type BillingRefreshOptions = {
+  silent?: boolean;
+  /** Pula health check e retries — uso após confirmação de pagamento. */
+  fast?: boolean;
+};
+
 export type BillingStatusSnapshot = {
   subscription: SubscriptionStatus | null;
   loadState: BillingStatusLoadState;
+  refreshing: boolean;
   /** null = não foi possível verificar (ex.: health indisponível) */
   asaasConfigured: boolean | null;
-  refresh: (opts?: { silent?: boolean }) => void;
+  refresh: (opts?: BillingRefreshOptions) => void;
+  /** Atualiza a UI na hora quando o pagamento foi confirmado. */
+  applyActiveStatus: (subscribedAt?: string | null) => void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -48,6 +57,7 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
   const { status: sessionStatus } = useSession();
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [loadState, setLoadState] = useState<BillingStatusLoadState>("idle");
+  const [refreshing, setRefreshing] = useState(false);
   const [asaasConfigured, setAsaasConfigured] = useState<boolean | null>(null);
   const hadSuccessfulLoad = useRef(false);
   const asaasFromHealth = useRef<boolean | null>(null);
@@ -62,54 +72,83 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     }
   }, []);
 
+  const applyActiveStatus = useCallback((subscribedAt?: string | null) => {
+    setSubscription((prev) => {
+      const base = prev ?? fallbackSubscription(asaasFromHealth.current);
+      return {
+        ...base,
+        status: "ACTIVE",
+        subscribedAt:
+          subscribedAt ??
+          base.subscribedAt ??
+          new Date().toISOString(),
+      };
+    });
+    setLoadState("ready");
+    hadSuccessfulLoad.current = true;
+  }, []);
+
   const refresh = useCallback(
-    (opts?: { silent?: boolean }) => {
+    (opts?: BillingRefreshOptions) => {
       if (!enabled || sessionStatus !== "authenticated") return;
       const silent = opts?.silent === true;
+      const fast = opts?.fast === true;
 
       if (!hadSuccessfulLoad.current) {
         setLoadState("loading");
+      } else if (!silent) {
+        setRefreshing(true);
       }
 
-      void fetchSystemHealth({ timeoutMs: 5_000 }).then((healthSnap) => {
-        applyAsaasFromHealth(healthSnap.health?.asaas?.configured);
-      });
+      if (!fast) {
+        void fetchSystemHealth({ timeoutMs: fast ? 2_000 : 5_000 }).then(
+          (healthSnap) => {
+            applyAsaasFromHealth(healthSnap.health?.asaas?.configured);
+          },
+        );
+      }
 
       void (async () => {
-        const maxAttempts = 3;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          try {
-            const data = await api<SubscriptionStatus>(
-              "/me/subscription",
-              {},
-              { skipSync: true },
-            );
-            setSubscription(data);
-            setLoadState("ready");
-            hadSuccessfulLoad.current = true;
-            if (data.asaas?.configured === true) {
-              setAsaasConfigured(true);
-            } else if (data.asaas?.configured === false) {
-              setAsaasConfigured(false);
-            }
-            return;
-          } catch {
-            if (attempt < maxAttempts - 1) {
-              await sleep(800 * (attempt + 1));
-              continue;
-            }
-            if (hadSuccessfulLoad.current) {
+        const maxAttempts = fast ? 1 : 3;
+        try {
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              const data = await api<SubscriptionStatus>(
+                "/me/subscription",
+                {},
+                { skipSync: true },
+              );
+              setSubscription(data);
               setLoadState("ready");
+              hadSuccessfulLoad.current = true;
+              if (data.asaas?.configured === true) {
+                setAsaasConfigured(true);
+              } else if (data.asaas?.configured === false) {
+                setAsaasConfigured(false);
+              }
               return;
+            } catch {
+              if (attempt < maxAttempts - 1) {
+                await sleep(fast ? 300 : 800 * (attempt + 1));
+                continue;
+              }
+              throw new Error("subscription fetch failed");
             }
-            if (asaasFromHealth.current === true) {
-              setSubscription(fallbackSubscription(true));
-              setLoadState("ready");
-              return;
-            }
-            setSubscription(fallbackSubscription(asaasFromHealth.current));
-            setLoadState(asaasFromHealth.current === null ? "error" : "ready");
           }
+        } catch {
+          if (hadSuccessfulLoad.current) {
+            setLoadState("ready");
+            return;
+          }
+          if (asaasFromHealth.current === true) {
+            setSubscription(fallbackSubscription(true));
+            setLoadState("ready");
+            return;
+          }
+          setSubscription(fallbackSubscription(asaasFromHealth.current));
+          setLoadState(asaasFromHealth.current === null ? "error" : "ready");
+        } finally {
+          setRefreshing(false);
         }
       })();
     },
@@ -125,6 +164,7 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       setLoadState("idle");
       setSubscription(null);
       setAsaasConfigured(null);
+      setRefreshing(false);
       asaasFromHealth.current = null;
       hadSuccessfulLoad.current = false;
       return;
@@ -132,5 +172,12 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     refreshRef.current();
   }, [sessionStatus]);
 
-  return { subscription, loadState, asaasConfigured, refresh };
+  return {
+    subscription,
+    loadState,
+    refreshing,
+    asaasConfigured,
+    refresh,
+    applyActiveStatus,
+  };
 }

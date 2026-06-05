@@ -1,7 +1,7 @@
 import type { SubscribeResponse } from "@motoboy/types";
 
-/** Confirmação de pagamento Pix — consulta Asaas a cada 2s. */
-export const PAYMENT_POLL_FAST_MS = 2000;
+/** Confirmação de pagamento Pix — consulta Asaas em tempo quase real. */
+export const PAYMENT_POLL_FAST_MS = 1000;
 export const PAYMENT_POLL_MS = PAYMENT_POLL_FAST_MS;
 export const PAYMENT_POLL_MAX_MS = 20 * 60 * 1000;
 

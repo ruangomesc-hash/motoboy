@@ -12,13 +12,15 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { PixSubscriptionCheckout } from "@/components/subscription-checkout/pix-subscription-checkout";
 import { CardSubscriptionCheckout } from "@/components/subscription-checkout/card-subscription-checkout";
+import type { PaymentActivatedHandler } from "@/components/subscription-checkout/use-payment-activation-poll";
 
 type Props = {
   initialMethod: SubscriptionPaymentMethod;
   asaasConfigured: boolean;
   asaasStatusUnknown?: boolean;
-  onActivated?: () => void;
+  onActivated?: PaymentActivatedHandler;
   subscriptionActive?: boolean;
+  subscriptionRefreshing?: boolean;
   subscriptionStatus?: SubscriptionBillingStatus | string | null;
   activePaymentMethod?: SubscriptionPaymentMethod | null;
   subscribedAt?: string | null;
@@ -30,6 +32,7 @@ export function AsaasTransparentCheckout({
   asaasStatusUnknown = false,
   onActivated,
   subscriptionActive = false,
+  subscriptionRefreshing = false,
   subscriptionStatus = "TRIAL",
   activePaymentMethod,
   subscribedAt,
@@ -71,6 +74,7 @@ export function AsaasTransparentCheckout({
     asaasConfigured,
     asaasStatusUnknown,
     subscriptionActive,
+    subscriptionRefreshing,
     onActivated,
   };
 

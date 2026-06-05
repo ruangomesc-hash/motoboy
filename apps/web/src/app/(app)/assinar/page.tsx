@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { Check } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { SUBSCRIPTION_PRICE_BRL } from "@motoboy/types";
 import { AppPage } from "@/components/app-page";
 import { AppLoadingSplash } from "@/components/app-loading-splash";
@@ -13,9 +13,14 @@ import { billingAsaasNotice } from "@/lib/billing-messages";
 
 function AssinarPageContent() {
   const { status: sessionStatus } = useSession();
-  const { subscription, loadState, asaasConfigured, refresh } = useBillingStatus(
-    sessionStatus === "authenticated",
-  );
+  const {
+    subscription,
+    loadState,
+    refreshing,
+    asaasConfigured,
+    refresh,
+    applyActiveStatus,
+  } = useBillingStatus(sessionStatus === "authenticated");
 
   if (sessionStatus === "loading") {
     return (
@@ -35,6 +40,14 @@ function AssinarPageContent() {
     );
   }
 
+  if (loadState === "loading" && !subscription) {
+    return (
+      <AppPage className="p-6 flex flex-col flex-1 min-h-[50vh]">
+        <AppLoadingSplash variant="account" className="flex-1" />
+      </AppPage>
+    );
+  }
+
   const status = subscription?.status ?? "TRIAL";
   const isActive = status === "ACTIVE";
   const asaasOk = asaasConfigured === true;
@@ -43,16 +56,28 @@ function AssinarPageContent() {
     subscription?.subscriptionPaymentMethod,
   );
 
+  function handleActivated(subscribedAt?: string | null) {
+    applyActiveStatus(subscribedAt);
+    refresh({ silent: true, fast: true });
+  }
+
   return (
     <AppPage className="p-6 flex flex-col flex-1 gap-6">
       <div className="text-center">
         <h1 className="text-2xl font-bold">Motocopiloto Pro</h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          {isActive
-            ? "Seu acesso completo está liberado"
-            : status === "PAUSED"
-              ? "Regularize o pagamento para liberar o acesso:"
-              : "Trial de 4 dias grátis. Depois, continue por:"}
+          {refreshing && !isActive ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Carregando status da assinatura…
+            </span>
+          ) : isActive ? (
+            "Seu acesso completo está liberado"
+          ) : status === "PAUSED" ? (
+            "Regularize o pagamento para liberar o acesso:"
+          ) : (
+            "Trial de 4 dias grátis. Depois, continue por:"
+          )}
         </p>
         <p className="text-4xl font-bold text-primary mt-3">
           {SUBSCRIPTION_PRICE_BRL.toLocaleString("pt-BR", {
@@ -86,9 +111,10 @@ function AssinarPageContent() {
         asaasStatusUnknown={
           loadState !== "ready" || asaasConfigured === null
         }
-        onActivated={() => refresh({ silent: true })}
+        onActivated={handleActivated}
         subscriptionActive={isActive}
         subscriptionStatus={status}
+        subscriptionRefreshing={refreshing}
         activePaymentMethod={preferredMethod}
         subscribedAt={subscription?.subscribedAt ?? null}
       />
