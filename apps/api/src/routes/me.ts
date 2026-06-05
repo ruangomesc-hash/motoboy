@@ -801,6 +801,9 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me/subscription", async (request) => {
     const userId = request.sessionUser!.id;
     const { withPrismaRetry } = await import("../lib/prisma-retry.js");
+    const { reconcileAsaasSubscriptionBilling } = await import(
+      "../services/asaas-subscription-schedule.js"
+    );
 
     const [user, lastPayment] = await withPrismaRetry(() =>
       Promise.all([
@@ -834,12 +837,32 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
+    let asaasNextDueDate: string | null = null;
+    if (user?.status === "ACTIVE") {
+      const asaas = new AsaasService(env, request.log);
+      if (asaas.configured) {
+        try {
+          asaasNextDueDate = await reconcileAsaasSubscriptionBilling(
+            env,
+            userId,
+            request.log,
+          );
+        } catch (err) {
+          request.log.warn(
+            { err, userId },
+            "Falha ao sincronizar próximo vencimento com o Asaas",
+          );
+        }
+      }
+    }
+
     return {
       status: user?.status ?? "TRIAL",
       trialEndsAt: trialEndsAt?.toISOString() ?? null,
       trialDays: TRIAL_DAYS,
       subscribedAt: user?.subscribedAt?.toISOString() ?? null,
       subscriptionPaymentMethod: user?.subscriptionPaymentMethod ?? "PIX",
+      asaasNextDueDate,
       lastPayment: lastPayment
         ? {
             id: lastPayment.id,
@@ -1140,10 +1163,30 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         where: { id: userId },
         select: { status: true, subscribedAt: true },
       });
+      const status = result.status ?? user?.status ?? "TRIAL";
+      let asaasNextDueDate: string | null = null;
+      if (status === "ACTIVE" && asaas.configured) {
+        const { reconcileAsaasSubscriptionBilling } = await import(
+          "../services/asaas-subscription-schedule.js"
+        );
+        try {
+          asaasNextDueDate = await reconcileAsaasSubscriptionBilling(
+            env,
+            userId,
+            request.log,
+          );
+        } catch (err) {
+          request.log.warn(
+            { err, userId },
+            "Refresh: falha ao gravar próximo vencimento no Asaas",
+          );
+        }
+      }
       return {
-        status: result.status,
+        status,
         activated: result.activated,
         subscribedAt: user?.subscribedAt?.toISOString() ?? null,
+        asaasNextDueDate,
       };
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode;

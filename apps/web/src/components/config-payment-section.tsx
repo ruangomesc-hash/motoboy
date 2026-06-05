@@ -20,36 +20,21 @@ type Props = {
   onSubscriptionChange?: () => void;
 };
 
-function nextRenewalLabel(subscribedAt: string | null): string | null {
-  if (!subscribedAt) return null;
-  const anchor = new Date(subscribedAt);
-  if (Number.isNaN(anchor.getTime())) return null;
-
-  const anchorDay = anchor.getDate();
-  const now = new Date();
-  let year = now.getFullYear();
-  let month = now.getMonth();
-
-  for (let i = 0; i < 24; i++) {
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const candidate = new Date(year, month, Math.min(anchorDay, lastDay));
-    const minNext = new Date(anchor);
-    minNext.setMonth(minNext.getMonth() + 1);
-    if (candidate > now && candidate >= minNext) {
-      return candidate.toLocaleDateString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-    }
-    month += 1;
-    if (month > 11) {
-      month = 0;
-      year += 1;
-    }
-  }
-
-  return null;
+function formatAsaasDueDateBr(isoDate: string | null | undefined): string | null {
+  if (!isoDate?.trim()) return null;
+  const parts = isoDate.trim().slice(0, 10).split("-");
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!y || !m || !d) return null;
+  const parsed = new Date(y, m - 1, d);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 export function ConfigPaymentSection({
@@ -65,7 +50,9 @@ export function ConfigPaymentSection({
     subscription?.subscriptionPaymentMethod ?? paymentMethod,
   );
   const subscribedAt = subscription?.subscribedAt ?? null;
-  const nextRenewal = subscriptionActive ? nextRenewalLabel(subscribedAt) : null;
+  const nextRenewal = subscriptionActive
+    ? formatAsaasDueDateBr(subscription?.asaasNextDueDate)
+    : null;
   const lastPaidAt = subscription?.lastPayment?.paidAt ?? null;
 
   return (

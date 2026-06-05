@@ -20,7 +20,10 @@ import {
   dueDateToday,
   isPaymentSettledAfterDueDate,
 } from "../lib/billing-calendar.js";
-import { scheduleNextSubscriptionBilling } from "./asaas-subscription-schedule.js";
+import {
+  reconcileAsaasSubscriptionBilling,
+  scheduleNextSubscriptionBilling,
+} from "./asaas-subscription-schedule.js";
 import {
   ensurePrismaConnection,
   withPrismaRetry,
@@ -1409,22 +1412,24 @@ export class AsaasService {
         );
       });
     } else {
-      void scheduleNextSubscriptionBilling(
-        this.env,
-        {
-          subscriptionId: linkedSubscriptionId,
-          paidAt,
-          subscribedAt: subscribedAtAfter,
-          wasOverdue,
-          isFirstPayment,
-        },
-        log,
-      ).catch((err) => {
+      try {
+        await scheduleNextSubscriptionBilling(
+          this.env,
+          {
+            subscriptionId: linkedSubscriptionId,
+            paidAt,
+            subscribedAt: subscribedAtAfter,
+            wasOverdue,
+            isFirstPayment,
+          },
+          log,
+        );
+      } catch (err) {
         log?.warn(
           { err, userId, chargeId, subscriptionId: linkedSubscriptionId },
-          "Pagamento confirmado, mas falha ao agendar próximo vencimento",
+          "Pagamento confirmado, mas falha ao gravar próximo vencimento no Asaas",
         );
-      });
+      }
       log?.info(
         { userId, chargeId, subscriptionId: linkedSubscriptionId },
         "Assinatura Asaas vinculada ao pagamento confirmado",
@@ -1479,6 +1484,14 @@ export class AsaasService {
             "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
           );
         }
+      }
+      try {
+        await reconcileAsaasSubscriptionBilling(this.env, userId, log);
+      } catch (err) {
+        log?.warn(
+          { err, userId },
+          "Falha ao sincronizar próximo vencimento no Asaas",
+        );
       }
       if (!user.cpfCnpj && user.asaasCustomerId) {
         try {

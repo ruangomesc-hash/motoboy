@@ -219,22 +219,24 @@ async function handlePaymentWebhook(
         },
       });
       if (options?.env) {
-        void scheduleNextSubscriptionBilling(
-          options.env,
-          {
-            subscriptionId: linkedSubscriptionId,
-            paidAt,
-            subscribedAt: subscribedAtAfter,
-            wasOverdue,
-            isFirstPayment,
-          },
-          log,
-        ).catch((err) => {
+        try {
+          await scheduleNextSubscriptionBilling(
+            options.env,
+            {
+              subscriptionId: linkedSubscriptionId,
+              paidAt,
+              subscribedAt: subscribedAtAfter,
+              wasOverdue,
+              isFirstPayment,
+            },
+            log,
+          );
+        } catch (err) {
           log?.warn(
             { err, userId: user.id, chargeId, subscriptionId: linkedSubscriptionId },
-            "Webhook: falha ao agendar próximo vencimento",
+            "Webhook: falha ao gravar próximo vencimento no Asaas",
           );
-        });
+        }
       }
     } else {
       await activateUser(user.id);

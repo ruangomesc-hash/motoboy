@@ -497,6 +497,8 @@ export const subscriptionStatusSchema = z.object({
   /** Dias de trial da política atual (ex.: 4). */
   trialDays: z.number().int().positive(),
   subscribedAt: z.string().nullable(),
+  /** Próximo vencimento configurado no Asaas (YYYY-MM-DD). */
+  asaasNextDueDate: z.string().nullable().optional(),
   subscriptionPaymentMethod: subscriptionPaymentMethodSchema,
   lastPayment: z
     .object({

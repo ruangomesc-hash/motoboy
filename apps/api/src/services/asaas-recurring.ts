@@ -10,6 +10,7 @@ import {
 import { SUBSCRIPTION_PRICE } from "./admin-metrics.js";
 import type { AsaasRequestContext } from "../lib/asaas-request-log.js";
 import { nextDueDateOnBillingDay } from "../lib/billing-calendar.js";
+import { reconcileAsaasSubscriptionBilling } from "./asaas-subscription-schedule.js";
 
 type AsaasSubscriptionDetail = {
   id: string;
@@ -57,6 +58,12 @@ export async function ensureRecurringSubscription(
         existing.status === "INACTIVE" ||
         existing.status === "EXPIRED";
       if (existing.id && !inactive) {
+        void reconcileAsaasSubscriptionBilling(env, userId, log).catch((err) => {
+          log?.warn(
+            { err, userId, subscriptionId: existing.id },
+            "Falha ao reconciliar vencimento da assinatura existente",
+          );
+        });
         return existing.id;
       }
     } catch (err) {
