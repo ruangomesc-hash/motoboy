@@ -70,6 +70,8 @@ type AsaasCustomer = { id: string; deleted?: boolean };
 type AsaasCustomerList = { data?: AsaasCustomer[] };
 type AsaasPayment = {
   id: string;
+  customer?: string;
+  externalReference?: string;
   invoiceUrl?: string;
   bankSlipUrl?: string;
   status?: string;
@@ -218,6 +220,16 @@ export class AsaasService {
     }
 
     const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
+
+    const resumedAsaas = await this.resumePendingPixFromAsaas(userId, customerId);
+    if (resumedAsaas) {
+      routeLog?.info(
+        { userId, chargeId: resumedAsaas.chargeId },
+        "Pix pendente (Asaas API)",
+      );
+      return resumedAsaas;
+    }
+
     await this.markStalePixPaymentsFailed(userId);
 
     let payment: AsaasPayment;
@@ -266,6 +278,59 @@ export class AsaasService {
       subscriptionId: payment.id,
       pixPending: true,
     };
+  }
+
+  /** Reaproveita cobrança Pix pendente no Asaas quando o registro local ainda não existe. */
+  private async resumePendingPixFromAsaas(
+    userId: string,
+    customerId: string,
+  ): Promise<SubscribeCheckoutResult | null> {
+    if (!this.configured) return null;
+    try {
+      const listed = await this.api<{ data?: AsaasPayment[] }>(
+        `/payments?customer=${encodeURIComponent(customerId)}&status=PENDING&billingType=PIX&limit=10`,
+        {},
+        "listPendingPixPayments",
+      );
+      const match = (listed.data ?? []).find(
+        (p) => p.externalReference === userId && p.id,
+      );
+      if (!match?.id) return null;
+
+      await this.ensurePendingPaymentRecord(userId, match.id);
+      return {
+        checkoutUrl: "",
+        chargeId: match.id,
+        invoiceUrl: "",
+        pixCopyPaste: null,
+        pixQrCodeImage: null,
+        amount: SUBSCRIPTION_PRICE,
+        subscriptionId: match.id,
+        pixPending: true,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async verifyUserOwnsAsaasCharge(
+    userId: string,
+    chargeId: string,
+  ): Promise<boolean> {
+    if (!this.configured) return true;
+    try {
+      const payment = await this.getPaymentById(chargeId);
+      if (payment.externalReference === userId) return true;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { asaasCustomerId: true },
+      });
+      return Boolean(
+        user?.asaasCustomerId && payment.customer === user.asaasCustomerId,
+      );
+    } catch {
+      return false;
+    }
   }
 
   private async resumePendingPixFromDb(
@@ -1236,13 +1301,24 @@ export class AsaasService {
         userId,
         asaasChargeId: chargeId,
         chargeKind: "SUBSCRIPTION",
-        status: "PENDING",
       },
     });
     if (!pending) {
-      throw Object.assign(new Error("Cobrança Pix não encontrada ou já finalizada."), {
-        statusCode: 404,
+      const ownsCharge = await this.verifyUserOwnsAsaasCharge(userId, chargeId);
+      if (!ownsCharge) {
+        throw Object.assign(
+          new Error("Cobrança Pix não encontrada ou já finalizada."),
+          { statusCode: 404 },
+        );
+      }
+      await this.ensurePendingPaymentRecord(userId, chargeId).catch(() => {
+        /* registro local pode falhar sem impedir leitura do QR */
       });
+    } else if (pending.status !== "PENDING") {
+      throw Object.assign(
+        new Error("Cobrança Pix não encontrada ou já finalizada."),
+        { statusCode: 404 },
+      );
     }
 
     const pix = await this.fetchPixQrWithAttempts(

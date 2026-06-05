@@ -43,11 +43,13 @@ export function PixSubscriptionCheckout({
   const [form, setForm] = useState<PixCheckoutForm>({ cpfCnpj: "" });
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<"create" | "qr">("create");
+  const [qrFetching, setQrFetching] = useState(false);
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const formHydrated = useRef(false);
   const formDirty = useRef(false);
+  const autoResumeDone = useRef(false);
 
   const {
     polling,
@@ -71,31 +73,106 @@ export function PixSubscriptionCheckout({
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
   const formReady = isPixFormValid(form);
 
+  async function fetchQrForCharge(
+    apiClient: ReturnType<typeof useApi>,
+    chargeId: string,
+    base: SubscribeResponse,
+    opts?: { maxMs?: number },
+  ): Promise<SubscribeResponse | null> {
+    const qr = await pollPixQrUntilReady(apiClient, chargeId, {
+      maxMs: opts?.maxMs ?? 120_000,
+    });
+    if (!qr) return null;
+    return {
+      ...base,
+      chargeId,
+      paymentMethod: "PIX",
+      pixCopyPaste: qr.pixCopyPaste,
+      pixQrCodeImage: qr.pixQrCodeImage,
+      pixPending: false,
+    };
+  }
+
   async function tryRecoverPendingPix(
     apiClient: ReturnType<typeof useApi>,
+    opts?: { maxMs?: number },
   ): Promise<SubscribeResponse | null> {
     try {
       const pending = await apiClient<{
         pending: boolean;
         chargeId?: string;
+        amount?: number;
       }>("/me/subscribe/pix/pending", {}, { skipSync: true });
       if (!pending.pending || !pending.chargeId) return null;
-      const qr = await pollPixQrUntilReady(apiClient, pending.chargeId, {
-        maxMs: 30_000,
-      });
-      if (!qr) return null;
-      return {
-        amount: 0,
+      const base: SubscribeResponse = {
+        amount: pending.amount ?? 0,
         chargeId: pending.chargeId,
         paymentMethod: "PIX",
-        pixCopyPaste: qr.pixCopyPaste,
-        pixQrCodeImage: qr.pixQrCodeImage,
-        pixPending: false,
+        pixCopyPaste: null,
+        pixQrCodeImage: null,
+        pixPending: true,
       };
+      return await fetchQrForCharge(apiClient, pending.chargeId, base, opts);
     } catch {
       return null;
     }
   }
+
+  async function loadQrForCheckout(
+    chargeId: string,
+    base: SubscribeResponse,
+  ): Promise<boolean> {
+    setQrFetching(true);
+    setError("");
+    try {
+      const withQr = await fetchQrForCharge(api, chargeId, base);
+      if (!withQr) {
+        setCheckout({ ...base, chargeId, pixPending: true });
+        setError(
+          "O Pix já foi gerado (confira o SMS). Toque em Buscar QR Code abaixo.",
+        );
+        return false;
+      }
+      setCheckout(withQr);
+      startPolling();
+      return true;
+    } finally {
+      setQrFetching(false);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      autoResumeDone.current ||
+      checkout ||
+      loading ||
+      subscriptionActive ||
+      sessionStatus !== "authenticated"
+    ) {
+      return;
+    }
+    autoResumeDone.current = true;
+    void (async () => {
+      const pending = await api<{
+        pending: boolean;
+        chargeId?: string;
+        amount?: number;
+      }>("/me/subscribe/pix/pending", {}, { skipSync: true }).catch(() => null);
+      if (!pending?.pending || !pending.chargeId) return;
+
+      const base: SubscribeResponse = {
+        amount: pending.amount ?? 0,
+        chargeId: pending.chargeId,
+        paymentMethod: "PIX",
+        pixCopyPaste: null,
+        pixQrCodeImage: null,
+        pixPending: true,
+      };
+      setCheckout(base);
+      await loadQrForCheckout(pending.chargeId, base);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recuperação única ao montar
+  }, [sessionStatus, subscriptionActive]);
 
   async function generatePix() {
     if (subscriptionActive) {
@@ -140,24 +217,20 @@ export function PixSubscriptionCheckout({
         (!data.pixCopyPaste && !data.pixQrCodeImage && data.chargeId)
       ) {
         setLoadingPhase("qr");
-        setCheckout({
+        const baseCheckout = {
           ...data,
           pixCopyPaste: null,
           pixQrCodeImage: null,
-        });
-        const qr = await pollPixQrUntilReady(api, data.chargeId);
-        if (!qr) {
+        };
+        setCheckout(baseCheckout);
+        const withQr = await fetchQrForCharge(api, data.chargeId, baseCheckout);
+        if (!withQr) {
           setError(
-            "Cobrança Pix criada. Toque em Gerar Pix de novo para buscar o QR (não cria outra cobrança).",
+            "O Pix já foi gerado (confira o SMS). Toque em Buscar QR Code abaixo.",
           );
           return;
         }
-        checkoutData = {
-          ...data,
-          pixCopyPaste: qr.pixCopyPaste,
-          pixQrCodeImage: qr.pixQrCodeImage,
-          pixPending: false,
-        };
+        checkoutData = withQr;
       } else if (!data.pixCopyPaste && !data.pixQrCodeImage) {
         setError("Não foi possível gerar o Pix. Tente novamente.");
         return;
@@ -177,7 +250,26 @@ export function PixSubscriptionCheckout({
           "Há um Pix anterior em processamento. Aguarde 1 minuto e tente de novo.";
       }
       if (err.status === 504 || err.code === "ASAAS_TIMEOUT") {
-        const recovered = await tryRecoverPendingPix(api);
+        const pending = await api<{
+          pending: boolean;
+          chargeId?: string;
+          amount?: number;
+        }>("/me/subscribe/pix/pending", {}, { skipSync: true }).catch(() => null);
+        if (pending?.pending && pending.chargeId) {
+          const base: SubscribeResponse = {
+            amount: pending.amount ?? 0,
+            chargeId: pending.chargeId,
+            paymentMethod: "PIX",
+            pixCopyPaste: null,
+            pixQrCodeImage: null,
+            pixPending: true,
+          };
+          setCheckout(base);
+          const ok = await loadQrForCheckout(pending.chargeId, base);
+          if (ok) return;
+          return;
+        }
+        const recovered = await tryRecoverPendingPix(api, { maxMs: 60_000 });
         if (recovered) {
           setCheckout(recovered);
           startPolling();
@@ -186,7 +278,7 @@ export function PixSubscriptionCheckout({
         msg =
           err.code === "ASAAS_TIMEOUT"
             ? msg
-            : "O servidor demorou demais. Aguarde 5 segundos e toque em Gerar Pix novamente.";
+            : "O Pix pode já ter sido gerado (confira o SMS). Toque em Buscar QR Code abaixo.";
       }
       setError(msg);
     } finally {
@@ -208,8 +300,10 @@ export function PixSubscriptionCheckout({
 
   if (checkout?.paymentMethod === "PIX") {
     const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
+    const missingQr = !checkout.pixCopyPaste && !qrSrc;
     const waitingQr =
-      loading && loadingPhase === "qr" && !checkout.pixCopyPaste && !qrSrc;
+      (loading && loadingPhase === "qr" && missingQr) ||
+      (qrFetching && missingQr);
 
     if (waitingQr) {
       return (
@@ -217,8 +311,54 @@ export function PixSubscriptionCheckout({
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
           <p className="text-sm font-medium">Cobrança Pix criada</p>
           <p className="text-xs text-muted-foreground">
-            Buscando QR Code no Asaas… isso pode levar até 1 minuto.
+            Buscando QR Code no Asaas… isso pode levar até 2 minutos.
           </p>
+        </div>
+      );
+    }
+
+    if (missingQr) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-2 text-center">
+            <p className="text-sm font-medium">Pix gerado — falta só o QR Code</p>
+            <p className="text-xs text-muted-foreground">
+              Se você recebeu SMS do Asaas, a cobrança já existe. Toque abaixo para
+              buscar o código Pix sem criar outra cobrança.
+            </p>
+          </div>
+          {error && (
+            <p className="text-sm text-destructive text-center">{error}</p>
+          )}
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={qrFetching}
+            onClick={() =>
+              void loadQrForCheckout(checkout.chargeId, checkout)
+            }
+          >
+            {qrFetching ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Buscando QR Code…
+              </>
+            ) : (
+              "Buscar QR Code"
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-sm"
+            onClick={() => {
+              setCheckout(null);
+              setError("");
+              stopPolling();
+            }}
+          >
+            Voltar
+          </Button>
         </div>
       );
     }

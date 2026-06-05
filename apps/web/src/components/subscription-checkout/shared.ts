@@ -33,20 +33,31 @@ export async function pollPixQrUntilReady(
   const started = Date.now();
 
   while (Date.now() - started < maxMs) {
-    const res = await api<{
-      ready: boolean;
-      pixCopyPaste?: string | null;
-      pixQrCodeImage?: string | null;
-    }>(
-      `/me/subscribe/charges/${encodeURIComponent(chargeId)}/pix-qr`,
-      {},
-      { skipSync: true },
-    );
-    if (res.ready && (res.pixCopyPaste || res.pixQrCodeImage)) {
-      return {
-        pixCopyPaste: res.pixCopyPaste ?? null,
-        pixQrCodeImage: res.pixQrCodeImage ?? null,
-      };
+    try {
+      const res = await api<{
+        ready: boolean;
+        pixCopyPaste?: string | null;
+        pixQrCodeImage?: string | null;
+      }>(
+        `/me/subscribe/charges/${encodeURIComponent(chargeId)}/pix-qr`,
+        {},
+        { skipSync: true },
+      );
+      if (res.ready && (res.pixCopyPaste || res.pixQrCodeImage)) {
+        return {
+          pixCopyPaste: res.pixCopyPaste ?? null,
+          pixQrCodeImage: res.pixQrCodeImage ?? null,
+        };
+      }
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      const retryable =
+        status === 404 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        status === undefined;
+      if (!retryable) throw e;
     }
     await sleep(intervalMs);
   }
