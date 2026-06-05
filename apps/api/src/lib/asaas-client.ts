@@ -52,6 +52,7 @@ export async function asaasRequest<T>(
     const url = `${asaasBaseUrl(env)}${path.startsWith("/") ? path : `/${path}`}`;
     const res = await fetch(url, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(18_000),
       headers: {
         "Content-Type": "application/json",
         access_token: env.ASAAS_API_KEY,

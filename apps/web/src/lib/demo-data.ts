@@ -696,6 +696,19 @@ export function demoFetch<T>(path: string, options: RequestInit = {}): Promise<T
       subscriptionId: "demo_sub_1",
       cardAuthorized: isCard,
       activated: false,
+      pixPending: !isCard,
+    } as T);
+  }
+  if (
+    path.startsWith("/me/subscribe/charges/") &&
+    path.endsWith("/pix-qr") &&
+    method === "GET"
+  ) {
+    return Promise.resolve({
+      ready: true,
+      pixCopyPaste:
+        "00020126580014br.gov.bcb.pix0136123e456789-e.mock-MOTOCOPILOTO520400005303986540514.905802BR5925Motocopiloto6009SAO PAULO62070503***6304ABCD",
+      pixQrCodeImage: null,
     } as T);
   }
   if (path === "/me/subscription/refresh" && method === "POST") {

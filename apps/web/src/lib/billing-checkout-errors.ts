@@ -28,6 +28,12 @@ export function formatBillingCheckoutError(
   if (code === "PIX_QR_UNAVAILABLE" || code === "PIX_QR_EMPTY") {
     return message || "Não foi possível gerar o Pix. Tente novamente em instantes.";
   }
+  if (status === 504) {
+    return (
+      message ||
+      "O servidor demorou demais para responder. Aguarde alguns segundos e tente de novo."
+    );
+  }
   if (status === 503 && !message.includes("banco")) {
     return message || "Pagamento indisponível no momento. Tente mais tarde.";
   }

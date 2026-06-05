@@ -26,8 +26,11 @@ import {
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
 const FIRST_PAYMENT_POLL_MS = 1000;
-const PIX_QR_POLL_ATTEMPTS = 10;
-const PIX_QR_POLL_MS = 400;
+const PIX_QR_POLL_MS = 350;
+/** Poll curto no POST /subscribe (evita 504 no serverless). */
+const PIX_QR_QUICK_ATTEMPTS = 3;
+/** Poll no endpoint dedicado de QR (cliente chama em loop). */
+const PIX_QR_FETCH_ATTEMPTS = 10;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -92,6 +95,7 @@ export type SubscribeCheckoutResult = {
   subscriptionId: string;
   cardAuthorized?: boolean;
   activated?: boolean;
+  pixPending?: boolean;
 };
 
 export type SubscribeCheckoutOptions = {
@@ -328,7 +332,13 @@ export class AsaasService {
       throw new Error("Falha ao criar cobrança no Asaas");
     }
 
-    const pix = await this.fetchPixQrRequired(payment.id);
+    const pix = await this.fetchPixQrWithAttempts(payment.id, PIX_QR_FETCH_ATTEMPTS);
+    if (!pix.payload && !pix.encodedImage) {
+      throw Object.assign(
+        new Error("Asaas ainda não liberou o QR Pix desta cobrança."),
+        { statusCode: 502, code: "PIX_QR_EMPTY" },
+      );
+    }
 
     const invoiceUrl =
       payment.invoiceUrl ??
@@ -416,8 +426,7 @@ export class AsaasService {
       };
     }
 
-    await this.syncCustomerCpf(user, cpfRaw);
-    await ensurePrismaConnection();
+    const customerId = await this.syncCustomerCpf(user, cpfRaw);
 
     const userFresh = await prisma.user.findUnique({ where: { id: userId } });
     if (!userFresh) {
@@ -449,13 +458,7 @@ export class AsaasService {
         );
     if (resumed) return resumed;
 
-    const customerId = await this.getOrCreateCustomer(
-      userForCheckout,
-      userForCheckout.cpfCnpj,
-    );
-
     if (billingType === "PIX") {
-      await ensurePrismaConnection();
       await this.resetPixCheckoutState(userId, routeLog);
       const resolved = await this.createPixSubscriptionDirectCheckout(
         userId,
@@ -464,6 +467,11 @@ export class AsaasService {
       this.assertCheckoutReady(resolved, billingType, false);
       return resolved;
     }
+
+    const cardCustomerId = await this.getOrCreateCustomer(
+      userForCheckout,
+      userForCheckout.cpfCnpj,
+    );
 
     const nextDueDate = dueDatePlusDays(0);
 
@@ -481,7 +489,7 @@ export class AsaasService {
         subId = null;
       }
       return this.createSubscriptionWithCreditCard(
-        customerId,
+        cardCustomerId,
         userId,
         nextDueDate,
         options!,
@@ -495,7 +503,7 @@ export class AsaasService {
         {
           method: "POST",
           body: JSON.stringify({
-            customer: customerId,
+            customer: cardCustomerId,
             billingType,
             value: SUBSCRIPTION_PRICE,
             cycle: "MONTHLY",
@@ -551,7 +559,7 @@ export class AsaasService {
         {
           method: "POST",
           body: JSON.stringify({
-            customer: customerId,
+            customer: cardCustomerId,
             billingType,
             value: SUBSCRIPTION_PRICE,
             cycle: "MONTHLY",
@@ -823,6 +831,7 @@ export class AsaasService {
 
     if (
       billingType === "PIX" &&
+      !resolved.pixPending &&
       !resolved.pixCopyPaste &&
       !resolved.pixQrCodeImage
     ) {
@@ -943,19 +952,51 @@ export class AsaasService {
       });
     }
 
-    await ensurePrismaConnection();
     await this.ensurePendingPaymentRecord(userId, payment.id);
-    const pix = await this.fetchPixQrRequired(payment.id);
-    const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, payment.id);
+    const pix = await this.fetchPixQrWithAttempts(
+      payment.id,
+      PIX_QR_QUICK_ATTEMPTS,
+    );
+    const hasQr = Boolean(pix.payload || pix.encodedImage);
 
     return {
-      checkoutUrl: invoiceUrl,
+      checkoutUrl: "",
       chargeId: payment.id,
-      invoiceUrl,
+      invoiceUrl: "",
       pixCopyPaste: pix.payload,
       pixQrCodeImage: pix.encodedImage,
       amount: SUBSCRIPTION_PRICE,
       subscriptionId: payment.id,
+      pixPending: !hasQr,
+    };
+  }
+
+  /** Busca QR Pix de cobrança pendente do usuário (poll curto — chamado pelo app). */
+  async fetchPixQrForUserCharge(
+    userId: string,
+    chargeId: string,
+  ): Promise<{ pixCopyPaste: string | null; pixQrCodeImage: string | null } | null> {
+    const pending = await prisma.payment.findFirst({
+      where: {
+        userId,
+        asaasChargeId: chargeId,
+        chargeKind: "SUBSCRIPTION",
+        status: "PENDING",
+      },
+    });
+    if (!pending) {
+      throw Object.assign(new Error("Cobrança Pix não encontrada ou já finalizada."), {
+        statusCode: 404,
+      });
+    }
+
+    const pix = await this.fetchPixQrWithAttempts(chargeId, PIX_QR_FETCH_ATTEMPTS);
+    if (!pix.payload && !pix.encodedImage) {
+      return null;
+    }
+    return {
+      pixCopyPaste: pix.payload,
+      pixQrCodeImage: pix.encodedImage,
     };
   }
 
@@ -976,12 +1017,14 @@ export class AsaasService {
     );
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (user?.asaasSubscriptionId) {
-      await this.clearAsaasSubscription(
-        userId,
-        user.asaasSubscriptionId,
-        log,
-      );
+    const staleSubId = user?.asaasSubscriptionId;
+    if (staleSubId) {
+      void this.clearAsaasSubscription(userId, staleSubId, log).catch((err) => {
+        log?.warn(
+          { err, userId, subscriptionId: staleSubId },
+          "Limpeza assíncrona de assinatura Asaas (Pix direto)",
+        );
+      });
     }
   }
 
@@ -992,11 +1035,15 @@ export class AsaasService {
     userId: string,
     subscriptionId: string,
   ): Promise<SubscribeCheckoutResult> {
-    const pix = payment?.id
-      ? await this.fetchPixQr(payment.id, billingType, false)
-      : { payload: null, encodedImage: null };
+    const pix =
+      payment?.id && billingType === "PIX"
+        ? await this.fetchPixQrWithAttempts(payment.id, PIX_QR_QUICK_ATTEMPTS)
+        : { payload: null, encodedImage: null };
 
-    const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, chargeId);
+    const invoiceUrl =
+      billingType === "PIX"
+        ? ""
+        : await this.resolvePaymentInvoiceUrl(payment, chargeId);
 
     if (payment?.id) {
       await this.ensurePendingPaymentRecord(userId, payment.id);
@@ -1144,7 +1191,7 @@ export class AsaasService {
       }
     }
 
-    if (user.asaasSubscriptionId) {
+    if (user.asaasSubscriptionId && billingType !== "PIX") {
       const payments = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${user.asaasSubscriptionId}/payments?limit=5`,
         {},
@@ -1238,29 +1285,9 @@ export class AsaasService {
     });
   }
 
-  private async fetchPixQr(
+  private async fetchPixQrWithAttempts(
     paymentId: string,
-    billingType: string,
-    throwOnError = false,
-  ): Promise<{ payload: string | null; encodedImage: string | null }> {
-    if (billingType !== "PIX") {
-      return { payload: null, encodedImage: null };
-    }
-    try {
-      return await this.fetchPixQrRequired(paymentId);
-    } catch (err) {
-      if (throwOnError) throw err;
-      this.log?.warn(
-        { err, paymentId },
-        "fetchPixQr falhou (resume/poll) — tentará de novo",
-      );
-      return { payload: null, encodedImage: null };
-    }
-  }
-
-  private async fetchPixQrRequired(
-    paymentId: string,
-    maxAttempts = PIX_QR_POLL_ATTEMPTS,
+    maxAttempts: number,
   ): Promise<{ payload: string | null; encodedImage: string | null }> {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const pix = await this.api<AsaasPixQr>(
@@ -1277,13 +1304,30 @@ export class AsaasService {
         await sleep(PIX_QR_POLL_MS);
       }
     }
+    return { payload: null, encodedImage: null };
+  }
 
-    throw Object.assign(
-      new Error(
-        "Asaas ainda não liberou o QR Pix desta cobrança. Aguarde alguns segundos e tente novamente.",
-      ),
-      { statusCode: 502, code: "PIX_QR_EMPTY" },
+  private async fetchPixQr(
+    paymentId: string,
+    billingType: string,
+    throwOnError = false,
+  ): Promise<{ payload: string | null; encodedImage: string | null }> {
+    if (billingType !== "PIX") {
+      return { payload: null, encodedImage: null };
+    }
+    const pix = await this.fetchPixQrWithAttempts(
+      paymentId,
+      throwOnError ? PIX_QR_FETCH_ATTEMPTS : PIX_QR_QUICK_ATTEMPTS,
     );
+    if (throwOnError && !pix.payload && !pix.encodedImage) {
+      throw Object.assign(
+        new Error(
+          "Asaas ainda não liberou o QR Pix desta cobrança. Aguarde alguns segundos e tente novamente.",
+        ),
+        { statusCode: 502, code: "PIX_QR_EMPTY" },
+      );
+    }
+    return pix;
   }
 
   private async ensurePendingPaymentRecord(

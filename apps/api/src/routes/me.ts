@@ -841,6 +841,42 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/me/subscribe/charges/:chargeId/pix-qr", async (request, reply) => {
+    const userId = request.sessionUser!.id;
+    const chargeId = (request.params as { chargeId: string }).chargeId?.trim();
+    if (!chargeId) {
+      return reply.status(400).send({ error: "ID da cobrança inválido." });
+    }
+
+    const asaas = new AsaasService(env, request.log);
+    if (!asaas.configured && isProductionRuntime()) {
+      return reply.status(503).send({
+        error: "Pagamento indisponível no momento.",
+      });
+    }
+
+    try {
+      const qr = await asaas.fetchPixQrForUserCharge(userId, chargeId);
+      if (!qr) {
+        return reply.status(202).send({ ready: false });
+      }
+      return {
+        ready: true,
+        pixCopyPaste: qr.pixCopyPaste,
+        pixQrCodeImage: qr.pixQrCodeImage,
+      };
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode;
+      const message =
+        err instanceof Error ? err.message : "Erro ao buscar QR Pix";
+      if (statusCode === 404) {
+        return reply.status(404).send({ error: message });
+      }
+      request.log.error({ err, userId, chargeId }, "Pix QR poll");
+      return reply.status(502).send({ error: message });
+    }
+  });
+
   app.post("/me/subscribe", async (request, reply) => {
     const user = await prisma.user.findUnique({
       where: { id: request.sessionUser!.id },
@@ -940,6 +976,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         subscriptionId: result.subscriptionId,
         cardAuthorized: result.cardAuthorized ?? false,
         activated: result.activated ?? false,
+        pixPending: result.pixPending ?? false,
       };
     } catch (err) {
       const { mapPrismaHttpError } = await import("../lib/prisma-http.js");

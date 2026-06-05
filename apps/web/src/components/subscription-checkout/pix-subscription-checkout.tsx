@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Check, Copy, Loader2 } from "lucide-react";
 import type { SubscribeResponse } from "@motoboy/types";
 import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
-import { pixQrSrc, requestSubscribeWithRetry } from "./shared";
+import {
+  pixQrSrc,
+  pollPixQrUntilReady,
+  requestSubscribeWithRetry,
+} from "./shared";
 import {
   PixCheckoutFields,
   buildDefaultPixForm,
@@ -38,6 +42,7 @@ export function PixSubscriptionCheckout({
   const profile = useCheckoutProfile();
   const [form, setForm] = useState<PixCheckoutForm>({ cpfCnpj: "" });
   const [loading, setLoading] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState<"create" | "qr">("create");
   const [error, setError] = useState("");
   const [checkout, setCheckout] = useState<SubscribeResponse | null>(null);
   const [copied, setCopied] = useState(false);
@@ -81,6 +86,7 @@ export function PixSubscriptionCheckout({
     }
 
     setLoading(true);
+    setLoadingPhase("create");
     setError("");
     setCheckout(null);
     stopPolling();
@@ -101,12 +107,32 @@ export function PixSubscriptionCheckout({
         return;
       }
 
-      if (!data.pixCopyPaste && !data.pixQrCodeImage) {
+      let checkoutData = data;
+
+      if (
+        data.pixPending ||
+        (!data.pixCopyPaste && !data.pixQrCodeImage && data.chargeId)
+      ) {
+        setLoadingPhase("qr");
+        const qr = await pollPixQrUntilReady(api, data.chargeId);
+        if (!qr) {
+          setError(
+            "O Pix foi criado, mas o QR demorou. Aguarde alguns segundos e toque em Gerar Pix de novo.",
+          );
+          return;
+        }
+        checkoutData = {
+          ...data,
+          pixCopyPaste: qr.pixCopyPaste,
+          pixQrCodeImage: qr.pixQrCodeImage,
+          pixPending: false,
+        };
+      } else if (!data.pixCopyPaste && !data.pixQrCodeImage) {
         setError("Não foi possível gerar o Pix. Tente novamente.");
         return;
       }
 
-      setCheckout(data);
+      setCheckout(checkoutData);
       startPolling();
     } catch (e) {
       const err = e as Error & { status?: number; code?: string };
@@ -119,9 +145,14 @@ export function PixSubscriptionCheckout({
         msg =
           "Há um Pix anterior em processamento. Aguarde 1 minuto e tente de novo.";
       }
+      if (err.status === 504) {
+        msg =
+          "O servidor demorou demais. Aguarde 5 segundos e toque em Gerar Pix novamente.";
+      }
       setError(msg);
     } finally {
       setLoading(false);
+      setLoadingPhase("create");
     }
   }
 
@@ -222,7 +253,9 @@ export function PixSubscriptionCheckout({
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Gerando Pix…
+                {loadingPhase === "qr"
+                  ? "Preparando QR Code Pix…"
+                  : "Criando cobrança Pix…"}
               </>
             ) : (
               "Gerar Pix"

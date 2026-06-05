@@ -16,6 +16,44 @@ type ApiFn = <T>(
   apiOptions?: { skipSync?: boolean },
 ) => Promise<T>;
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function pollPixQrUntilReady(
+  api: ApiFn,
+  chargeId: string,
+  opts?: { maxMs?: number; intervalMs?: number },
+): Promise<{
+  pixCopyPaste: string | null;
+  pixQrCodeImage: string | null;
+} | null> {
+  const maxMs = opts?.maxMs ?? 45_000;
+  const intervalMs = opts?.intervalMs ?? 1_200;
+  const started = Date.now();
+
+  while (Date.now() - started < maxMs) {
+    const res = await api<{
+      ready: boolean;
+      pixCopyPaste?: string | null;
+      pixQrCodeImage?: string | null;
+    }>(
+      `/me/subscribe/charges/${encodeURIComponent(chargeId)}/pix-qr`,
+      {},
+      { skipSync: true },
+    );
+    if (res.ready && (res.pixCopyPaste || res.pixQrCodeImage)) {
+      return {
+        pixCopyPaste: res.pixCopyPaste ?? null,
+        pixQrCodeImage: res.pixQrCodeImage ?? null,
+      };
+    }
+    await sleep(intervalMs);
+  }
+
+  return null;
+}
+
 export async function requestSubscribeWithRetry(
   api: ApiFn,
   payload: Record<string, unknown>,

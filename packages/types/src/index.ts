@@ -470,6 +470,8 @@ export const subscribeResponseSchema = z.object({
   /** Cartão validado na API (sem redirecionar para fatura Asaas). */
   cardAuthorized: z.boolean().optional(),
   activated: z.boolean().optional(),
+  /** Pix criado; QR ainda sendo liberado pelo Asaas — use GET …/pix-qr. */
+  pixPending: z.boolean().optional(),
 });
 
 export type SubscribeResponse = z.infer<typeof subscribeResponseSchema>;
