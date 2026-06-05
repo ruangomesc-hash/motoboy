@@ -182,6 +182,9 @@ export class AsaasService {
     const fromDb = await this.resumePendingPixFromDb(userId);
     if (fromDb) return this.attachPixQrIfReady(fromDb);
 
+    const fromRef = await this.resumePendingPixByUserReference(userId);
+    if (fromRef) return this.attachPixQrIfReady(fromRef);
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { asaasCustomerId: true },
@@ -242,6 +245,15 @@ export class AsaasService {
         "Pix pendente (Asaas API)",
       );
       return this.attachPixQrIfReady(resumedAsaas);
+    }
+
+    const resumedRef = await this.resumePendingPixByUserReference(userId);
+    if (resumedRef) {
+      routeLog?.info(
+        { userId, chargeId: resumedRef.chargeId },
+        "Pix pendente (Asaas externalReference)",
+      );
+      return this.attachPixQrIfReady(resumedRef);
     }
 
     await this.markStalePixPaymentsFailed(userId);
@@ -318,6 +330,36 @@ export class AsaasService {
       return status === "PENDING" || status === "OVERDUE";
     } catch {
       return false;
+    }
+  }
+
+  /** Busca cobrança Pix pendente pelo externalReference (= userId) no Asaas. */
+  private async resumePendingPixByUserReference(
+    userId: string,
+  ): Promise<SubscribeCheckoutResult | null> {
+    if (!this.configured) return null;
+    try {
+      const listed = await this.api<{ data?: AsaasPayment[] }>(
+        `/payments?externalReference=${encodeURIComponent(userId)}&status=PENDING&billingType=PIX&limit=5`,
+        {},
+        "listPendingPixByUserRef",
+      );
+      const match = (listed.data ?? []).find((p) => p.id);
+      if (!match?.id) return null;
+
+      await this.ensurePendingPaymentRecord(userId, match.id);
+      return {
+        checkoutUrl: "",
+        chargeId: match.id,
+        invoiceUrl: "",
+        pixCopyPaste: null,
+        pixQrCodeImage: null,
+        amount: SUBSCRIPTION_PRICE,
+        subscriptionId: match.id,
+        pixPending: true,
+      };
+    } catch {
+      return null;
     }
   }
 

@@ -67,7 +67,7 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       if (!enabled || sessionStatus !== "authenticated") return;
       const silent = opts?.silent === true;
 
-      if (!silent || !hadSuccessfulLoad.current) {
+      if (!hadSuccessfulLoad.current) {
         setLoadState("loading");
       }
 
@@ -116,6 +116,9 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     [api, applyAsaasFromHealth, enabled, sessionStatus],
   );
 
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
   useEffect(() => {
     if (sessionStatus === "loading") return;
     if (sessionStatus !== "authenticated") {
@@ -126,8 +129,8 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       hadSuccessfulLoad.current = false;
       return;
     }
-    refresh();
-  }, [sessionStatus, refresh]);
+    refreshRef.current();
+  }, [sessionStatus]);
 
   return { subscription, loadState, asaasConfigured, refresh };
 }
