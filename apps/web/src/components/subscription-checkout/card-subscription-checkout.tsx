@@ -39,6 +39,7 @@ type PendingCardResponse =
       amount?: number;
       subscriptionId?: string;
       cardAuthorized: true;
+      activated?: boolean;
     };
 
 type Props = {
@@ -159,6 +160,10 @@ export function CardSubscriptionCheckout({
     void (async () => {
       const pending = await fetchPendingCard();
       if (!pending?.pending || !pending.chargeId) return;
+      if (pending.activated) {
+        onPaymentActivated(new Date().toISOString(), "CREDIT_CARD");
+        return;
+      }
       showCardCheckout({
         amount: pending.amount ?? 0,
         chargeId: pending.chargeId,
@@ -170,6 +175,7 @@ export function CardSubscriptionCheckout({
     })();
   }, [
     fetchPendingCard,
+    onPaymentActivated,
     sessionStatus,
     showCardCheckout,
     subscriptionActive,
@@ -242,9 +248,41 @@ export function CardSubscriptionCheckout({
         msg =
           "Há uma cobrança de cartão em processamento. Aguarde 1 minuto e tente de novo.";
       }
+      const pending = await fetchPendingCard();
+      if (pending?.pending && pending.chargeId) {
+        if (pending.activated) {
+          onPaymentActivated(new Date().toISOString(), "CREDIT_CARD");
+          return;
+        }
+        showCardCheckout({
+          amount: pending.amount ?? 0,
+          chargeId: pending.chargeId,
+          paymentMethod: "CREDIT_CARD",
+          subscriptionId: pending.subscriptionId,
+          cardAuthorized: true,
+          activated: false,
+        });
+        return;
+      }
+
       setError(msg);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function abandonCardCheckout() {
+    setCheckout(null);
+    clearCardCheckoutSession();
+    stopPolling();
+    try {
+      await api(
+        "/me/subscribe/card/abandon",
+        { method: "POST" },
+        { skipSync: true },
+      );
+    } catch {
+      /* local já limpo */
     }
   }
 
@@ -313,11 +351,7 @@ export function CardSubscriptionCheckout({
           type="button"
           variant="ghost"
           className="w-full text-sm"
-          onClick={() => {
-            setCheckout(null);
-            clearCardCheckoutSession();
-            stopPolling();
-          }}
+          onClick={() => void abandonCardCheckout()}
         >
           Voltar
         </Button>

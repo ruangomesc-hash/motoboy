@@ -141,7 +141,13 @@ export async function applyPaidSubscriptionBilling(
     null;
 
   const paymentMethod =
-    input.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX";
+    input.billingType === "CREDIT_CARD"
+      ? "CREDIT_CARD"
+      : input.billingType === "PIX"
+        ? "PIX"
+        : input.user.subscriptionPaymentMethod === "CREDIT_CARD"
+          ? "CREDIT_CARD"
+          : "PIX";
 
   await prisma.user.update({
     where: { id: input.userId },

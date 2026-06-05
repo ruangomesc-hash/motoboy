@@ -940,6 +940,13 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.post("/me/subscribe/card/abandon", async (request) => {
+    const userId = request.sessionUser!.id;
+    const asaas = new AsaasService(env, request.log);
+    await asaas.abandonCardCheckout(userId);
+    return { ok: true as const };
+  });
+
   app.get("/me/subscribe/card/pending", async (request) => {
     const userId = request.sessionUser!.id;
     const user = await prisma.user.findUnique({
@@ -961,6 +968,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       amount: pending.amount,
       subscriptionId: pending.subscriptionId,
       cardAuthorized: true as const,
+      activated: pending.activated ?? false,
     };
   });
 
@@ -1199,15 +1207,23 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/me/subscription/refresh", async (request, reply) => {
     const userId = request.sessionUser!.id;
-    const body = (request.body ?? {}) as { chargeId?: string };
+    const body = (request.body ?? {}) as {
+      chargeId?: string;
+      subscriptionId?: string;
+    };
     const focusChargeId =
       typeof body.chargeId === "string" ? body.chargeId.trim() : undefined;
+    const focusSubscriptionId =
+      typeof body.subscriptionId === "string"
+        ? body.subscriptionId.trim()
+        : undefined;
     const asaas = new AsaasService(env, request.log);
     try {
       const result = await asaas.syncSubscriptionPaymentStatus(
         userId,
         request.log,
         focusChargeId,
+        focusSubscriptionId,
       );
       const user = await prisma.user.findUnique({
         where: { id: userId },

@@ -25,6 +25,7 @@ export function usePaymentActivationPoll(
 
   const checkActivation = useCallback(async (): Promise<boolean> => {
     const chargeId = checkout?.chargeId;
+    const subscriptionId = checkout?.subscriptionId;
     const paymentMethod = checkout?.paymentMethod;
     setCheckInFlight(true);
     try {
@@ -42,12 +43,26 @@ export function usePaymentActivationPoll(
           { skipSync: true },
         );
 
-      let refreshed = await requestRefresh(chargeId ? { chargeId } : {});
+      const buildBody = (opts?: {
+        withCharge?: boolean;
+        withSubscription?: boolean;
+      }) => {
+        const body: Record<string, string> = {};
+        if (opts?.withCharge !== false && chargeId) {
+          body.chargeId = chargeId;
+        }
+        if (opts?.withSubscription !== false && subscriptionId) {
+          body.subscriptionId = subscriptionId;
+        }
+        return body;
+      };
+
+      let refreshed = await requestRefresh(buildBody());
 
       if (
         !refreshed.activated &&
         refreshed.status !== "ACTIVE" &&
-        chargeId
+        (chargeId || subscriptionId)
       ) {
         refreshed = await requestRefresh({});
       }
@@ -67,7 +82,7 @@ export function usePaymentActivationPoll(
       setCheckInFlight(false);
     }
     return false;
-  }, [api, checkout?.chargeId, checkout?.paymentMethod]);
+  }, [api, checkout?.chargeId, checkout?.paymentMethod, checkout?.subscriptionId]);
 
   useEffect(() => {
     if (!checkout?.chargeId || !polling) {

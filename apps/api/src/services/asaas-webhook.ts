@@ -188,7 +188,8 @@ async function handlePaymentWebhook(
   const isPaid =
     PAID_EVENTS.has(event) ||
     status === "RECEIVED" ||
-    status === "CONFIRMED";
+    status === "CONFIRMED" ||
+    status === "RECEIVED_IN_CASH";
   const isOverdue =
     event === "PAYMENT_OVERDUE" || status === "OVERDUE";
   const isRefunded =
