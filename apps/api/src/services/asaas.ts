@@ -28,6 +28,8 @@ import {
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
 const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
 const FIRST_PAYMENT_POLL_MS = 1000;
+/** Poll curto no POST Pix (só ID da cobrança; QR vem no GET /pix-qr). */
+const PIX_SUB_PAYMENT_FAST_ATTEMPTS = 6;
 const PIX_QR_POLL_MS = 250;
 /** Poll longo só em ?wait=1 (fallback). */
 const PIX_QR_WAIT_ATTEMPTS = 24;
@@ -209,22 +211,45 @@ export class AsaasService {
   }
 
   /**
-   * Checkout Pix rápido: no máximo 1–2 chamadas ao Asaas no POST; QR via GET /pix-qr.
+   * Checkout Pix: cria assinatura recorrente no Asaas (POST /subscriptions) e retorna
+   * a primeira cobrança; QR via GET /pix-qr (resposta rápida no POST).
    */
   /** Só localiza cobrança pendente — sem buscar QR (resposta rápida). */
   async getPendingPixCheckout(
     userId: string,
   ): Promise<SubscribeCheckoutResult | null> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        asaasSubscriptionId: true,
+        subscriptionPaymentMethod: true,
+        asaasCustomerId: true,
+      },
+    });
+
+    if (user) {
+      const fromSubscription = await this.resumePendingCheckout(user, "PIX");
+      if (fromSubscription) {
+        return {
+          checkoutUrl: fromSubscription.checkoutUrl,
+          chargeId: fromSubscription.chargeId,
+          invoiceUrl: fromSubscription.invoiceUrl,
+          pixCopyPaste: null,
+          pixQrCodeImage: null,
+          amount: fromSubscription.amount,
+          subscriptionId: fromSubscription.subscriptionId,
+          pixPending: true,
+        };
+      }
+    }
+
     const fromDb = await this.resumePendingPixFromDb(userId);
     if (fromDb) return fromDb;
 
     const fromRef = await this.resumePendingPixByUserReference(userId);
     if (fromRef) return fromRef;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { asaasCustomerId: true },
-    });
     if (!user?.asaasCustomerId) return null;
 
     return this.resumePendingPixFromAsaas(userId, user.asaasCustomerId);
@@ -259,7 +284,7 @@ export class AsaasService {
     log?: FastifyBaseLogger,
   ): Promise<SubscribeCheckoutResult> {
     const routeLog = log ?? this.log;
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    let user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw Object.assign(new Error("Usuário não encontrado"), {
         statusCode: 404,
@@ -284,22 +309,55 @@ export class AsaasService {
       };
     }
 
-    const resumed = await this.resumePendingPixFromDb(userId);
-    if (resumed) {
-      routeLog?.info({ userId, chargeId: resumed.chargeId }, "Pix pendente (DB)");
-      return { ...resumed, pixPending: true };
+    if (user.status === "CANCELED") {
+      await this.prepareCanceledUserForResubscribe(userId, routeLog);
+      user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        throw Object.assign(new Error("Usuário não encontrado"), {
+          statusCode: 404,
+        });
+      }
+    }
+
+    const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
+    const userForCheckout = {
+      id: user.id,
+      asaasSubscriptionId: user.asaasSubscriptionId,
+      subscriptionPaymentMethod: user.subscriptionPaymentMethod ?? "PIX",
+    };
+
+    const resumedCheckout = await this.resumePendingCheckout(
+      userForCheckout,
+      "PIX",
+      routeLog,
+    );
+    if (resumedCheckout) {
+      routeLog?.info(
+        { userId, chargeId: resumedCheckout.chargeId, subscriptionId: resumedCheckout.subscriptionId },
+        "Pix pendente (assinatura Asaas)",
+      );
+      return {
+        ...resumedCheckout,
+        pixPending: !(
+          resumedCheckout.pixCopyPaste || resumedCheckout.pixQrCodeImage
+        ),
+      };
+    }
+
+    const resumedDb = await this.resumePendingPixFromDb(userId);
+    if (resumedDb) {
+      routeLog?.info({ userId, chargeId: resumedDb.chargeId }, "Pix pendente (DB)");
+      return { ...resumedDb, pixPending: true };
     }
 
     const resumedRef = await this.resumePendingPixByUserReference(userId);
     if (resumedRef) {
       routeLog?.info(
         { userId, chargeId: resumedRef.chargeId },
-        "Pix pendente (Asaas externalReference)",
+        "Pix pendente (cobrança avulsa legada)",
       );
       return { ...resumedRef, pixPending: true };
     }
-
-    const customerId = await this.ensurePixCustomer(user, cpfCnpj, routeLog);
 
     const resumedAsaas = await this.resumePendingPixFromAsaas(userId, customerId);
     if (resumedAsaas) {
@@ -312,52 +370,138 @@ export class AsaasService {
 
     await this.markStalePixPaymentsFailed(userId);
 
-    let payment: AsaasPayment;
-    try {
-      payment = await this.createAsaasPixPayment(customerId, userId);
-    } catch (err) {
-      if (err instanceof AsaasApiError && err.statusCode === 404) {
-        routeLog?.warn({ userId, customerId }, "Cliente Asaas inválido — recriando");
-        await prisma.user.update({
-          where: { id: userId },
-          data: { asaasCustomerId: null },
+    const billingType = "PIX";
+    const nextDueDate = dueDatePlusDays(0);
+
+    let subId = await this.ensureSubscriptionBillingType(
+      userId,
+      user.asaasSubscriptionId,
+      billingType,
+      routeLog,
+    );
+
+    if (!subId) {
+      const sub = await this.api<AsaasSubscription>(
+        "/subscriptions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            customer: customerId,
+            billingType,
+            value: SUBSCRIPTION_PRICE,
+            cycle: "MONTHLY",
+            nextDueDate,
+            description: "Motocopiloto — assinatura mensal",
+            externalReference: userId,
+          }),
+        },
+        "createPixSubscription",
+      );
+
+      if (!sub.id) {
+        throw Object.assign(new Error("Falha ao criar assinatura Pix no Asaas"), {
+          statusCode: 502,
+          code: "ASAAS_NO_SUBSCRIPTION_ID",
         });
-        const freshUser = await prisma.user.findUnique({ where: { id: userId } });
-        if (!freshUser) {
-          throw Object.assign(new Error("Usuário não encontrado"), {
-            statusCode: 404,
-          });
-        }
-        const newCustomerId = await this.ensurePixCustomer(
-          freshUser,
-          cpfCnpj,
-          routeLog,
+      }
+      subId = sub.id;
+
+      try {
+        await withPrismaRetry(() =>
+          prisma.user.update({
+            where: { id: userId },
+            data: { asaasSubscriptionId: subId },
+          }),
         );
-        payment = await this.createAsaasPixPayment(newCustomerId, userId);
-      } else {
+      } catch (err) {
+        try {
+          await this.api(
+            `/subscriptions/${subId}`,
+            { method: "DELETE" },
+            "rollbackPixSubscription",
+          );
+        } catch (rollbackErr) {
+          routeLog?.error(
+            { err: rollbackErr, subId },
+            "Falha ao reverter assinatura Pix após erro no banco",
+          );
+        }
         throw err;
       }
     }
 
-    if (!payment.id) {
-      throw Object.assign(new Error("Asaas não retornou ID da cobrança Pix."), {
-        statusCode: 502,
-        code: "ASAAS_NO_PAYMENT_ID",
-      });
+    let first = await this.findFirstOpenSubscriptionPayment(
+      subId,
+      PIX_SUB_PAYMENT_FAST_ATTEMPTS,
+    );
+
+    if (!first?.id) {
+      routeLog?.info(
+        { userId, subId },
+        "Sem cobrança na assinatura Pix — recriando assinatura",
+      );
+      await this.clearAsaasSubscription(userId, subId, routeLog);
+      const sub = await this.api<AsaasSubscription>(
+        "/subscriptions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            customer: customerId,
+            billingType,
+            value: SUBSCRIPTION_PRICE,
+            cycle: "MONTHLY",
+            nextDueDate,
+            description: "Motocopiloto — assinatura mensal",
+            externalReference: userId,
+          }),
+        },
+        "recreatePixSubscription",
+      );
+      if (!sub.id) {
+        throw Object.assign(new Error("Falha ao recriar assinatura Pix no Asaas"), {
+          statusCode: 502,
+          code: "ASAAS_NO_SUBSCRIPTION_ID",
+        });
+      }
+      subId = sub.id;
+      await withPrismaRetry(() =>
+        prisma.user.update({
+          where: { id: userId },
+          data: { asaasSubscriptionId: subId },
+        }),
+      );
+      first = await this.findFirstOpenSubscriptionPayment(
+        subId,
+        PIX_SUB_PAYMENT_FAST_ATTEMPTS,
+      );
     }
 
-    void this.ensurePendingPaymentRecord(userId, payment.id).catch((err) => {
-      routeLog?.warn({ err, userId, chargeId: payment.id }, "Registro Pix (async)");
+    if (!first?.id) {
+      throw Object.assign(
+        new Error(
+          "A assinatura foi criada; a cobrança Pix está sendo gerada. Aguarde 3 segundos e tente de novo.",
+        ),
+        { statusCode: 409, code: "SUBSCRIPTION_CHARGE_PENDING" },
+      );
+    }
+
+    void this.ensurePendingPaymentRecord(userId, first.id).catch((err) => {
+      routeLog?.warn({ err, userId, chargeId: first.id }, "Registro Pix (async)");
     });
+
+    routeLog?.info(
+      { userId, subscriptionId: subId, chargeId: first.id },
+      "Assinatura Pix criada no Asaas (primeira cobrança)",
+    );
 
     return {
       checkoutUrl: "",
-      chargeId: payment.id,
+      chargeId: first.id,
       invoiceUrl: "",
       pixCopyPaste: null,
       pixQrCodeImage: null,
       amount: SUBSCRIPTION_PRICE,
-      subscriptionId: payment.id,
+      subscriptionId: subId,
       pixPending: true,
     };
   }
@@ -394,7 +538,7 @@ export class AsaasService {
         pixCopyPaste: null,
         pixQrCodeImage: null,
         amount: SUBSCRIPTION_PRICE,
-        subscriptionId: match.id,
+        subscriptionId: match.subscription ?? match.id,
         pixPending: true,
       };
     } catch {
@@ -427,7 +571,7 @@ export class AsaasService {
         pixCopyPaste: null,
         pixQrCodeImage: null,
         amount: SUBSCRIPTION_PRICE,
-        subscriptionId: match.id,
+        subscriptionId: match.subscription ?? match.id,
         pixPending: true,
       };
     } catch {
@@ -484,6 +628,22 @@ export class AsaasService {
       });
     }
 
+    let subscriptionId: string | null = null;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { asaasSubscriptionId: true },
+    });
+    subscriptionId = user?.asaasSubscriptionId ?? null;
+
+    if (!subscriptionId && this.configured) {
+      try {
+        const remote = await this.getPaymentById(pending.asaasChargeId);
+        subscriptionId = remote.subscription ?? null;
+      } catch {
+        /* usa fallback abaixo */
+      }
+    }
+
     return {
       checkoutUrl: "",
       chargeId: pending.asaasChargeId,
@@ -491,7 +651,7 @@ export class AsaasService {
       pixCopyPaste: null,
       pixQrCodeImage: null,
       amount: SUBSCRIPTION_PRICE,
-      subscriptionId: pending.asaasChargeId,
+      subscriptionId: subscriptionId ?? pending.asaasChargeId,
       pixPending: true,
     };
   }
@@ -1207,6 +1367,8 @@ export class AsaasService {
         data: { status: "PAID", paidAt: new Date() },
       }),
     );
+    const linkedSubscriptionId = remote.subscription?.trim() || null;
+
     await withPrismaRetry(() =>
       prisma.user.update({
         where: { id: userId },
@@ -1216,16 +1378,26 @@ export class AsaasService {
           trialEndsAt: null,
           subscriptionPaymentMethod:
             remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
+          ...(linkedSubscriptionId
+            ? { asaasSubscriptionId: linkedSubscriptionId }
+            : {}),
         },
       }),
     );
 
-    void ensureRecurringSubscription(this.env, userId, log).catch((err) => {
-      log?.error(
-        { err, userId, chargeId },
-        "Pagamento confirmado via sync, mas falha ao garantir recorrência",
+    if (!linkedSubscriptionId) {
+      void ensureRecurringSubscription(this.env, userId, log).catch((err) => {
+        log?.error(
+          { err, userId, chargeId },
+          "Pagamento confirmado via sync, mas falha ao garantir recorrência",
+        );
+      });
+    } else {
+      log?.info(
+        { userId, chargeId, subscriptionId: linkedSubscriptionId },
+        "Assinatura Asaas vinculada ao pagamento confirmado",
       );
-    });
+    }
 
     log?.info({ userId, chargeId }, "Assinatura ativada via sync (Asaas)");
     return true;
@@ -1266,6 +1438,16 @@ export class AsaasService {
     }
 
     if (user.status === "ACTIVE") {
+      if (!user.asaasSubscriptionId && this.configured) {
+        try {
+          await ensureRecurringSubscription(this.env, userId, log);
+        } catch (err) {
+          log?.warn(
+            { err, userId },
+            "Conta ativa sem assinatura Asaas — falha ao garantir recorrência",
+          );
+        }
+      }
       return { status: user.status, activated: false };
     }
 
@@ -1363,6 +1545,35 @@ export class AsaasService {
         { statusCode: 502, code: "PIX_QR_UNAVAILABLE" },
       );
     }
+  }
+
+  /** Lista a primeira cobrança aberta da assinatura sem buscar QR (checkout Pix rápido). */
+  private async findFirstOpenSubscriptionPayment(
+    subId: string,
+    maxAttempts = PIX_SUB_PAYMENT_FAST_ATTEMPTS,
+  ): Promise<AsaasPayment | undefined> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const payments = await this.api<{ data?: AsaasPayment[] }>(
+        `/subscriptions/${subId}/payments?limit=5`,
+        {},
+        "listSubscriptionPaymentsFast",
+      );
+      const candidates = payments.data ?? [];
+      const open = candidates.find(
+        (p) =>
+          p.status === "PENDING" ||
+          p.status === "OVERDUE" ||
+          p.status === "AWAITING_RISK_ANALYSIS" ||
+          !p.status,
+      );
+      if (open?.id) return open;
+      if (candidates[0]?.id) return candidates[0];
+
+      if (attempt < maxAttempts - 1) {
+        await sleep(FIRST_PAYMENT_POLL_MS);
+      }
+    }
+    return undefined;
   }
 
   private async waitForFirstSubscriptionPayment(
@@ -1736,7 +1947,7 @@ export class AsaasService {
       }
     }
 
-    if (user.asaasSubscriptionId && billingType !== "PIX") {
+    if (user.asaasSubscriptionId) {
       const payments = await this.api<{ data?: AsaasPayment[] }>(
         `/subscriptions/${user.asaasSubscriptionId}/payments?limit=5`,
         {},

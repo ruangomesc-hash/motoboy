@@ -196,15 +196,29 @@ async function handlePaymentWebhook(
 
   if (isPaid) {
     await upsertPaymentForCharge(user.id, chargeId, amount, "PAID", new Date());
-    await activateUser(user.id);
-    if (options?.env) {
-      try {
-        await ensureRecurringSubscription(options.env, user.id, log);
-      } catch (err) {
-        log?.error(
-          { err, userId: user.id, chargeId },
-          "Pagamento confirmado, mas falha ao garantir assinatura recorrente",
-        );
+    const linkedSubscriptionId = pay?.subscription?.trim() || null;
+    if (linkedSubscriptionId) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          status: "ACTIVE",
+          subscribedAt: user.subscribedAt ?? new Date(),
+          trialEndsAt: null,
+          asaasSubscriptionId: linkedSubscriptionId,
+          subscriptionPaymentMethod: "PIX",
+        },
+      });
+    } else {
+      await activateUser(user.id);
+      if (options?.env) {
+        try {
+          await ensureRecurringSubscription(options.env, user.id, log);
+        } catch (err) {
+          log?.error(
+            { err, userId: user.id, chargeId },
+            "Pagamento confirmado, mas falha ao garantir assinatura recorrente",
+          );
+        }
       }
     }
     return;
