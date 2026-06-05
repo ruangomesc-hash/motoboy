@@ -83,7 +83,9 @@ function AssinarPageContent() {
       <AsaasTransparentCheckout
         initialMethod={preferredMethod}
         asaasConfigured={asaasOk}
-        asaasStatusUnknown={asaasConfigured === null && loadState === "ready"}
+        asaasStatusUnknown={
+          loadState !== "ready" || asaasConfigured === null
+        }
         onActivated={refresh}
         subscriptionActive={isActive}
         subscriptionStatus={status}

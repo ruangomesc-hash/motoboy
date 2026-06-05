@@ -33,7 +33,28 @@ export type SystemHealthSnapshot = {
   httpStatus: number | null;
 };
 
-export async function fetchSystemHealth(): Promise<SystemHealthSnapshot> {
+type FetchSystemHealthOptions = {
+  /** Evita travar a UI se /health estiver lento (ex.: cold start + checagens de schema). */
+  timeoutMs?: number;
+};
+
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { cache: "no-store", signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function fetchSystemHealth(
+  options: FetchSystemHealthOptions = {},
+): Promise<SystemHealthSnapshot> {
+  const timeoutMs = options.timeoutMs ?? 12_000;
   const checkedAt = new Date().toISOString();
   const base = "/api/backend";
 
@@ -41,7 +62,7 @@ export async function fetchSystemHealth(): Promise<SystemHealthSnapshot> {
   let liveLatencyMs: number | null = null;
   try {
     const t0 = performance.now();
-    const res = await fetch(`${base}/health/live`, { cache: "no-store" });
+    const res = await fetchWithTimeout(`${base}/health/live`, Math.min(timeoutMs, 4_000));
     liveLatencyMs = Math.round(performance.now() - t0);
     if (res.ok) {
       live = (await res.json()) as SystemHealthLiveResponse;
@@ -57,7 +78,7 @@ export async function fetchSystemHealth(): Promise<SystemHealthSnapshot> {
 
   try {
     const t0 = performance.now();
-    const res = await fetch(`${base}/health`, { cache: "no-store" });
+    const res = await fetchWithTimeout(`${base}/health`, timeoutMs);
     latencyMs = Math.round(performance.now() - t0);
     httpStatus = res.status;
     const body = (await res.json()) as SystemHealthResponse;
@@ -67,7 +88,11 @@ export async function fetchSystemHealth(): Promise<SystemHealthSnapshot> {
     }
   } catch (err) {
     fetchError =
-      err instanceof Error ? err.message : "Não foi possível consultar a API";
+      err instanceof Error && err.name === "AbortError"
+        ? "Tempo esgotado ao consultar a API"
+        : err instanceof Error
+          ? err.message
+          : "Não foi possível consultar a API";
   }
 
   return {

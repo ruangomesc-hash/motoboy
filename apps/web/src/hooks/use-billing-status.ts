@@ -31,34 +31,31 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
     if (!enabled || sessionStatus !== "authenticated") return;
     setLoadState("loading");
 
-    void (async () => {
-      const [subResult, healthSnap] = await Promise.all([
-        api<SubscriptionStatus>("/me/subscription").then(
-          (data) => ({ ok: true as const, data }),
-          () => ({ ok: false as const, data: null }),
-        ),
-        fetchSystemHealth(),
-      ]);
-
-      if (subResult.ok) {
-        setSubscription(subResult.data);
+    void api<SubscriptionStatus>("/me/subscription")
+      .then((data) => {
+        setSubscription(data);
         setLoadState("ready");
-      } else {
+        if (data.asaas?.configured === true) {
+          setAsaasConfigured(true);
+        } else if (data.asaas?.configured === false) {
+          setAsaasConfigured(false);
+        }
+      })
+      .catch(() => {
         setSubscription(null);
         setLoadState("error");
-      }
-
-      const fromHealth = healthSnap.health?.asaas?.configured;
-      const fromSub = subResult.ok ? subResult.data.asaas?.configured : undefined;
-
-      if (fromHealth === true || fromSub === true) {
-        setAsaasConfigured(true);
-      } else if (fromHealth === false || fromSub === false) {
-        setAsaasConfigured(false);
-      } else {
         setAsaasConfigured(null);
+      });
+
+    // Health completo pode levar dezenas de segundos — não bloqueia o formulário Pix.
+    void fetchSystemHealth({ timeoutMs: 8_000 }).then((healthSnap) => {
+      const fromHealth = healthSnap.health?.asaas?.configured;
+      if (fromHealth === true) {
+        setAsaasConfigured(true);
+      } else if (fromHealth === false) {
+        setAsaasConfigured(false);
       }
-    })();
+    });
   }, [api, enabled, sessionStatus]);
 
   useEffect(() => {

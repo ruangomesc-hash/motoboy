@@ -82,6 +82,8 @@ export function AsaasTransparentCheckout({
   const [polling, setPolling] = useState(false);
   const pollStartedAt = useRef<number | null>(null);
   const pollTick = useRef(0);
+  const profileHydrated = useRef(false);
+  const pixFormDirty = useRef(false);
 
   useEffect(() => {
     setPaymentMethod(normalizeSubscriptionPaymentMethod(initialMethod));
@@ -89,18 +91,35 @@ export function AsaasTransparentCheckout({
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
-    void api<UserProfile>("/me/profile")
+    void api<UserProfile>("/me/profile", {}, { skipSync: true })
       .then((p) => {
         setProfile(p);
-        setPixForm(buildDefaultPixForm(p));
-        setCardForm(buildDefaultCardForm(p));
+        if (!profileHydrated.current) {
+          setPixForm((prev) =>
+            pixFormDirty.current || prev.cpfCnpj.replace(/\D/g, "").length > 0
+              ? prev
+              : buildDefaultPixForm(p),
+          );
+          setCardForm(buildDefaultCardForm(p));
+          profileHydrated.current = true;
+        }
       })
       .catch(() => {
-        void api<{ profile: UserProfile }>("/me").then((me) => {
-          setProfile(me.profile);
-          setPixForm(buildDefaultPixForm(me.profile));
-          setCardForm(buildDefaultCardForm(me.profile));
-        });
+        void api<{ profile: UserProfile }>("/me", {}, { skipSync: true }).then(
+          (me) => {
+            setProfile(me.profile);
+            if (!profileHydrated.current) {
+              setPixForm((prev) =>
+                pixFormDirty.current ||
+                prev.cpfCnpj.replace(/\D/g, "").length > 0
+                  ? prev
+                  : buildDefaultPixForm(me.profile),
+              );
+              setCardForm(buildDefaultCardForm(me.profile));
+              profileHydrated.current = true;
+            }
+          },
+        );
       })
       .catch(() => {
         /* formulário vazio até o perfil carregar */
@@ -108,6 +127,7 @@ export function AsaasTransparentCheckout({
   }, [api, sessionStatus]);
 
   const checkoutBlocked = !asaasConfigured && !asaasStatusUnknown;
+  const submitBlocked = checkoutBlocked || loading;
 
   const checkActivation = useCallback(
     async (forceSync = false) => {
@@ -156,10 +176,14 @@ export function AsaasTransparentCheckout({
 
   async function persistPaymentPreference(method: SubscriptionPaymentMethod) {
     try {
-      await api("/me/profile", {
-        method: "PUT",
-        body: JSON.stringify({ subscriptionPaymentMethod: method }),
-      });
+      await api(
+        "/me/profile",
+        {
+          method: "PUT",
+          body: JSON.stringify({ subscriptionPaymentMethod: method }),
+        },
+        { skipSync: true },
+      );
     } catch {
       /* ok */
     }
@@ -438,10 +462,14 @@ export function AsaasTransparentCheckout({
         activePaymentMethod={activePaymentMethod}
         subscribedAt={subscribedAt}
         readOnly={!canChoose}
-        disabled={checkoutBlocked || loading}
+        fieldsDisabled={loading}
+        paymentMethodDisabled={loading}
         profile={profile}
         pixForm={pixForm}
-        onPixFormChange={setPixForm}
+        onPixFormChange={(next) => {
+          pixFormDirty.current = true;
+          setPixForm(next);
+        }}
         cardForm={cardForm}
         onCardFormChange={setCardForm}
       />
@@ -451,7 +479,7 @@ export function AsaasTransparentCheckout({
           <Button
             size="lg"
             className="w-full"
-            disabled={loading || checkoutBlocked}
+            disabled={submitBlocked}
             onClick={startCheckout}
           >
             {loading ? (

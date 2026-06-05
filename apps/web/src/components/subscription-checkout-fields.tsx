@@ -50,7 +50,9 @@ type Props = {
   subscriptionActive?: boolean;
   activePaymentMethod?: SubscriptionPaymentMethod | null;
   subscribedAt?: string | null;
-  disabled?: boolean;
+  /** Só durante geração do Pix/cartão — não bloqueia digitação do CPF por status do gateway. */
+  fieldsDisabled?: boolean;
+  paymentMethodDisabled?: boolean;
   readOnly?: boolean;
   profile: UserProfile | null;
   pixForm: PixCheckoutForm;
@@ -199,7 +201,8 @@ export function SubscriptionCheckoutFields({
   subscriptionActive = false,
   activePaymentMethod,
   subscribedAt,
-  disabled = false,
+  fieldsDisabled = false,
+  paymentMethodDisabled = false,
   readOnly = false,
   profile,
   pixForm,
@@ -229,7 +232,7 @@ export function SubscriptionCheckoutFields({
         subscriptionStatus={subscriptionStatus}
         subscribedAt={subscribedAt}
         readOnly={readOnly}
-        disabled={disabled}
+        disabled={paymentMethodDisabled}
       />
 
       {isPix ? (
@@ -250,7 +253,7 @@ export function SubscriptionCheckoutFields({
             onChange={(v) => onPixFormChange({ cpfCnpj: maskCpfInput(v) })}
             placeholder="000.000.000-00"
             inputMode="numeric"
-            disabled={disabled}
+            disabled={fieldsDisabled}
           />
         </div>
       ) : (
@@ -286,7 +289,7 @@ export function SubscriptionCheckoutFields({
               }
               placeholder="000.000.000-00"
               inputMode="numeric"
-              disabled={disabled}
+              disabled={fieldsDisabled}
             />
             <Field
               id="card-name"
@@ -300,7 +303,7 @@ export function SubscriptionCheckoutFields({
                 })
               }
               placeholder="Como no documento"
-              disabled={disabled}
+              disabled={fieldsDisabled}
             />
             <Field
               id="card-email"
@@ -314,7 +317,7 @@ export function SubscriptionCheckoutFields({
                 })
               }
               placeholder="seu@email.com"
-              disabled={disabled}
+              disabled={fieldsDisabled}
               className="sm:col-span-2"
             />
             <Field
@@ -332,7 +335,7 @@ export function SubscriptionCheckoutFields({
               }
               placeholder="00000-000"
               inputMode="numeric"
-              disabled={disabled}
+              disabled={fieldsDisabled}
             />
             <Field
               id="card-number-addr"
@@ -345,7 +348,7 @@ export function SubscriptionCheckoutFields({
                 })
               }
               placeholder="123"
-              disabled={disabled}
+              disabled={fieldsDisabled}
             />
             <Field
               id="card-phone"
@@ -362,7 +365,7 @@ export function SubscriptionCheckoutFields({
               }
               placeholder="(31) 99999-9999"
               inputMode="tel"
-              disabled={disabled}
+              disabled={fieldsDisabled}
               className="sm:col-span-2"
             />
           </div>
@@ -382,7 +385,7 @@ export function SubscriptionCheckoutFields({
                 }
                 placeholder="0000 0000 0000 0000"
                 inputMode="numeric"
-                disabled={disabled}
+                disabled={fieldsDisabled}
                 className="sm:col-span-2"
               />
               <div>
@@ -407,7 +410,7 @@ export function SubscriptionCheckoutFields({
                   }}
                   placeholder="12/28"
                   inputMode="numeric"
-                  disabled={disabled}
+                  disabled={fieldsDisabled}
                   className="mt-1"
                   autoComplete="off"
                 />
@@ -427,7 +430,7 @@ export function SubscriptionCheckoutFields({
                 }
                 placeholder="123"
                 inputMode="numeric"
-                disabled={disabled}
+                disabled={fieldsDisabled}
               />
               <Field
                 id="card-holder"
@@ -440,7 +443,7 @@ export function SubscriptionCheckoutFields({
                   })
                 }
                 placeholder="Como no cartão"
-                disabled={disabled}
+                disabled={fieldsDisabled}
                 className="sm:col-span-2"
               />
             </div>
