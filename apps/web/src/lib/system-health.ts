@@ -15,6 +15,7 @@ export type SystemHealthResponse = {
   asaas?: {
     configured: boolean;
     webhookPath: string;
+    webhookTokenConfigured?: boolean;
   };
 };
 

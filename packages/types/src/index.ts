@@ -477,6 +477,7 @@ export type SubscribeResponse = z.infer<typeof subscribeResponseSchema>;
 export const billingProviderStatusSchema = z.object({
   configured: z.boolean(),
   webhookPath: z.string(),
+  webhookTokenConfigured: z.boolean().optional(),
 });
 
 export const billingAsaasStatusSchema = billingProviderStatusSchema;

@@ -20,8 +20,10 @@ import {
 } from "../lib/cpf-cnpj.js";
 
 const PENDING_CHECKOUT_MAX_AGE_MS = 30 * 60 * 1000;
-const FIRST_PAYMENT_POLL_ATTEMPTS = 10;
-const FIRST_PAYMENT_POLL_MS = 800;
+const FIRST_PAYMENT_POLL_ATTEMPTS = 20;
+const FIRST_PAYMENT_POLL_MS = 1000;
+const PIX_QR_POLL_ATTEMPTS = 12;
+const PIX_QR_POLL_MS = 500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -133,10 +135,12 @@ export class AsaasService {
   connectionStatus(): {
     configured: boolean;
     webhookPath: string;
+    webhookTokenConfigured: boolean;
   } {
     return {
       configured: this.configured,
       webhookPath: "/api/backend/webhooks/asaas",
+      webhookTokenConfigured: Boolean(this.env.ASAAS_WEBHOOK_TOKEN?.trim()),
     };
   }
 
@@ -314,7 +318,7 @@ export class AsaasService {
       throw new Error("Falha ao criar cobrança no Asaas");
     }
 
-    const pix = await this.fetchPixQr(payment.id, billingType);
+    const pix = await this.fetchPixQrRequired(payment.id);
 
     const invoiceUrl =
       payment.invoiceUrl ??
@@ -438,6 +442,17 @@ export class AsaasService {
       userForCheckout,
       userForCheckout.cpfCnpj,
     );
+
+    if (billingType === "PIX") {
+      await this.resetPixCheckoutState(userId, routeLog);
+      const resolved = await this.createPixSubscriptionDirectCheckout(
+        userId,
+        customerId,
+      );
+      this.assertCheckoutReady(resolved, billingType, false);
+      return resolved;
+    }
+
     const nextDueDate = dueDatePlusDays(0);
 
     let subId = userForCheckout.asaasSubscriptionId;
@@ -753,6 +768,14 @@ export class AsaasService {
               remote.billingType === "CREDIT_CARD" ? "CREDIT_CARD" : "PIX",
           },
         });
+        try {
+          await ensureRecurringSubscription(this.env, userId, log);
+        } catch (err) {
+          log?.error(
+            { err, userId, chargeId: pending.asaasChargeId },
+            "Pagamento confirmado via sync, mas falha ao garantir recorrência",
+          );
+        }
         log?.info(
           { userId, chargeId: pending.asaasChargeId },
           "Assinatura ativada via sync manual (Asaas)",
@@ -793,9 +816,9 @@ export class AsaasService {
     ) {
       throw Object.assign(
         new Error(
-          "Não foi possível gerar o Pix. Confira o CPF e tente novamente.",
+          "Não foi possível gerar o QR Pix. Aguarde alguns segundos e tente novamente.",
         ),
-        { statusCode: 502 },
+        { statusCode: 502, code: "PIX_QR_UNAVAILABLE" },
       );
     }
   }
@@ -824,7 +847,7 @@ export class AsaasService {
 
       if (first?.id) {
         if (billingType === "PIX") {
-          const pix = await this.fetchPixQr(first.id, billingType);
+          const pix = await this.fetchPixQr(first.id, billingType, false);
           if (pix.payload || pix.encodedImage) return first;
         } else if (billingType === "CREDIT_CARD") {
           try {
@@ -880,6 +903,73 @@ export class AsaasService {
     return `${this.env.APP_URL}/assinar?charge=${payment?.id ?? chargeId}`;
   }
 
+  /** Pix na assinatura: cobrança avulsa imediata (QR na hora); recorrência via webhook. */
+  private async createPixSubscriptionDirectCheckout(
+    userId: string,
+    customerId: string,
+  ): Promise<SubscribeCheckoutResult> {
+    const payment = await this.api<AsaasPayment>(
+      "/payments",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          customer: customerId,
+          billingType: "PIX",
+          value: SUBSCRIPTION_PRICE,
+          dueDate: dueDatePlusDays(0),
+          description: "Motocopiloto — assinatura mensal",
+          externalReference: userId,
+        }),
+      },
+      "createPixSubscriptionPayment",
+    );
+
+    if (!payment.id) {
+      throw Object.assign(new Error("Asaas não retornou ID da cobrança Pix."), {
+        statusCode: 502,
+        code: "ASAAS_NO_PAYMENT_ID",
+      });
+    }
+
+    await this.ensurePendingPaymentRecord(userId, payment.id);
+    const pix = await this.fetchPixQrRequired(payment.id);
+    const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, payment.id);
+
+    return {
+      checkoutUrl: invoiceUrl,
+      chargeId: payment.id,
+      invoiceUrl,
+      pixCopyPaste: pix.payload,
+      pixQrCodeImage: pix.encodedImage,
+      amount: SUBSCRIPTION_PRICE,
+      subscriptionId: payment.id,
+    };
+  }
+
+  /** Limpa checkout Pix anterior que não gerou QR (evita cobrança/subscription órfã). */
+  private async resetPixCheckoutState(
+    userId: string,
+    log?: FastifyBaseLogger,
+  ): Promise<void> {
+    await prisma.payment.updateMany({
+      where: {
+        userId,
+        chargeKind: "SUBSCRIPTION",
+        status: "PENDING",
+      },
+      data: { status: "FAILED" },
+    });
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.asaasSubscriptionId) {
+      await this.clearAsaasSubscription(
+        userId,
+        user.asaasSubscriptionId,
+        log,
+      );
+    }
+  }
+
   private async buildCheckoutFromPayment(
     payment: AsaasPayment | undefined,
     chargeId: string,
@@ -888,7 +978,7 @@ export class AsaasService {
     subscriptionId: string,
   ): Promise<SubscribeCheckoutResult> {
     const pix = payment?.id
-      ? await this.fetchPixQr(payment.id, billingType)
+      ? await this.fetchPixQr(payment.id, billingType, false)
       : { payload: null, encodedImage: null };
 
     const invoiceUrl = await this.resolvePaymentInvoiceUrl(payment, chargeId);
@@ -1002,7 +1092,12 @@ export class AsaasService {
     if (pending?.asaasChargeId) {
       try {
         const remote = await this.getPaymentById(pending.asaasChargeId);
-        if (!remote.subscription && !user.asaasSubscriptionId) {
+        const isDirectPixCheckout =
+          billingType === "PIX" &&
+          remote.billingType !== "CREDIT_CARD" &&
+          !remote.subscription &&
+          !user.asaasSubscriptionId;
+        if (!remote.subscription && !user.asaasSubscriptionId && !isDirectPixCheckout) {
           return null;
         }
         if (
@@ -1131,23 +1226,49 @@ export class AsaasService {
   private async fetchPixQr(
     paymentId: string,
     billingType: string,
+    throwOnError = false,
   ): Promise<{ payload: string | null; encodedImage: string | null }> {
     if (billingType !== "PIX") {
       return { payload: null, encodedImage: null };
     }
     try {
+      return await this.fetchPixQrRequired(paymentId);
+    } catch (err) {
+      if (throwOnError) throw err;
+      this.log?.warn(
+        { err, paymentId },
+        "fetchPixQr falhou (resume/poll) — tentará de novo",
+      );
+      return { payload: null, encodedImage: null };
+    }
+  }
+
+  private async fetchPixQrRequired(
+    paymentId: string,
+    maxAttempts = PIX_QR_POLL_ATTEMPTS,
+  ): Promise<{ payload: string | null; encodedImage: string | null }> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const pix = await this.api<AsaasPixQr>(
         `/payments/${paymentId}/pixQrCode`,
         {},
         "getPixQrCode",
       );
-      return {
-        payload: pix.payload ?? null,
-        encodedImage: pix.encodedImage ?? null,
-      };
-    } catch {
-      return { payload: null, encodedImage: null };
+      const payload = pix.payload?.trim() || null;
+      const encodedImage = pix.encodedImage?.trim() || null;
+      if (payload || encodedImage) {
+        return { payload, encodedImage };
+      }
+      if (attempt < maxAttempts - 1) {
+        await sleep(PIX_QR_POLL_MS);
+      }
     }
+
+    throw Object.assign(
+      new Error(
+        "Asaas ainda não liberou o QR Pix desta cobrança. Aguarde alguns segundos e tente novamente.",
+      ),
+      { statusCode: 502, code: "PIX_QR_EMPTY" },
+    );
   }
 
   private async ensurePendingPaymentRecord(

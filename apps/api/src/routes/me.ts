@@ -949,6 +949,18 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(prismaMapped.status).send(prismaMapped.body);
       }
 
+      const { mapAsaasCheckoutHttpError } = await import(
+        "../lib/asaas-checkout-error.js"
+      );
+      const asaasMapped = mapAsaasCheckoutHttpError(err);
+      if (asaasMapped) {
+        request.log.error(
+          { err, paymentMethod, code: asaasMapped.body.code },
+          "Subscribe checkout (Asaas)",
+        );
+        return reply.status(asaasMapped.status).send(asaasMapped.body);
+      }
+
       const statusCode = (err as { statusCode?: number }).statusCode;
       const code = (err as { code?: string }).code;
       const message =

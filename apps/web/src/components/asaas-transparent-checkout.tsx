@@ -17,6 +17,7 @@ import {
   type SubscriptionBillingStatus,
 } from "@/lib/profile-options";
 import { useSession } from "next-auth/react";
+import { formatBillingCheckoutError } from "@/lib/billing-checkout-errors";
 import {
   SubscriptionCheckoutFields,
   buildDefaultCardForm,
@@ -276,8 +277,12 @@ export function AsaasTransparentCheckout({
       pollStartedAt.current = Date.now();
       void checkActivation(true);
     } catch (e) {
-      const err = e as Error & { status?: number };
-      let msg = err.message || "Erro ao gerar pagamento";
+      const err = e as Error & { status?: number; code?: string };
+      let msg = formatBillingCheckoutError(
+        err.message || "Erro ao gerar pagamento",
+        err.code,
+        err.status,
+      );
       if (err.status === 409) {
         msg =
           "Há uma assinatura antiga em processamento. Aguarde 1 minuto e tente de novo.";
