@@ -8,7 +8,7 @@ export function billingAsaasNotice(
   if (subscriptionActive) return null;
 
   if (loadState === "error") {
-    return "Não foi possível carregar o status da assinatura. Atualize a página ou tente de novo em instantes.";
+    return "Não foi possível carregar o status da assinatura na abertura. Você ainda pode gerar o Pix abaixo — ou atualize a página.";
   }
 
   if (loadState !== "ready") return null;

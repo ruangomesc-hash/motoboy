@@ -140,10 +140,15 @@ export function PixSubscriptionCheckout({
         (!data.pixCopyPaste && !data.pixQrCodeImage && data.chargeId)
       ) {
         setLoadingPhase("qr");
+        setCheckout({
+          ...data,
+          pixCopyPaste: null,
+          pixQrCodeImage: null,
+        });
         const qr = await pollPixQrUntilReady(api, data.chargeId);
         if (!qr) {
           setError(
-            "O Pix foi criado, mas o QR demorou. Aguarde alguns segundos e toque em Gerar Pix de novo.",
+            "Cobrança Pix criada. Toque em Gerar Pix de novo para buscar o QR (não cria outra cobrança).",
           );
           return;
         }
@@ -203,6 +208,21 @@ export function PixSubscriptionCheckout({
 
   if (checkout?.paymentMethod === "PIX") {
     const qrSrc = pixQrSrc(checkout.pixQrCodeImage);
+    const waitingQr =
+      loading && loadingPhase === "qr" && !checkout.pixCopyPaste && !qrSrc;
+
+    if (waitingQr) {
+      return (
+        <div className="space-y-4 text-center py-6">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+          <p className="text-sm font-medium">Cobrança Pix criada</p>
+          <p className="text-xs text-muted-foreground">
+            Buscando QR Code no Asaas… isso pode levar até 1 minuto.
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         {qrSrc && (

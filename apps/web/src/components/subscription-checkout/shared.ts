@@ -28,8 +28,8 @@ export async function pollPixQrUntilReady(
   pixCopyPaste: string | null;
   pixQrCodeImage: string | null;
 } | null> {
-  const maxMs = opts?.maxMs ?? 45_000;
-  const intervalMs = opts?.intervalMs ?? 1_200;
+  const maxMs = opts?.maxMs ?? 90_000;
+  const intervalMs = opts?.intervalMs ?? 2_500;
   const started = Date.now();
 
   while (Date.now() - started < maxMs) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useApi } from "@/hooks/use-api";
 import type { SubscriptionStatus } from "@motoboy/types";
@@ -13,12 +13,11 @@ export type BillingStatusSnapshot = {
   loadState: BillingStatusLoadState;
   /** null = não foi possível verificar (ex.: health indisponível) */
   asaasConfigured: boolean | null;
-  refresh: () => void;
+  refresh: (opts?: { silent?: boolean }) => void;
 };
 
 /**
- * Status de assinatura + Asaas. Usa GET /me/subscription e GET /api/backend/health
- * para não marcar pagamento como “não configurado” quando só a rota autenticada falhou.
+ * Status de assinatura + Asaas. Falhas transitórias não apagam dados já carregados.
  */
 export function useBillingStatus(enabled = true): BillingStatusSnapshot {
   const api = useApi();
@@ -26,37 +25,49 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [loadState, setLoadState] = useState<BillingStatusLoadState>("idle");
   const [asaasConfigured, setAsaasConfigured] = useState<boolean | null>(null);
+  const hadSuccessfulLoad = useRef(false);
 
-  const refresh = useCallback(() => {
-    if (!enabled || sessionStatus !== "authenticated") return;
-    setLoadState("loading");
+  const refresh = useCallback(
+    (opts?: { silent?: boolean }) => {
+      if (!enabled || sessionStatus !== "authenticated") return;
+      const silent = opts?.silent === true;
 
-    void api<SubscriptionStatus>("/me/subscription")
-      .then((data) => {
-        setSubscription(data);
-        setLoadState("ready");
-        if (data.asaas?.configured === true) {
+      if (!silent || !hadSuccessfulLoad.current) {
+        setLoadState("loading");
+      }
+
+      void api<SubscriptionStatus>("/me/subscription", {}, { skipSync: true })
+        .then((data) => {
+          setSubscription(data);
+          setLoadState("ready");
+          hadSuccessfulLoad.current = true;
+          if (data.asaas?.configured === true) {
+            setAsaasConfigured(true);
+          } else if (data.asaas?.configured === false) {
+            setAsaasConfigured(false);
+          }
+        })
+        .catch(() => {
+          if (hadSuccessfulLoad.current) {
+            setLoadState("ready");
+            return;
+          }
+          setSubscription(null);
+          setLoadState("error");
+          setAsaasConfigured(null);
+        });
+
+      void fetchSystemHealth({ timeoutMs: 6_000 }).then((healthSnap) => {
+        const fromHealth = healthSnap.health?.asaas?.configured;
+        if (fromHealth === true) {
           setAsaasConfigured(true);
-        } else if (data.asaas?.configured === false) {
+        } else if (fromHealth === false) {
           setAsaasConfigured(false);
         }
-      })
-      .catch(() => {
-        setSubscription(null);
-        setLoadState("error");
-        setAsaasConfigured(null);
       });
-
-    // Health completo pode levar dezenas de segundos — não bloqueia o formulário Pix.
-    void fetchSystemHealth({ timeoutMs: 8_000 }).then((healthSnap) => {
-      const fromHealth = healthSnap.health?.asaas?.configured;
-      if (fromHealth === true) {
-        setAsaasConfigured(true);
-      } else if (fromHealth === false) {
-        setAsaasConfigured(false);
-      }
-    });
-  }, [api, enabled, sessionStatus]);
+    },
+    [api, enabled, sessionStatus],
+  );
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
@@ -64,6 +75,7 @@ export function useBillingStatus(enabled = true): BillingStatusSnapshot {
       setLoadState("idle");
       setSubscription(null);
       setAsaasConfigured(null);
+      hadSuccessfulLoad.current = false;
       return;
     }
     refresh();

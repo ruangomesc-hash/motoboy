@@ -31,8 +31,8 @@ const FIRST_PAYMENT_POLL_MS = 1000;
 const PIX_QR_POLL_MS = 350;
 /** Poll curto no POST /subscribe (evita 504 no serverless). */
 const PIX_QR_QUICK_ATTEMPTS = 3;
-/** Poll no endpoint dedicado de QR (cliente chama em loop). */
-const PIX_QR_FETCH_ATTEMPTS = 10;
+/** Uma tentativa por request — o app faz o loop (evita 504 no serverless). */
+const PIX_QR_POLL_SINGLE_ATTEMPT = 1;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -590,7 +590,10 @@ export class AsaasService {
       throw new Error("Falha ao criar cobrança no Asaas");
     }
 
-    const pix = await this.fetchPixQrWithAttempts(payment.id, PIX_QR_FETCH_ATTEMPTS);
+    const pix = await this.fetchPixQrWithAttempts(
+      payment.id,
+      PIX_QR_POLL_SINGLE_ATTEMPT,
+    );
     if (!pix.payload && !pix.encodedImage) {
       throw Object.assign(
         new Error("Asaas ainda não liberou o QR Pix desta cobrança."),
@@ -1242,7 +1245,10 @@ export class AsaasService {
       });
     }
 
-    const pix = await this.fetchPixQrWithAttempts(chargeId, PIX_QR_FETCH_ATTEMPTS);
+    const pix = await this.fetchPixQrWithAttempts(
+      chargeId,
+      PIX_QR_POLL_SINGLE_ATTEMPT,
+    );
     if (!pix.payload && !pix.encodedImage) {
       return null;
     }
@@ -1569,7 +1575,7 @@ export class AsaasService {
     }
     const pix = await this.fetchPixQrWithAttempts(
       paymentId,
-      throwOnError ? PIX_QR_FETCH_ATTEMPTS : PIX_QR_QUICK_ATTEMPTS,
+      throwOnError ? PIX_QR_QUICK_ATTEMPTS : PIX_QR_QUICK_ATTEMPTS,
     );
     if (throwOnError && !pix.payload && !pix.encodedImage) {
       throw Object.assign(

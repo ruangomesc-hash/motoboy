@@ -24,12 +24,33 @@ export async function apiFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    cache: "no-store",
-    ...options,
-    credentials: "include",
-    headers,
-  });
+  const method = (options.method ?? "GET").toUpperCase();
+  const timeoutMs =
+    method === "POST" && path.includes("/me/subscribe") ? 28_000 : 14_000;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      ...options,
+      credentials: "include",
+      headers,
+      signal: options.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  } catch (fetchErr) {
+    const timedOut =
+      fetchErr instanceof Error &&
+      (fetchErr.name === "TimeoutError" || fetchErr.name === "AbortError");
+    const err = new Error(
+      timedOut
+        ? "O servidor demorou para responder. Aguarde alguns segundos e tente de novo."
+        : fetchErr instanceof Error
+          ? fetchErr.message
+          : "Falha de rede",
+    ) as Error & { status?: number };
+    err.status = timedOut ? 504 : undefined;
+    throw err;
+  }
   if (!res.ok) {
     const text = await res.text();
     let message: string | undefined;
@@ -47,7 +68,10 @@ export async function apiFetch<T>(
       /* body não é JSON (ex.: proxy do Next quando a API está offline) */
     }
     if (!message) {
-      if (res.status === 500 || res.status === 502 || res.status === 503) {
+      if (res.status === 504) {
+        message =
+          "O servidor demorou para responder. Aguarde alguns segundos e tente de novo.";
+      } else if (res.status === 500 || res.status === 502 || res.status === 503) {
         message =
           "Não foi possível falar com o servidor. Confira a conexão com o banco (Supabase) e as variáveis na Vercel.";
       } else {

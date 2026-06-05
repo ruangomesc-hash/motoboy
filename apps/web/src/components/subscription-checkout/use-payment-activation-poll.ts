@@ -36,7 +36,7 @@ export function usePaymentActivationPoll(
           return true;
         }
       } catch {
-        /* ignora */
+        /* ignora falha transitória — não derruba o checkout Pix */
       }
       return false;
     },
@@ -56,7 +56,7 @@ export function usePaymentActivationPoll(
         );
         return;
       }
-      void checkActivation(pollTick.current % 3 === 0);
+      void checkActivation(pollTick.current % 4 === 0);
     }, PAYMENT_POLL_MS);
     return () => window.clearInterval(id);
   }, [checkout, polling, checkActivation]);
@@ -65,7 +65,7 @@ export function usePaymentActivationPoll(
     setPolling(true);
     pollStartedAt.current = Date.now();
     pollTick.current = 0;
-    void checkActivation(true);
+    void checkActivation(false);
   }
 
   function stopPolling() {

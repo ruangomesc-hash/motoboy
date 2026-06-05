@@ -86,14 +86,14 @@ function AssinarPageContent() {
         asaasStatusUnknown={
           loadState !== "ready" || asaasConfigured === null
         }
-        onActivated={refresh}
+        onActivated={() => refresh({ silent: true })}
         subscriptionActive={isActive}
         subscriptionStatus={status}
         activePaymentMethod={preferredMethod}
         subscribedAt={subscription?.subscribedAt ?? null}
       />
 
-      {asaasNotice && (
+      {asaasNotice && loadState !== "loading" && (
         <p className="text-xs text-center text-amber-500/90">{asaasNotice}</p>
       )}
 
