@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useAppData } from "@/components/app-data-provider";
 import { formatBRL, formatTime } from "@/lib/utils";
@@ -14,12 +14,11 @@ import {
 } from "@motoboy/types";
 import { formatSignedBRL } from "@/lib/utils";
 import { AppPage } from "@/components/app-page";
-import { isIsoOnDateInput, todayDateInputValue } from "@/lib/local-date";
+import { todayDateInputValue } from "@/lib/local-date";
 
 export default function EntregasPage() {
   const {
-    deliveries,
-    todayDeliveries,
+    filterDateDeliveries,
     deliveriesDate,
     setDeliveriesDate,
     syncDeliveriesFilterDate,
@@ -29,14 +28,11 @@ export default function EntregasPage() {
   const deviceToday = todayDateInputValue();
   const filterDate = deliveriesDate || deviceToday;
   const isToday = filterDate === deviceToday;
+  const visibleDeliveries = filterDateDeliveries;
 
   useEffect(() => {
     syncDeliveriesFilterDate();
   }, [syncDeliveriesFilterDate]);
-  const visibleDeliveries = useMemo(() => {
-    const source = isToday ? todayDeliveries : deliveries;
-    return source.filter((d) => isIsoOnDateInput(d.occurredAt, filterDate));
-  }, [deliveries, todayDeliveries, filterDate, isToday]);
 
   return (
     <AppPage className="p-3 pb-4 space-y-3">

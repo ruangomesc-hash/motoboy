@@ -87,6 +87,8 @@ type AppDataContextValue = {
   deliveries: DeliveryListItem[];
   /** Hoje (device) — lista do dia + período; Home sempre usa isto. */
   todayDeliveries: DeliveryListItem[];
+  /** Entregas + despesas do dia do filtro (lista do dia + período). */
+  filterDateDeliveries: DeliveryListItem[];
   deliveriesDate: string;
   setDeliveriesDate: (date: string) => void;
   /** Alinha o filtro de Entregas ao dia atual do celular (após meia-noite). */
@@ -1352,6 +1354,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [deliveries, periodDeliveries, deviceToday, tombSet],
   );
 
+  const filterDateDeliveries = useMemo(
+    () =>
+      selectDeliveriesForDate(
+        deliveries,
+        periodDeliveries,
+        anchorDate,
+        tombSet,
+      ),
+    [deliveries, periodDeliveries, anchorDate, tombSet],
+  );
+
   const liveStatsWeek = useMemo(
     () =>
       mergeLivePeriodStats(
@@ -1384,6 +1397,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       profileName,
       deliveries,
       todayDeliveries,
+      filterDateDeliveries,
       deliveriesDate,
       setDeliveriesDate,
       syncDeliveriesFilterDate,
@@ -1418,6 +1432,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       profileName,
       deliveries,
       todayDeliveries,
+      filterDateDeliveries,
       deliveriesDate,
       syncDeliveriesFilterDate,
       statsWeek,

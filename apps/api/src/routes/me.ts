@@ -287,6 +287,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       } catch {
         return reply.status(400).send({ error: "Data inválida" });
       }
+      limit = Math.min(Math.max(1, Number(query.limit ?? 100) || 100), 100);
     }
 
     const [items, total] = await Promise.all([
