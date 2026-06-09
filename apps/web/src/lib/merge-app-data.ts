@@ -114,7 +114,8 @@ export function mergeTodayFromServer(
   todayKey: string,
 ): TodaySummary {
   const serverRecent = server.recentDeliveries.filter(
-    (r) => !tombstoneIds.has(r.id),
+    (r) =>
+      !tombstoneIds.has(r.id) && isIsoOnDateInput(r.occurredAt, todayKey),
   );
   const serverBase: TodaySummary = {
     ...server,
@@ -178,7 +179,7 @@ export function mergeTodayFromServer(
   if (serverBase.deliveryCount > local.deliveryCount) {
     return {
       ...serverBase,
-      recentDeliveries: dedupeRecentDeliveries(serverRecent).slice(0, 3),
+      recentDeliveries: mergedRecent,
     };
   }
 

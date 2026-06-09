@@ -717,7 +717,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       options?: { background?: boolean },
     ) => {
       const genAtStart = mutationGenAtStart ?? deliveryMutationGen.current;
-      const date = deliveriesDate || todayDateInputValue();
+      const date =
+        stateRef.current.deliveriesDate || todayDateInputValue();
       const seq = ++deliveriesFetchSeq.current;
       const q = `?date=${date}&limit=100`;
       try {

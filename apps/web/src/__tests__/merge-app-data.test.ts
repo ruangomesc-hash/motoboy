@@ -163,4 +163,26 @@ describe("mergeTodayFromServer", () => {
     expect(merged.deliveryCount).toBe(2);
     expect(merged.grossTotal).toBe(55);
   });
+
+  it("does not surface backdated deliveries in recent list for today", () => {
+    const yesterdayKey = "2026-05-27";
+    const server = { ...emptyToday, deliveryCount: 0, grossTotal: 0 };
+    const local: TodaySummary = {
+      ...emptyToday,
+      deliveryCount: 1,
+      grossTotal: 40,
+      netProfit: 40,
+      recentDeliveries: [
+        {
+          id: "backdated",
+          grossValue: 40,
+          source: "RAPPI",
+          originName: null,
+          occurredAt: `${yesterdayKey}T22:00:00.000Z`,
+        },
+      ],
+    };
+    const merged = mergeTodayFromServer(server, local, new Set(), todayKey);
+    expect(merged.recentDeliveries).toHaveLength(0);
+  });
 });
