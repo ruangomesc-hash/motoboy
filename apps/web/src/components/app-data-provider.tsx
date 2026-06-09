@@ -31,6 +31,7 @@ import {
 import type { CreatedDelivery } from "@/lib/app-data-cache";
 import { emptyTodaySummary } from "@/lib/empty-today-summary";
 import {
+  advanceDeliveriesFilterAfterMidnight,
   isIsoOnDateInput,
   resolveDeliveriesFilterDate,
   todayDateInputValue,
@@ -185,6 +186,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [profileName, setProfileName] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryListItem[]>([]);
   const [deliveriesDate, setDeliveriesDate] = useState(todayDateInputValue);
+  const lastFilterSyncDayRef = useRef(todayDateInputValue());
+
+  const applyDeliveriesDate = useCallback((date: string) => {
+    stateRef.current = { ...stateRef.current, deliveriesDate: date };
+    setDeliveriesDate(date);
+  }, []);
   const [statsWeek, setStatsWeek] = useState<PeriodStats | null>(null);
   const [statsMonth, setStatsMonth] = useState<PeriodStats | null>(null);
   const [periodDeliveries, setPeriodDeliveries] = useState<DeliveryListItem[]>(
@@ -314,12 +321,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const syncDeliveriesFilterDate = useCallback(() => {
-    const resolved = resolveDeliveriesFilterDate(
+    const today = todayDateInputValue();
+    const prevDay = lastFilterSyncDayRef.current;
+    lastFilterSyncDayRef.current = today;
+
+    const next = advanceDeliveriesFilterAfterMidnight(
       stateRef.current.deliveriesDate,
+      prevDay,
     );
-    if (resolved === stateRef.current.deliveriesDate) return;
-    setDeliveriesDate(resolved);
-  }, []);
+    if (next) applyDeliveriesDate(next);
+  }, [applyDeliveriesDate]);
 
   const applyCacheSnapshot = useCallback((cached: PersistedAppCache) => {
     if (cached.deletedDeliveryIds?.length) {
@@ -350,7 +361,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setPeriodDeliveries(
       deletedDeliveries.current.filter(cached.periodDeliveries ?? []),
     );
-    setDeliveriesDate(resolveDeliveriesFilterDate(cached.deliveriesDate));
+    const resolvedDate = resolveDeliveriesFilterDate(cached.deliveriesDate);
+    lastFilterSyncDayRef.current = todayDateInputValue();
+    applyDeliveriesDate(resolvedDate);
     if (cached.statsWeek) {
       setStatsWeek(
         normalizePeriodStats(
@@ -371,7 +384,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
     if (cached.profileName) setProfileName(cached.profileName);
     setIsBootstrapped(true);
-  }, []);
+  }, [applyDeliveriesDate]);
 
   const applyMeSnapshot = useCallback((snap: MeSettingsSnapshot) => {
     setMeSettings(snap);
@@ -542,9 +555,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           tombSet,
         );
 
+        const occurredDate = todayDateInputValue(new Date(occurredAt));
         const nextDate = isIsoOnDateInput(occurredAt, todayKey)
           ? todayKey
-          : stateRef.current.deliveriesDate || todayKey;
+          : occurredDate;
 
         stateRef.current = {
           ...stateRef.current,
@@ -555,7 +569,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         };
         setDeliveries(nextDeliveries);
         setPeriodDeliveries(nextPeriodDeliveries);
-        setDeliveriesDate(nextDate);
+        applyDeliveriesDate(nextDate);
         setToday(nextToday);
       });
 
@@ -565,7 +579,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         bumpDeliveryMutation();
       }
     },
-    [userId, persistCacheNow, scheduleStatsRefresh, bumpDeliveryMutation],
+    [
+      applyDeliveriesDate,
+      userId,
+      persistCacheNow,
+      scheduleStatsRefresh,
+      bumpDeliveryMutation,
+    ],
   );
 
   const applyDeliveryOptimistic = useCallback(
@@ -1399,7 +1419,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       todayDeliveries,
       filterDateDeliveries,
       deliveriesDate,
-      setDeliveriesDate,
+      setDeliveriesDate: applyDeliveriesDate,
       syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,
@@ -1434,6 +1454,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       todayDeliveries,
       filterDateDeliveries,
       deliveriesDate,
+      applyDeliveriesDate,
       syncDeliveriesFilterDate,
       statsWeek,
       statsMonth,

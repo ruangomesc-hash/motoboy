@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceDeliveriesFilterAfterMidnight,
   resolveDeliveriesFilterDate,
   todayDateInputValue,
   yesterdayDateInputValue,
@@ -28,5 +29,39 @@ describe("resolveDeliveriesFilterDate", () => {
 
   it("preserves older manual dates", () => {
     expect(resolveDeliveriesFilterDate("2026-05-20", today)).toBe("2026-05-20");
+  });
+});
+
+describe("advanceDeliveriesFilterAfterMidnight", () => {
+  const morning = new Date(2026, 5, 10, 8, 0, 0);
+
+  it("advances when the calendar day changed and filter tracked previous today", () => {
+    expect(
+      advanceDeliveriesFilterAfterMidnight(
+        "2026-06-09",
+        "2026-06-09",
+        morning,
+      ),
+    ).toBe("2026-06-10");
+  });
+
+  it("keeps yesterday when user is reviewing the previous day", () => {
+    expect(
+      advanceDeliveriesFilterAfterMidnight(
+        "2026-06-09",
+        "2026-06-10",
+        morning,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps older manual dates", () => {
+    expect(
+      advanceDeliveriesFilterAfterMidnight(
+        "2026-06-05",
+        "2026-06-10",
+        morning,
+      ),
+    ).toBeNull();
   });
 });

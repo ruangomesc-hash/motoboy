@@ -29,6 +29,22 @@ export function resolveDeliveriesFilterDate(
   return cached;
 }
 
+/**
+ * Avança o filtro só quando o calendário virou e ele ainda apontava para o dia
+ * anterior — preserva consulta manual a ontem ou dias mais antigos.
+ */
+export function advanceDeliveriesFilterAfterMidnight(
+  cached: string | undefined,
+  prevDay: string,
+  now = new Date(),
+): string | null {
+  const today = todayDateInputValue(now);
+  if (!cached?.trim()) return today;
+  if (cached === today) return null;
+  if (prevDay !== today && cached === prevDay) return today;
+  return null;
+}
+
 /** ISO a partir do valor de input datetime-local (YYYY-MM-DDTHH:mm). */
 export function isoFromDatetimeLocal(value: string): string {
   return new Date(value).toISOString();

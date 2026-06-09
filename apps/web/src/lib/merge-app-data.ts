@@ -145,9 +145,16 @@ export function mergeTodayFromServer(
     local.deliveryCount > serverBase.deliveryCount || localOnlyOnToday.length > 0;
 
   const recentMap = new Map<string, (typeof serverRecent)[0]>();
-  for (const r of serverRecent) recentMap.set(r.id, r);
+  for (const r of serverRecent) {
+    if (isIsoOnDateInput(r.occurredAt, todayKey)) recentMap.set(r.id, r);
+  }
   for (const r of localRecent) {
-    if (!tombstoneIds.has(r.id)) recentMap.set(r.id, r);
+    if (
+      !tombstoneIds.has(r.id) &&
+      isIsoOnDateInput(r.occurredAt, todayKey)
+    ) {
+      recentMap.set(r.id, r);
+    }
   }
   const mergedRecent = dedupeRecentDeliveries(
     sortRecent([...recentMap.values()]),
