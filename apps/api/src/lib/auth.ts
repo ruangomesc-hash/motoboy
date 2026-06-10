@@ -132,7 +132,18 @@ export async function requireSessionUser(
     return reply.status(401).send({ error: "Não autenticado" });
   }
 
-  const sessionUser = await loadSessionUser(userId);
+  let sessionUser: SessionUser | null;
+  try {
+    sessionUser = await loadSessionUser(userId);
+  } catch (err) {
+    request.log.error({ err, userId }, "Falha ao carregar sessão do usuário");
+    return reply.status(503).send({
+      error:
+        "Banco indisponível. Verifique DATABASE_URL (Supabase) e tente novamente.",
+      code: "DATABASE_UNAVAILABLE",
+    });
+  }
+
   if (!sessionUser) {
     void recordClientErrorSafe({
       userId,

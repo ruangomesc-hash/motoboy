@@ -68,6 +68,7 @@ import {
 } from "../lib/delivery-public.js";
 import { z } from "zod";
 import { isProductionRuntime } from "../lib/runtime-env.js";
+import { sendPrismaOrServiceError } from "../lib/prisma-http.js";
 import {
   dayRangeFromDateInput,
   dayRangeFromDateInputInclusiveEnd,
@@ -431,43 +432,83 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     if (!id?.trim() || id.startsWith("local-")) {
       return reply.status(400).send({
         error: "Entrega ainda não foi salva no servidor. Aguarde ou atualize a lista.",
+        code: "DELIVERY_NOT_SYNCED",
       });
     }
 
-    const existing = await prisma.delivery.findFirst({
-      where: { id, userId },
-    });
+    let existing: Awaited<ReturnType<typeof prisma.delivery.findFirst>>;
+    try {
+      existing = await withPrismaRetry(() =>
+        prisma.delivery.findFirst({
+          where: { id, userId },
+        }),
+      );
+    } catch (err) {
+      request.log.error({ err, userId, id }, "Falha ao buscar entrega para apagar");
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível apagar agora. Verifique a conexão com o banco e tente de novo.",
+      );
+    }
+
     if (!existing) {
-      return reply.status(404).send({ error: "Entrega não encontrada" });
+      return reply.status(404).send({
+        error: "Registro não encontrado",
+        code: "NOT_FOUND",
+      });
     }
 
-    const deleted = await prisma.delivery.deleteMany({
-      where: { id, userId },
-    });
-    if (deleted.count === 0) {
-      return reply.status(404).send({ error: "Entrega não encontrada" });
+    const expense = isExpenseEntry(Number(existing.grossValue));
+
+    try {
+      const deleted = await withPrismaRetry(() =>
+        prisma.delivery.deleteMany({
+          where: { id, userId },
+        }),
+      );
+      if (deleted.count === 0) {
+        return reply.status(404).send({
+          error: "Registro não encontrado",
+          code: "NOT_FOUND",
+        });
+      }
+    } catch (err) {
+      request.log.error({ err, userId, id }, "Falha ao apagar entrega/despesa");
+      return sendPrismaOrServiceError(
+        reply,
+        err,
+        "Não foi possível apagar agora. Verifique a conexão com o banco e tente de novo.",
+      );
     }
 
-    void recordActivitySafe(
-      userId,
-      {
-        category: "DELIVERY",
-        action: "DELETED",
-        title: "Entrega removida",
-        entityId: id,
-        changes: [
-          {
-            field: "grossValue",
-            label: "Valor",
-            from: formatMoney(existing.grossValue),
-            to: null,
-          },
-        ],
-      },
-      request.log,
-    );
+    try {
+      await recordActivitySafe(
+        userId,
+        {
+          category: "DELIVERY",
+          action: "DELETED",
+          title: expense ? "Despesa removida" : "Entrega removida",
+          entityId: id,
+          changes: [
+            {
+              field: "grossValue",
+              label: "Valor",
+              from: formatMoney(existing.grossValue),
+              to: null,
+            },
+          ],
+        },
+        request.log,
+      );
+      emitDeliveryDeleted(userId, id);
+    } catch (err) {
+      request.log.warn(
+        { err, userId, id },
+        "Entrega apagada; falha em log/socket",
+      );
+    }
 
-    emitDeliveryDeleted(userId, id);
     return reply.status(200).send({ ok: true });
   });
 

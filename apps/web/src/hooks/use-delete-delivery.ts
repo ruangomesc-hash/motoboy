@@ -51,6 +51,15 @@ export function useDeleteDelivery() {
             removedDelivery: snapshot,
           });
         } catch (err) {
+          const status = (err as { status?: number }).status;
+          if (status === 404) {
+            publishDeliverySync(publishAppSync, "confirmed", {
+              removedDeliveryId: id,
+              removedDelivery: snapshot,
+            });
+            return;
+          }
+
           upsertDeliveryOptimistic(snapshot);
           publishDeliverySync(publishAppSync, "optimistic", {
             delivery: snapshot,
@@ -61,7 +70,7 @@ export function useDeleteDelivery() {
               : "Não foi possível apagar no servidor.";
           if (typeof window !== "undefined") {
             window.alert(
-              `${message}\n\nA entrega foi recolocada na lista.`,
+              `${message}\n\nO registro foi recolocado na lista.`,
             );
           }
         }
